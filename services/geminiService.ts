@@ -1,7 +1,8 @@
 import { GoogleGenAI } from "@google/genai";
 
-// Pastikan API Key tersedia di Environment Variable
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Pastikan API Key tersedia
+const apiKey = process.env.API_KEY || ""; 
+const ai = new GoogleGenAI({ apiKey });
 
 export const generatePromoIdea = async (theme: string): Promise<string> => {
   if (!theme.trim()) {
