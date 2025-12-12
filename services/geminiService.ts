@@ -1,6 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 
-// FIX: Aligned with Gemini API guidelines by using process.env.API_KEY directly and removing the manual check.
+// Pastikan API Key tersedia di Environment Variable
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 export const generatePromoIdea = async (theme: string): Promise<string> => {
@@ -21,7 +21,7 @@ Contoh: "Hujan-hujan gini, paling pas sruput kuah bakso panas! Khusus hari ini, 
       model: 'gemini-2.5-flash',
       contents: prompt,
     });
-    return response.text;
+    return response.text || "Maaf, AI tidak memberikan respons.";
   } catch (error) {
     console.error("Error generating content:", error);
     return "Maaf, terjadi kesalahan saat membuat ide promosi. Silakan coba lagi nanti.";
