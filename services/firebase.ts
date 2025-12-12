@@ -2,6 +2,7 @@
 // This file acts as the bridge to Firebase Firestore.
 // Users must fill in their firebaseConfig for real-time features.
 
+// @ts-ignore
 import { initializeApp } from 'firebase/app';
 import { getFirestore, collection, addDoc, onSnapshot, query, where, orderBy, updateDoc, doc, setDoc, getDoc } from 'firebase/firestore';
 import type { Order, MenuItem, Category, StoreProfile, Ingredient, AttendanceRecord } from '../types';
@@ -78,12 +79,16 @@ export const subscribeToOrders = (branchId: string, onUpdate: (orders: Order[]) 
     }
 
     // ONLINE MODE: Real-time listener
-    const q = query(collection(db, "orders"), where("branchId", "==", branchId), orderBy("createdAt", "desc"));
+    // NOTE: We sort client-side to avoid needing a Composite Index in Firestore Console for "branchId" + "createdAt"
+    const q = query(collection(db, "orders"), where("branchId", "==", branchId));
+    
     return onSnapshot(q, (snapshot) => {
         const orders: Order[] = [];
         snapshot.forEach((doc) => {
             orders.push({ ...doc.data(), id: doc.id } as Order);
         });
+        // Sort Descending by Time (Terbaru diatas)
+        orders.sort((a, b) => b.createdAt - a.createdAt);
         onUpdate(orders);
     }, (error) => {
         console.error("Error subscribing to orders:", error);
@@ -165,10 +170,14 @@ export const subscribeToAttendance = (branchId: string, onUpdate: (data: Attenda
         return () => window.removeEventListener('attendance-update', handler);
     }
 
-    const q = query(collection(db, "attendance"), where("branchId", "==", branchId), orderBy("clockInTime", "desc"));
+    // NOTE: Sort client-side to avoid needing Composite Index for "branchId" + "clockInTime"
+    const q = query(collection(db, "attendance"), where("branchId", "==", branchId));
+    
     return onSnapshot(q, (snapshot) => {
         const records: AttendanceRecord[] = [];
         snapshot.forEach((doc) => records.push({ ...doc.data(), id: doc.id } as AttendanceRecord));
+        // Sort Descending by Clock In Time (Terbaru diatas)
+        records.sort((a, b) => b.clockInTime - a.clockInTime);
         onUpdate(records);
     });
 };
