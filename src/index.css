@@ -1,0 +1,61 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  /* Use System Fonts for Offline Compatibility */
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  overscroll-behavior-y: none;
+}
+
+/* Custom scrollbar for webkit browsers */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #fff7ed;
+}
+::-webkit-scrollbar-thumb {
+  background: #fb923c;
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #f97316;
+}
+
+/* Updated animation for Kitchen Monitor's dark theme */
+@keyframes pulse-red-bg {
+  0%, 100% { background-color: #1f2937; }
+  50% { background-color: #450a0a; }
+}
+.animate-pulse-red {
+  animation: pulse-red-bg 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@media print {
+  @page {
+    size: 58mm auto;
+    margin: 0;
+  }
+  body * {
+    visibility: hidden;
+  }
+  #print-root, #print-root * {
+    visibility: visible;
+  }
+  #print-root {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
+  #print-root #printable-receipt {
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 10pt;
+      line-height: 1.4;
+  }
+  .no-print {
+    display: none !important;
+  }
+}

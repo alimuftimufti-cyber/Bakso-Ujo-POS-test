@@ -1,0 +1,10 @@
+{
+  "name": "Copy of GG Point of Sale ",
+  "description": "Aplikasi Point of Sale (POS) profesional untuk mengelola pesanan, menu, shift, dan monitor dapur untuk kedai bakso. Didesain untuk efisiensi dan kemudahan penggunaan di desktop dan perangkat mobile.",
+  "requestFramePermissions": [
+    "bluetooth",
+    "usb",
+    "camera",
+    "geolocation"
+  ]
+}
