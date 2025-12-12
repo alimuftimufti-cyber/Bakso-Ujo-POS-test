@@ -1,4 +1,3 @@
-
 import React, { createContext, useContext } from 'react';
 
 // --- GLOBAL DEVICE TYPES (Web Bluetooth & USB) ---
@@ -239,7 +238,7 @@ export interface AppContextType {
     orders: Order[];
     expenses: Expense[];
     activeShift: Shift | null;
-    completedShifts: Shift[];
+    completedShifts: ShiftSummary[];
     storeProfile: StoreProfile;
     ingredients: Ingredient[];
     tables: Table[]; 
