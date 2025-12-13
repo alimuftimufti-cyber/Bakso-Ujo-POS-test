@@ -5,6 +5,8 @@ import { resolve } from 'path'
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
+  // FIX: Base path relative agar asset (js/css) selalu ketemu dimanapun di-deploy
+  base: './', 
   resolve: {
     alias: {
       '@': resolve(__dirname, './'),
