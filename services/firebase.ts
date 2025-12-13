@@ -1,6 +1,7 @@
 
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getFirestore, collection, addDoc, onSnapshot, query, where, updateDoc, doc, setDoc } from 'firebase/firestore';
+// @ts-ignore
 import type { Order, AttendanceRecord } from '../types';
 
 // --- HELPER: SAFE ENV ACCESS ---
@@ -271,4 +272,3 @@ export const subscribeToMasterData = (branchId: string, type: 'menu' | 'categori
         }, () => {});
     } catch (e) { return () => {}; }
 };
-
