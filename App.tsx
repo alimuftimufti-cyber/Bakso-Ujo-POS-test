@@ -250,7 +250,8 @@ const App: React.FC = () => {
     const [orders, setOrders] = useState<Order[]>([]); 
     const [expenses, setExpenses] = useLocalStorage<Expense[]>(`${branchPrefix}-expenses`, []);
     const [activeShift, setActiveShift] = useLocalStorage<Shift | null>(`${branchPrefix}-activeShift`, null);
-    const [completedShifts, setCompletedShifts] = useLocalStorage<Shift[]>(`${branchPrefix}-completedShifts`, []);
+    // Updated to store ShiftSummary[]
+    const [completedShifts, setCompletedShifts] = useLocalStorage<ShiftSummary[]>(`${branchPrefix}-completedShifts`, []);
     
     const [storeProfile, setStoreProfile] = useLocalStorage<StoreProfile>(`${branchPrefix}-storeProfile`, { ...defaultStoreProfile, branchId: activeBranchId });
     

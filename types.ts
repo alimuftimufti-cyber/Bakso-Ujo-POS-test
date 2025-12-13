@@ -238,7 +238,7 @@ export interface AppContextType {
     orders: Order[];
     expenses: Expense[];
     activeShift: Shift | null;
-    completedShifts: Shift[];
+    completedShifts: ShiftSummary[];
     storeProfile: StoreProfile;
     ingredients: Ingredient[];
     tables: Table[]; 
