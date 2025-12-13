@@ -4,6 +4,7 @@ import React, { useState, useRef, useMemo } from 'react';
 import { useAppContext } from '../types'; 
 import type { MenuItem, Ingredient, User, ThemeColor, Table, StoreProfile, Branch } from '../types';
 import { printTest } from '../services/printerService'; 
+import { currentProjectId } from '../services/firebase'; // IMPORT PROJECT ID
 
 // ... (Helper components ModalOverlay, InputField, SelectField, MenuForm, generatePrintLayout remain the same)
 // ... (Keeping them as is, assume they are part of the file content)
@@ -437,15 +438,18 @@ const SettingsView = () => {
                                 <div className="p-4 bg-blue-50 rounded-xl border border-blue-100">
                                     <h4 className="font-bold text-blue-900 mb-2">Informasi Cloud Database</h4>
                                     <p className="text-sm text-blue-800 mb-3">
-                                        Agar fitur <strong>Self-Order (QR Code)</strong> berfungsi, database online (Firebase) harus aktif.
+                                        Status Koneksi: <strong>{currentProjectId ? 'TERHUBUNG' : 'OFFLINE'}</strong>
                                     </p>
+                                    {currentProjectId && (
+                                        <div className="text-xs bg-white p-2 rounded border border-blue-200 font-mono text-blue-600 mb-2">
+                                            Project ID: {currentProjectId}
+                                        </div>
+                                    )}
                                     <div className="text-xs text-blue-700 bg-blue-100 p-2 rounded">
-                                        Status: <strong>Gratis (Paket Spark)</strong>
-                                        <br/>
                                         Hosting: <strong>Gratis (Vercel / Firebase Hosting)</strong>
                                     </div>
                                     <p className="text-[10px] text-blue-500 mt-2 italic">
-                                        *Jika status "Offline Mode", Self Order hanya akan jalan jika pelanggan menggunakan HP Kasir.
+                                        *Jika ID Project tidak sesuai, update di Vercel Settings.
                                     </p>
                                 </div>
                             </div>

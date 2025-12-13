@@ -238,7 +238,7 @@ export interface AppContextType {
     orders: Order[];
     expenses: Expense[];
     activeShift: Shift | null;
-    completedShifts: ShiftSummary[];
+    completedShifts: Shift[];
     storeProfile: StoreProfile;
     ingredients: Ingredient[];
     tables: Table[]; 
@@ -248,6 +248,9 @@ export interface AppContextType {
     attendanceRecords: AttendanceRecord[]; // NEW
     kitchenAlarmTime: number;
     kitchenAlarmSound: string;
+    
+    // Global Status
+    isStoreOpen: boolean; // NEW: Global store open status synced via Firebase
 
     // Setters & Actions
     setMenu: React.Dispatch<React.SetStateAction<MenuItem[]>>;

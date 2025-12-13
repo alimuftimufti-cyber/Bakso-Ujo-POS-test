@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, memo } from 'react';
 import { useAppContext } from '../types'; 
 import type { MenuItem, CartItem } from '../types';
@@ -183,7 +182,7 @@ const SuccessModal = ({ onReset, cart, customerName, total, theme }: { onReset: 
 };
 
 const CustomerOrderView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
-    const { menu, categories, customerSubmitOrder, storeProfile } = useAppContext();
+    const { menu, categories, customerSubmitOrder, storeProfile, isStoreOpen } = useAppContext();
     const [cart, setCart] = useState<CartItem[]>([]);
     const [customerDetails, setCustomerDetails] = useState<{name: string, table: string} | null>(null);
     const [activeCategory, setActiveCategory] = useState<string>('All');
@@ -201,6 +200,32 @@ const CustomerOrderView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         const tableParam = params.get('table');
         if (tableParam) setUrlTable(tableParam);
     }, []);
+
+    // BLOCKING UI IF STORE IS CLOSED
+    if (!isStoreOpen) {
+        return (
+            <div className="flex flex-col items-center justify-center h-[100dvh] bg-gray-100 p-6 text-center">
+                <div className={`w-24 h-24 bg-${theme}-100 rounded-full flex items-center justify-center mb-6 shadow-inner`}>
+                    <svg xmlns="http://www.w3.org/2000/svg" className={`h-12 w-12 text-${theme}-600`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                    </svg>
+                </div>
+                <h1 className="text-2xl font-black text-gray-800 mb-2">Kedai Belum Buka</h1>
+                <p className="text-gray-500 mb-8 max-w-xs">
+                    Mohon tunggu sebentar. Kasir belum membuka shift operasional hari ini.
+                </p>
+                <button 
+                    onClick={() => window.location.reload()} 
+                    className={`bg-${theme}-600 text-white font-bold py-3 px-8 rounded-xl shadow-lg hover:scale-105 transition-transform flex items-center gap-2`}
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
+                    </svg>
+                    Cek Lagi (Refresh)
+                </button>
+            </div>
+        );
+    }
 
     const breakdown = useMemo(() => {
         const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);

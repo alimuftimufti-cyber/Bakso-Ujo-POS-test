@@ -4,58 +4,87 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <meta name="theme-color" content="#ea580c" />
-    <meta name="description" content="Sistem Kasir Bakso Ujo - Cepat, Mudah, Online-Ready" />
+    <meta name="description" content="Sistem Kasir Bakso Ujo - Cepat, Mudah, Offline-Ready" />
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <link rel="manifest" href="/manifest.json" />
     <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/1046/1046774.png">
     <title>Aplikasi Kasir - Bakso Ujo</title>
+    <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
       body {
         font-family: 'Inter', sans-serif;
         overscroll-behavior-y: none; /* Prevent pull-to-refresh on mobile */
-        /* FIX: Changed to auto to ensure buttons/inputs are clickable */
-        user-select: auto; 
+        user-select: none; /* App-like feel */
         -webkit-tap-highlight-color: transparent;
-        background-color: #f9fafb;
+        background-color: #f9fafb; /* Matches gray-50 */
       }
-      /* Ensure inputs are always selectable */
-      input, textarea, select {
-        user-select: text;
-        -webkit-user-select: text;
+      
+      /* Ensure full height on mobile browsers */
+      html, body, #root {
+        height: 100%;
+        height: 100dvh; /* Dynamic viewport height */
+        overflow: hidden;
       }
-      html, body, #root { height: 100%; height: 100dvh; overflow: hidden; }
+
+      /* Custom scrollbar */
       ::-webkit-scrollbar { width: 6px; height: 6px; }
       ::-webkit-scrollbar-track { background: transparent; }
       ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
       ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-      @keyframes pulse-red-bg { 0%, 100% { background-color: #1f2937; } 50% { background-color: #450a0a; } }
-      .animate-pulse-red { animation: pulse-red-bg 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
-      @keyframes flash-highlight { 0%, 100% { background-color: white; border-left-color: transparent; } 50% { background-color: #ecfdf5; border-left-color: #10b981; } }
-      .animate-flash-highlight { animation: flash-highlight 1s ease-in-out infinite; }
-      @media print { @page { size: 58mm auto; margin: 0; } body * { visibility: hidden; } #print-root, #print-root * { visibility: visible; } #print-root { position: absolute; left: 0; top: 0; width: 100%; } #print-root #printable-receipt { font-family: 'Courier New', Courier, monospace; font-size: 10pt; line-height: 1.4; } .no-print { display: none !important; } }
+
+      /* Animation for Kitchen Monitor */
+      @keyframes pulse-red-bg {
+        0%, 100% { background-color: #1f2937; }
+        50% { background-color: #450a0a; }
+      }
+      .animate-pulse-red {
+        animation: pulse-red-bg 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+      }
+
+      /* New Order Notification Blink */
+      @keyframes flash-highlight {
+        0%, 100% { background-color: white; border-left-color: transparent; }
+        50% { background-color: #ecfdf5; border-left-color: #10b981; } 
+      }
+      .animate-flash-highlight {
+        animation: flash-highlight 1s ease-in-out infinite;
+      }
+
+      /* Print Styles */
+      @media print {
+        @page { size: 58mm auto; margin: 0; }
+        body * { visibility: hidden; }
+        #print-root, #print-root * { visibility: visible; }
+        #print-root { position: absolute; left: 0; top: 0; width: 100%; }
+        #print-root #printable-receipt { font-family: 'Courier New', Courier, monospace; font-size: 10pt; line-height: 1.4; }
+        .no-print { display: none !important; }
+      }
+      
+      /* Safe Area for iPhone X+ */
       .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
       .pt-safe { padding-top: env(safe-area-inset-top); }
     </style>
-<script type="importmap">
+  <script type="importmap">
 {
   "imports": {
-    "react/": "https://esm.sh/react@^19.2.3/",
-    "react": "https://esm.sh/react@^19.2.3",
-    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
-    "firebase/": "https://esm.sh/firebase@^12.6.0/",
-    "vite": "https://esm.sh/vite@^7.2.7",
-    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2",
-    "@google/generative-ai": "https://esm.sh/@google/generative-ai@^0.24.1",
-    "path": "https://esm.sh/path@^0.12.7"
+    "vite": "https://esm.sh/vite@^5.0.8",
+    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^4.2.1",
+    "@google/genai": "https://esm.sh/@google/genai@0.2.1",
+    "react/": "https://esm.sh/react@^18.2.0/",
+    "react": "https://esm.sh/react@^18.2.0",
+    "react-dom/": "https://esm.sh/react-dom@^18.2.0/",
+    "firebase/": "https://esm.sh/firebase@^10.7.1/"
   }
 }
 </script>
+<link rel="stylesheet" href="/index.css">
 </head>
   <body class="bg-gray-50 antialiased overflow-hidden text-gray-800">
     <div id="root"></div>
     <div id="print-root"></div>
-    <script type="module" src="/index.tsx"></script>
-  </body>
+    <script type="module" src="/src/main.tsx"></script>
+  <script type="module" src="/index.tsx"></script>
+</body>
 </html>
