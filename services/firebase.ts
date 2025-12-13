@@ -3,15 +3,29 @@ import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getFirestore, collection, addDoc, onSnapshot, query, where, updateDoc, doc, setDoc } from 'firebase/firestore';
 import type { Order, AttendanceRecord } from '../types';
 
+// --- HELPER: SAFE ENV ACCESS ---
+// Mencegah crash jika import.meta.env tidak terdefinisi
+const getEnv = (key: string) => {
+  try {
+    // @ts-ignore
+    if (typeof import.meta !== 'undefined' && import.meta.env) {
+      // @ts-ignore
+      return import.meta.env[key];
+    }
+  } catch (e) {
+    console.warn("Env access warning:", e);
+  }
+  return undefined;
+};
+
 // --- KONFIGURASI FIREBASE ---
-// Menggunakan import.meta.env sesuai standar Vite untuk Vercel
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID
+  apiKey: getEnv('VITE_FIREBASE_API_KEY'),
+  authDomain: getEnv('VITE_FIREBASE_AUTH_DOMAIN'),
+  projectId: getEnv('VITE_FIREBASE_PROJECT_ID'),
+  storageBucket: getEnv('VITE_FIREBASE_STORAGE_BUCKET'),
+  messagingSenderId: getEnv('VITE_FIREBASE_MESSAGING_SENDER_ID'),
+  appId: getEnv('VITE_FIREBASE_APP_ID')
 };
 
 // EXPORT Project ID untuk ditampilkan di UI Settings
@@ -257,3 +271,4 @@ export const subscribeToMasterData = (branchId: string, type: 'menu' | 'categori
         }, () => {});
     } catch (e) { return () => {}; }
 };
+
