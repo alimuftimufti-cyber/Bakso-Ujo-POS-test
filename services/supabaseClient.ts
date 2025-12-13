@@ -1,3 +1,5 @@
+
+// @ts-ignore
 import { createClient } from '@supabase/supabase-js';
 
 // Safe access to environment variables (Vite or Process)
