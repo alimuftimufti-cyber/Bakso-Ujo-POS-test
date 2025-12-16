@@ -17,7 +17,8 @@ import {
     getCategoriesFromCloud, addCategoryToCloud, deleteCategoryFromCloud,
     getActiveShiftFromCloud, startShiftInCloud, closeShiftInCloud, updateShiftInCloud, subscribeToShifts,
     getCompletedShiftsFromCloud, getExpensesFromCloud, addExpenseToCloud, deleteExpenseFromCloud,
-    getStoreProfileFromCloud, updateStoreProfileInCloud, updateIngredientStockInCloud
+    getStoreProfileFromCloud, updateStoreProfileInCloud, updateIngredientStockInCloud,
+    getIngredientsFromCloud, addIngredientToCloud, deleteIngredientFromCloud
 } from './services/firebase';
 
 // Lazy Load Components
@@ -215,6 +216,9 @@ const App: React.FC = () => {
             // Menu
             const menuData = await getMenuFromCloud(activeBranchId);
             setMenu(menuData);
+            // Ingredients
+            const ingData = await getIngredientsFromCloud(activeBranchId);
+            setIngredients(ingData);
             // Users
             const usersData = await getUsersFromCloud(activeBranchId);
             setUsers(usersData);
@@ -291,12 +295,33 @@ const App: React.FC = () => {
         }
     };
     
-    // Cloud Updates for Stock
+    // Cloud Updates for Stock & Products
+    const handleSaveMenuItem = async (item: MenuItem) => {
+        await addProductToCloud(item, activeBranchId);
+        // Reload menu to get fresh state from cloud including IDs
+        setMenu(await getMenuFromCloud(activeBranchId));
+    };
+
+    const handleRemoveMenuItem = async (id: number) => {
+        await deleteProductFromCloud(id);
+        setMenu(prev => prev.filter(i => i.id !== id));
+    };
+
     const handleUpdateProductStock = async (id: number, stock: number) => {
         await updateProductStockInCloud(id, stock);
         // Optimistic update for UI
         setMenu(prev => prev.map(m => m.id === id ? { ...m, stock } : m));
     };
+
+    const handleSaveIngredient = async (ing: Ingredient) => {
+        await addIngredientToCloud(ing, activeBranchId);
+        setIngredients(await getIngredientsFromCloud(activeBranchId));
+    }
+
+    const handleRemoveIngredient = async (id: string) => {
+        await deleteIngredientFromCloud(id);
+        setIngredients(prev => prev.filter(i => i.id !== id));
+    }
 
     const handleUpdateIngredientStock = async (id: string, stock: number) => {
         await updateIngredientStockInCloud(id, stock);
@@ -463,7 +488,17 @@ const App: React.FC = () => {
         },
         setKitchenAlarmTime, setKitchenAlarmSound,
         addCategory: handleAddCategory, deleteCategory: handleDeleteCategory, setIngredients, 
-        addIngredient: () => {}, updateIngredient: () => {}, deleteIngredient: () => {}, // Not yet implemented in Cloud
+        
+        saveMenuItem: handleSaveMenuItem,
+        removeMenuItem: handleRemoveMenuItem,
+        
+        // Ingredients Cloud Wrappers
+        saveIngredient: handleSaveIngredient,
+        removeIngredient: handleRemoveIngredient,
+        addIngredient: () => {}, // Deprecated
+        updateIngredient: () => {}, // Deprecated
+        deleteIngredient: () => {}, // Deprecated
+        
         // NEW UPDATERS FOR STOCK
         updateProductStock: handleUpdateProductStock,
         updateIngredientStock: handleUpdateIngredientStock,

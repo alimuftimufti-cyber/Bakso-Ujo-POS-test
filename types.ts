@@ -255,6 +255,9 @@ export interface AppContextType {
 
     // Setters & Actions
     setMenu: React.Dispatch<React.SetStateAction<MenuItem[]>>;
+    saveMenuItem: (item: MenuItem) => Promise<void>; // CLOUD ADD/UPDATE
+    removeMenuItem: (id: number) => Promise<void>; // CLOUD DELETE
+    
     setCategories: React.Dispatch<React.SetStateAction<Category[]>>;
     setStoreProfile: React.Dispatch<React.SetStateAction<StoreProfile>>;
     setKitchenAlarmTime: React.Dispatch<React.SetStateAction<number>>;
@@ -266,9 +269,12 @@ export interface AppContextType {
 
     // Inventory
     setIngredients: React.Dispatch<React.SetStateAction<Ingredient[]>>;
-    addIngredient: (ing: Ingredient) => void;
-    updateIngredient: (ing: Ingredient) => void;
-    deleteIngredient: (id: string) => void;
+    saveIngredient: (ing: Ingredient) => Promise<void>; // CLOUD ADD/UPDATE
+    removeIngredient: (id: string) => Promise<void>; // CLOUD DELETE
+    addIngredient: (ing: Ingredient) => void; // Deprecated local
+    updateIngredient: (ing: Ingredient) => void; // Deprecated local
+    deleteIngredient: (id: string) => void; // Deprecated local
+    
     // NEW: Direct Cloud Updates
     updateProductStock: (id: number, stock: number) => Promise<void>;
     updateIngredientStock: (id: string, stock: number) => Promise<void>;
