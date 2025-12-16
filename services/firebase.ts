@@ -1,7 +1,7 @@
 
 import { supabase } from './supabaseClient';
 import type { Order, AttendanceRecord, MenuItem, Category, StoreProfile, Ingredient, Branch, User, Shift, ShiftSummary, Expense } from '../types';
-import { defaultStoreProfile } from '../data';
+import { defaultStoreProfile, initialBranches } from '../data';
 
 // --- STATUS KONEKSI ---
 export const isFirebaseReady = true; 
@@ -12,7 +12,10 @@ const handleError = (error: any, context: string) => {
         console.error(`Error in ${context}:`, error);
         // Tampilkan alert agar user tahu jika gagal koneksi atau constraint error
         if (context === 'startShift') {
-            alert(`Gagal membuka shift ke Server: ${error.message || JSON.stringify(error)}`);
+            // Kita handle alert spesifik di dalam fungsi startShiftInCloud agar lebih detail
+            console.warn("Suppressing global alert for startShift to handle locally");
+        } else {
+             // alert(`Error ${context}: ${error.message || JSON.stringify(error)}`);
         }
     }
 };
@@ -136,52 +139,84 @@ export const subscribeToShifts = (branchId: string, onShiftChange: (shift: Shift
 };
 
 export const startShiftInCloud = async (shift: Shift) => {
-    // Payload dasar
-    const payload: any = {
-        id: shift.id,
-        branch_id: shift.branchId,
-        start_time: shift.start,
-        start_cash: shift.start_cash,
-        revenue: 0,
-        cash_revenue: 0,
-        non_cash_revenue: 0,
-        total_expenses: 0,
-        transactions_count: 0
-    };
-
-    // Logika User ID agar tidak error Foreign Key
-    // Jika ID lokal adalah 'owner', kita ganti ke 'owner-1' (sesuai seed database)
-    // Jika user lain, kita coba masukkan.
-    if (shift.createdBy === 'owner') {
-        payload.created_by = 'owner-1';
-    } else if (shift.createdBy) {
-        payload.created_by = shift.createdBy;
-    }
-
-    // Percobaan Insert Pertama
-    const { error } = await supabase.from('shifts').insert(payload);
-
-    if (error) {
-        console.error("Gagal insert shift pertama kali:", error);
+    try {
+        // --- 1. SELF HEALING: CHECK BRANCH DEPENDENCY ---
+        // Jika database kosong/reset, shift akan gagal masuk karena branch_id tidak ada di tabel branches.
+        // Kita cek dulu, jika tidak ada, kita buatkan otomatis.
+        const branchId = shift.branchId || 'pusat';
+        const { data: branchCheck } = await supabase.from('branches').select('id').eq('id', branchId).single();
         
-        // Error 23503 adalah Foreign Key Violation (User ID tidak ditemukan di tabel users DB)
-        // Jika ini terjadi, kita coba insert LAGI tanpa created_by agar shift tetap bisa jalan
-        if (error.code === '23503') {
-            console.warn("User ID tidak valid di DB, mencoba menyimpan shift tanpa User ID...");
-            delete payload.created_by; // Hapus field penyebab error
+        if (!branchCheck) {
+            console.log(`Cabang '${branchId}' tidak ditemukan di database. Membuat otomatis...`);
+            // Cari data default dari data.ts atau gunakan placeholder
+            const branchInfo = initialBranches.find(b => b.id === branchId) || { id: branchId, name: 'Cabang Utama', address: '-' };
             
-            const { error: retryError } = await supabase.from('shifts').insert(payload);
-            if (retryError) {
-                handleError(retryError, 'startShift (Retry)');
+            const { error: createBranchError } = await supabase.from('branches').insert({
+                id: branchInfo.id,
+                name: branchInfo.name,
+                address: branchInfo.address,
+                settings: { themeColor: 'orange' }
+            });
+            
+            if (createBranchError) {
+                console.error("Gagal membuat cabang otomatis:", createBranchError);
+                alert(`Gagal inisialisasi cabang: ${createBranchError.message}`);
                 return false;
             }
-            return true; // Sukses pada percobaan kedua
-        } else {
-            handleError(error, 'startShift');
-            return false;
         }
+
+        // --- 2. PREPARE PAYLOAD ---
+        const payload: any = {
+            id: shift.id,
+            branch_id: branchId,
+            start_time: shift.start,
+            start_cash: shift.start_cash,
+            revenue: 0,
+            cash_revenue: 0,
+            non_cash_revenue: 0,
+            total_expenses: 0,
+            transactions_count: 0
+        };
+
+        // Mapping User ID: Jika 'owner' (lokal), coba map ke 'owner-1' (seed DB umum)
+        // atau gunakan ID asli jika ada.
+        if (shift.createdBy === 'owner') {
+            payload.created_by = 'owner-1';
+        } else if (shift.createdBy) {
+            payload.created_by = shift.createdBy;
+        }
+
+        // --- 3. ATTEMPT INSERT ---
+        const { error } = await supabase.from('shifts').insert(payload);
+
+        if (error) {
+            console.error("Gagal insert shift pertama kali:", error);
+            
+            // Error 23503: Foreign Key Violation.
+            // Biasanya terjadi karena User ID (created_by) tidak ada di tabel users database.
+            // Solusi: Coba insert lagi TANPA created_by (biarkan null).
+            if (error.code === '23503') {
+                console.warn("Foreign Key Error pada User ID. Mencoba menyimpan shift tanpa User ID...");
+                delete payload.created_by;
+                
+                const { error: retryError } = await supabase.from('shifts').insert(payload);
+                if (retryError) {
+                    alert(`Gagal Membuka Shift (Database Error): ${retryError.message}\nCode: ${retryError.code}`);
+                    return false;
+                }
+                return true; // Sukses pada percobaan kedua
+            } else {
+                alert(`Gagal Membuka Shift: ${error.message}\nCode: ${error.code}`);
+                return false;
+            }
+        }
+        
+        return true; // Sukses pada percobaan pertama
+
+    } catch (e: any) {
+        alert(`Terjadi kesalahan sistem saat membuka shift: ${e.message}`);
+        return false;
     }
-    return true; // Sukses pada percobaan pertama
 };
 
 export const updateShiftInCloud = async (shiftId: string, updates: Partial<Shift>) => {
