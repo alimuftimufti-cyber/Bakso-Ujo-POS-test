@@ -337,9 +337,23 @@ const App: React.FC = () => {
     // --- SHIFT LOGIC (CLOUD) ---
     const startShift = async (startCash: number) => {
         const newShiftId = Date.now().toString();
-        const newShift: Shift = { id: newShiftId, start: Date.now(), start_cash: startCash, revenue: 0, transactions: 0, cashRevenue: 0, nonCashRevenue: 0, totalDiscount: 0, orderCount: 0, branchId: activeBranchId };
+        // IMPORTANT: Include createdBy so database foreign keys work
+        const newShift: Shift = { 
+            id: newShiftId, 
+            start: Date.now(), 
+            start_cash: startCash, 
+            revenue: 0, 
+            transactions: 0, 
+            cashRevenue: 0, 
+            nonCashRevenue: 0, 
+            totalDiscount: 0, 
+            orderCount: 0, 
+            branchId: activeBranchId,
+            createdBy: currentUser?.id 
+        };
+        
         await startShiftInCloud(newShift);
-        // Note: setActiveShift is now handled by subscribeToShifts callback for consistency, but we set it here too for instant feedback
+        // Optimistic update - although subscription will also catch it
         setActiveShift(newShift);
         setExpenses([]);
     };

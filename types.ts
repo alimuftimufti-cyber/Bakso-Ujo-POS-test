@@ -166,6 +166,7 @@ export interface Shift {
     cashDifference?: number;
     orderCount?: number;
     branchId?: string;
+    createdBy?: string; // NEW: Track who started the shift
 }
 
 export interface ShiftSummary extends Shift {
