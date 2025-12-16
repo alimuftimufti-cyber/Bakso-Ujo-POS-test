@@ -117,6 +117,25 @@ export const getActiveShiftFromCloud = async (branchId: string): Promise<Shift |
     return null;
 };
 
+// NEW: Realtime Shift Subscription
+export const subscribeToShifts = (branchId: string, onShiftChange: (shift: Shift | null) => void) => {
+    // Listen for changes in the shifts table for this branch
+    const channel = supabase
+        .channel(`realtime-shifts-${branchId}`)
+        .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'shifts', filter: `branch_id=eq.${branchId}` },
+            async () => {
+                // When any change happens, fetch the fresh active shift state
+                const activeShift = await getActiveShiftFromCloud(branchId);
+                onShiftChange(activeShift);
+            }
+        )
+        .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+};
+
 export const startShiftInCloud = async (shift: Shift) => {
     const { error } = await supabase.from('shifts').insert({
         id: shift.id,
@@ -334,6 +353,17 @@ export const addProductToCloud = async (item: MenuItem, branchId: string) => {
         await supabase.from('products').insert(payload);
     }
 };
+
+// NEW: Update only stock for efficiency
+export const updateProductStockInCloud = async (id: number, stock: number) => {
+    const { error } = await supabase.from('products').update({ stock: stock }).eq('id', id);
+    handleError(error, 'updateProductStock');
+}
+
+export const updateIngredientStockInCloud = async (id: string, stock: number) => {
+    const { error } = await supabase.from('ingredients').update({ stock: stock }).eq('id', id);
+    handleError(error, 'updateIngredientStock');
+}
 
 export const deleteProductFromCloud = async (id: number) => {
     await supabase.from('products').update({ is_active: false }).eq('id', id);
