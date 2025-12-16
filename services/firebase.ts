@@ -10,6 +10,10 @@ export const currentProjectId = "Supabase Project";
 const handleError = (error: any, context: string) => {
     if (error) {
         console.error(`Error in ${context}:`, error);
+        // Tampilkan alert agar user tahu jika gagal koneksi atau constraint error
+        if (context === 'startShift') {
+            alert(`Gagal membuka shift ke Server: ${error.message || JSON.stringify(error)}`);
+        }
     }
 };
 
@@ -108,7 +112,8 @@ export const getActiveShiftFromCloud = async (branchId: string): Promise<Shift |
             nonCashRevenue: Number(data.non_cash_revenue),
             transactions: data.transactions_count,
             totalDiscount: Number(data.total_discount),
-            branchId: data.branch_id
+            branchId: data.branch_id,
+            createdBy: data.created_by
         };
     }
     return null;
@@ -131,7 +136,8 @@ export const subscribeToShifts = (branchId: string, onShiftChange: (shift: Shift
 };
 
 export const startShiftInCloud = async (shift: Shift) => {
-    const { error } = await supabase.from('shifts').insert({
+    // Payload dasar
+    const payload: any = {
         id: shift.id,
         branch_id: shift.branchId,
         start_time: shift.start,
@@ -141,8 +147,41 @@ export const startShiftInCloud = async (shift: Shift) => {
         non_cash_revenue: 0,
         total_expenses: 0,
         transactions_count: 0
-    });
-    handleError(error, 'startShift');
+    };
+
+    // Logika User ID agar tidak error Foreign Key
+    // Jika ID lokal adalah 'owner', kita ganti ke 'owner-1' (sesuai seed database)
+    // Jika user lain, kita coba masukkan.
+    if (shift.createdBy === 'owner') {
+        payload.created_by = 'owner-1';
+    } else if (shift.createdBy) {
+        payload.created_by = shift.createdBy;
+    }
+
+    // Percobaan Insert Pertama
+    const { error } = await supabase.from('shifts').insert(payload);
+
+    if (error) {
+        console.error("Gagal insert shift pertama kali:", error);
+        
+        // Error 23503 adalah Foreign Key Violation (User ID tidak ditemukan di tabel users DB)
+        // Jika ini terjadi, kita coba insert LAGI tanpa created_by agar shift tetap bisa jalan
+        if (error.code === '23503') {
+            console.warn("User ID tidak valid di DB, mencoba menyimpan shift tanpa User ID...");
+            delete payload.created_by; // Hapus field penyebab error
+            
+            const { error: retryError } = await supabase.from('shifts').insert(payload);
+            if (retryError) {
+                handleError(retryError, 'startShift (Retry)');
+                return false;
+            }
+            return true; // Sukses pada percobaan kedua
+        } else {
+            handleError(error, 'startShift');
+            return false;
+        }
+    }
+    return true; // Sukses pada percobaan pertama
 };
 
 export const updateShiftInCloud = async (shiftId: string, updates: Partial<Shift>) => {
@@ -349,18 +388,6 @@ export const addProductToCloud = async (item: MenuItem, branchId: string) => {
         const { error } = await supabase.from('products').update(payload).eq('id', item.id);
         handleError(error, 'updateProduct');
     } else {
-        // Remove ID from payload to let DB auto-generate if it's serial, OR use the provided ID if we want to sync IDs
-        // For products, usually DB handles serial ID. But if we use Date.now() locally, we should pass it.
-        // Supabase products table 'id' is SERIAL (int). We must assume item.id is valid or let DB generate.
-        // If item.id is huge (Date.now()), we might run into INT limit if column is standard INT.
-        // IMPORTANT: The schema defined 'id SERIAL PRIMARY KEY'. Date.now() is too big for standard INT.
-        // We will ignore the local ID for INSERT and let DB generate, UNLESS we change schema to BIGINT or TEXT.
-        // Recommendation: Assume DB generates ID.
-        
-        // HOWEVER, our local app relies on `id`.
-        // Let's rely on update if ID < 1B (legacy/seeded) or update if existing.
-        // For NEW items, we insert.
-        
         const { error } = await supabase.from('products').insert(payload);
         handleError(error, 'addProduct');
     }
@@ -376,7 +403,7 @@ export const deleteProductFromCloud = async (id: number) => {
 };
 
 // ==========================================
-// 5. INGREDIENTS (BAHAN BAKU) - NEW
+// 5. INGREDIENTS (BAHAN BAKU)
 // ==========================================
 
 export const getIngredientsFromCloud = async (branchId: string): Promise<Ingredient[]> => {
