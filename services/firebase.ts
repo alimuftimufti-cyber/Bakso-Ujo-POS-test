@@ -1,274 +1,511 @@
 
-import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getFirestore, collection, addDoc, onSnapshot, query, where, updateDoc, doc, setDoc } from 'firebase/firestore';
-// @ts-ignore
-import type { Order, AttendanceRecord } from '../types';
+import { supabase } from './supabaseClient';
+import type { Order, AttendanceRecord, MenuItem, Category, StoreProfile, Ingredient, Branch, User, Shift, ShiftSummary, Expense } from '../types';
+import { defaultStoreProfile } from '../data';
 
-// --- HELPER: SAFE ENV ACCESS ---
-// Mencegah crash jika import.meta.env tidak terdefinisi
-const getEnv = (key: string) => {
-  try {
-    // @ts-ignore
-    if (typeof import.meta !== 'undefined' && import.meta.env) {
-      // @ts-ignore
-      return import.meta.env[key];
-    }
-  } catch (e) {
-    console.warn("Env access warning:", e);
-  }
-  return undefined;
-};
+// --- STATUS KONEKSI ---
+export const isFirebaseReady = true; 
+export const currentProjectId = "Supabase Project";
 
-// --- KONFIGURASI FIREBASE ---
-const firebaseConfig = {
-  apiKey: getEnv('VITE_FIREBASE_API_KEY'),
-  authDomain: getEnv('VITE_FIREBASE_AUTH_DOMAIN'),
-  projectId: getEnv('VITE_FIREBASE_PROJECT_ID'),
-  storageBucket: getEnv('VITE_FIREBASE_STORAGE_BUCKET'),
-  messagingSenderId: getEnv('VITE_FIREBASE_MESSAGING_SENDER_ID'),
-  appId: getEnv('VITE_FIREBASE_APP_ID')
-};
-
-// EXPORT Project ID untuk ditampilkan di UI Settings
-export const currentProjectId = firebaseConfig.projectId;
-
-// Cek apakah user sudah mengisi config
-// Pastikan minimal API Key dan Project ID ada
-const isConfigConfigured = !!firebaseConfig.apiKey && !!firebaseConfig.projectId;
-
-let db: any = null;
-let isFirebaseInitialized = false;
-
-// Helper to notify UI about connection errors
-let hasDispatchedError = false;
-const dispatchConnectionError = (msg: string) => {
-    if (!hasDispatchedError) {
-        console.warn("Dispatching Firebase Error:", msg);
-        setTimeout(() => {
-            window.dispatchEvent(new CustomEvent('firebase-connection-error', { detail: msg }));
-        }, 2000);
-        hasDispatchedError = true;
+const handleError = (error: any, context: string) => {
+    if (error) {
+        console.error(`Error in ${context}:`, error);
+        // console.warn(error.message);
     }
 };
 
-if (isConfigConfigured) {
-    try {
-        // Prevent multiple app initialization
-        const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
+// ==========================================
+// 1. STORE PROFILE & BRANCHES
+// ==========================================
+
+export const getBranchesFromCloud = async (): Promise<Branch[]> => {
+    const { data, error } = await supabase.from('branches').select('*');
+    handleError(error, 'getBranches');
+    return data || [];
+};
+
+export const getStoreProfileFromCloud = async (branchId: string): Promise<StoreProfile> => {
+    const { data, error } = await supabase.from('branches').select('name, address, settings').eq('id', branchId).single();
+    
+    if (error || !data) {
+        // Fallback jika belum ada di DB
+        return { ...defaultStoreProfile, branchId }; 
+    }
+
+    const settings = data.settings || {};
+    
+    return {
+        ...defaultStoreProfile,
+        ...settings, // Override defaults with DB settings
+        name: data.name,
+        address: data.address,
+        branchId: branchId
+    };
+};
+
+export const updateStoreProfileInCloud = async (profile: StoreProfile) => {
+    const settings = {
+        themeColor: profile.themeColor,
+        phoneNumber: profile.phoneNumber,
+        slogan: profile.slogan,
+        logo: profile.logo,
+        enableKitchen: profile.enableKitchen,
+        kitchenMotivations: profile.kitchenMotivations,
+        taxRate: profile.taxRate,
+        enableTax: profile.enableTax,
+        serviceChargeRate: profile.serviceChargeRate,
+        enableServiceCharge: profile.enableServiceCharge,
+        enableTableLayout: profile.enableTableLayout,
+        enableTableInput: profile.enableTableInput,
+        autoPrintReceipt: profile.autoPrintReceipt
+    };
+
+    const { error } = await supabase.from('branches').update({
+        name: profile.name,
+        address: profile.address,
+        settings: settings
+    }).eq('id', profile.branchId);
+    
+    handleError(error, 'updateStoreProfile');
+};
+
+export const addBranchToCloud = async (branch: Branch) => {
+    const { error } = await supabase.from('branches').insert({
+        id: branch.id,
+        name: branch.name,
+        address: branch.address,
+        settings: { themeColor: 'orange' } // Default settings
+    });
+    handleError(error, 'addBranch');
+};
+
+export const deleteBranchFromCloud = async (id: string) => {
+    const { error } = await supabase.from('branches').delete().eq('id', id);
+    handleError(error, 'deleteBranch');
+};
+
+// ==========================================
+// 2. SHIFTS & EXPENSES (CLOUD)
+// ==========================================
+
+export const getActiveShiftFromCloud = async (branchId: string): Promise<Shift | null> => {
+    // Cari shift yang end_time nya masih NULL untuk branch ini
+    const { data, error } = await supabase
+        .from('shifts')
+        .select('*')
+        .eq('branch_id', branchId)
+        .is('end_time', null)
+        .single();
+
+    if (error && error.code !== 'PGRST116') { // PGRST116 = no rows found
+        console.error("Error getting active shift", error);
+    }
+
+    if (data) {
+        return {
+            id: data.id,
+            start: Number(data.start_time),
+            start_cash: Number(data.start_cash),
+            revenue: Number(data.revenue),
+            cashRevenue: Number(data.cash_revenue),
+            nonCashRevenue: Number(data.non_cash_revenue),
+            transactions: data.transactions_count,
+            totalDiscount: Number(data.total_discount),
+            branchId: data.branch_id
+        };
+    }
+    return null;
+};
+
+export const startShiftInCloud = async (shift: Shift) => {
+    const { error } = await supabase.from('shifts').insert({
+        id: shift.id,
+        branch_id: shift.branchId,
+        start_time: shift.start,
+        start_cash: shift.start_cash,
+        revenue: 0,
+        cash_revenue: 0,
+        non_cash_revenue: 0,
+        total_expenses: 0,
+        transactions_count: 0
+    });
+    handleError(error, 'startShift');
+};
+
+export const updateShiftInCloud = async (shiftId: string, updates: Partial<Shift>) => {
+    const dbUpdates: any = {};
+    if (updates.revenue !== undefined) dbUpdates.revenue = updates.revenue;
+    if (updates.cashRevenue !== undefined) dbUpdates.cash_revenue = updates.cashRevenue;
+    if (updates.nonCashRevenue !== undefined) dbUpdates.non_cash_revenue = updates.nonCashRevenue;
+    if (updates.transactions !== undefined) dbUpdates.transactions_count = updates.transactions;
+    if (updates.totalDiscount !== undefined) dbUpdates.total_discount = updates.totalDiscount;
+
+    const { error } = await supabase.from('shifts').update(dbUpdates).eq('id', shiftId);
+    handleError(error, 'updateShift');
+};
+
+export const closeShiftInCloud = async (summary: ShiftSummary) => {
+    const { error } = await supabase.from('shifts').update({
+        end_time: summary.end,
+        closing_cash: summary.closingCash,
+        total_expenses: summary.totalExpenses,
+        revenue: summary.revenue,
+        cash_revenue: summary.cashRevenue,
+        non_cash_revenue: summary.nonCashRevenue,
+        transactions_count: summary.transactions
+    }).eq('id', summary.id);
+    handleError(error, 'closeShift');
+};
+
+export const getCompletedShiftsFromCloud = async (branchId: string): Promise<ShiftSummary[]> => {
+    // Ambil 20 shift terakhir yang sudah selesai (end_time NOT NULL)
+    const { data, error } = await supabase
+        .from('shifts')
+        .select('*')
+        .eq('branch_id', branchId)
+        .not('end_time', 'is', null)
+        .order('end_time', { ascending: false })
+        .limit(20);
+
+    handleError(error, 'getCompletedShifts');
+
+    return (data || []).map((s: any) => {
+        const startCash = Number(s.start_cash);
+        const cashRev = Number(s.cash_revenue);
+        const expenses = Number(s.total_expenses);
+        const closingCash = Number(s.closing_cash);
+        const expected = startCash + cashRev - expenses;
+
+        return {
+            id: s.id,
+            start: Number(s.start_time),
+            end: Number(s.end_time),
+            start_cash: startCash,
+            revenue: Number(s.revenue),
+            cashRevenue: cashRev,
+            nonCashRevenue: Number(s.non_cash_revenue),
+            totalDiscount: Number(s.total_discount),
+            transactions: s.transactions_count,
+            closingCash: closingCash,
+            totalExpenses: expenses,
+            netRevenue: Number(s.revenue) - expenses,
+            expectedCash: expected,
+            cashDifference: closingCash - expected,
+            averageKitchenTime: 0,
+            branchId: s.branch_id
+        };
+    });
+};
+
+export const getExpensesFromCloud = async (shiftId: string): Promise<Expense[]> => {
+    const { data, error } = await supabase.from('expenses').select('*').eq('shift_id', shiftId);
+    handleError(error, 'getExpenses');
+    return (data || []).map((e: any) => ({
+        id: e.id,
+        shiftId: e.shift_id,
+        description: e.description,
+        amount: Number(e.amount),
+        date: Number(e.created_at)
+    }));
+};
+
+export const addExpenseToCloud = async (expense: Expense) => {
+    const { error } = await supabase.from('expenses').insert({
+        shift_id: expense.shiftId,
+        description: expense.description,
+        amount: expense.amount,
+        created_at: expense.date
+    });
+    handleError(error, 'addExpense');
+};
+
+export const deleteExpenseFromCloud = async (id: number) => {
+    const { error } = await supabase.from('expenses').delete().eq('id', id);
+    handleError(error, 'deleteExpense');
+};
+
+// ==========================================
+// 3. USERS (PEGAWAI)
+// ==========================================
+
+export const getUsersFromCloud = async (branchId: string): Promise<User[]> => {
+    const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .or(`branch_id.eq.${branchId},role.eq.owner`);
         
-        try {
-            db = getFirestore(app);
-            isFirebaseInitialized = true;
-            console.log("✅ Firebase Connected: Online Mode Active");
-        } catch (firestoreError: any) {
-            console.error("⚠️ Firestore Init Error:", firestoreError.message);
-            db = null;
-            dispatchConnectionError("Gagal inisialisasi Database. Pastikan Firestore sudah dibuat di Console.");
-        }
-    } catch (e: any) {
-        console.error("❌ Firebase App Init Failed (Check Config):", e.message);
-        db = null;
-        dispatchConnectionError("Config Firebase tidak valid. Cek Environment Variables di Vercel.");
+    handleError(error, 'getUsers');
+    
+    return (data || []).map((u: any) => ({
+        id: u.id,
+        name: u.name,
+        pin: u.pin,
+        attendancePin: u.attendance_pin,
+        role: u.role as any,
+        branchId: u.branch_id
+    }));
+};
+
+export const addUserToCloud = async (user: User) => {
+    const { error } = await supabase.from('users').insert({
+        id: user.id,
+        name: user.name,
+        pin: user.pin,
+        attendance_pin: user.attendancePin,
+        role: user.role,
+        branch_id: user.branchId
+    });
+    handleError(error, 'addUser');
+};
+
+export const deleteUserFromCloud = async (id: string) => {
+    const { error } = await supabase.from('users').delete().eq('id', id);
+    handleError(error, 'deleteUser');
+};
+
+export const updateUserInCloud = async (user: User) => {
+    const { error } = await supabase.from('users').update({
+        name: user.name,
+        pin: user.pin,
+        attendance_pin: user.attendancePin,
+        role: user.role
+    }).eq('id', user.id);
+    handleError(error, 'updateUser');
+};
+
+// ==========================================
+// 4. CATEGORIES & MENU
+// ==========================================
+
+export const getCategoriesFromCloud = async (): Promise<Category[]> => {
+    const { data, error } = await supabase.from('categories').select('name');
+    handleError(error, 'getCategories');
+    return (data || []).map((c: any) => c.name);
+};
+
+export const addCategoryToCloud = async (name: string) => {
+    const { error } = await supabase.from('categories').insert({ name });
+    handleError(error, 'addCategory');
+};
+
+export const deleteCategoryFromCloud = async (name: string) => {
+    const { error } = await supabase.from('categories').delete().eq('name', name);
+    handleError(error, 'deleteCategory');
+};
+
+export const getMenuFromCloud = async (branchId: string): Promise<MenuItem[]> => {
+    const { data, error } = await supabase
+        .from('products')
+        .select(`*, categories (name)`)
+        .eq('is_active', true)
+        .or(`branch_id.is.null,branch_id.eq.${branchId}`);
+
+    handleError(error, 'getMenu');
+
+    return (data || []).map((p: any) => ({
+        id: p.id,
+        name: p.name,
+        price: Number(p.price),
+        category: p.categories?.name || 'Umum',
+        imageUrl: p.image_url,
+        stock: p.stock,
+        minStock: p.min_stock
+    }));
+};
+
+export const addProductToCloud = async (item: MenuItem, branchId: string) => {
+    const { data: catData } = await supabase.from('categories').select('id').eq('name', item.category).single();
+    if (!catData) return;
+
+    const payload = {
+        name: item.name,
+        price: item.price,
+        category_id: catData.id,
+        image_url: item.imageUrl,
+        stock: item.stock,
+        min_stock: item.minStock,
+        is_active: true,
+        branch_id: null 
+    };
+
+    if (item.id && typeof item.id === 'number' && item.id < 1000000000) {
+        await supabase.from('products').update(payload).eq('id', item.id);
+    } else {
+        await supabase.from('products').insert(payload);
     }
-} else {
-    console.log("ℹ️ Firebase Config Kosong. Aplikasi berjalan di MODE OFFLINE.");
-}
-
-export const isFirebaseReady = isFirebaseInitialized && db !== null;
-
-// --- HELPER: LOCAL STORAGE FALLBACK ---
-const getLocal = (key: string) => {
-    try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch { return []; }
-};
-const setLocal = (key: string, data: any) => {
-    try { localStorage.setItem(key, JSON.stringify(data)); } catch {}
 };
 
-// --- STORE STATUS (BUKA/TUTUP) ---
-export const setStoreStatus = async (branchId: string, isOpen: boolean) => {
-    if (!db) return;
-    try {
-        await setDoc(doc(db, `branches/${branchId}/status/current`), { 
-            isOpen, 
-            updatedAt: Date.now() 
-        });
-    } catch (e) { console.warn("Offline: Store status not synced"); }
+export const deleteProductFromCloud = async (id: number) => {
+    await supabase.from('products').update({ is_active: false }).eq('id', id);
 };
 
-export const subscribeToStoreStatus = (branchId: string, onUpdate: (isOpen: boolean) => void) => {
-    if (!db) return () => {};
-    try {
-        return onSnapshot(doc(db, `branches/${branchId}/status/current`), (doc) => {
-            if (doc.exists()) onUpdate(doc.data().isOpen);
-            else onUpdate(false);
-        }, (err) => {
-            console.warn("Status sync failed (likely offline):", err.message);
-        });
-    } catch (e) { return () => {}; }
-};
+// ==========================================
+// 5. ORDERS
+// ==========================================
 
-// --- ORDERS ---
+const mapToAppOrder = (dbOrder: any): Order => {
+    return {
+        id: dbOrder.id,
+        sequentialId: dbOrder.sequential_id,
+        customerName: dbOrder.customer_name,
+        items: dbOrder.order_items ? dbOrder.order_items.map((i: any) => ({
+            id: i.product_id,
+            name: i.product_name,
+            price: i.price,
+            quantity: i.quantity,
+            note: i.note,
+            category: 'Uncategorized', 
+        })) : [],
+        total: dbOrder.total,
+        subtotal: dbOrder.subtotal,
+        discount: dbOrder.discount || 0,
+        discountType: 'percent',
+        discountValue: 0,
+        taxAmount: dbOrder.tax || 0,
+        serviceChargeAmount: dbOrder.service || 0,
+        status: dbOrder.status,
+        createdAt: Number(dbOrder.created_at),
+        completedAt: dbOrder.completed_at ? Number(dbOrder.completed_at) : undefined,
+        paidAt: dbOrder.payment_status === 'paid' ? new Date(dbOrder.updated_at).getTime() : undefined,
+        isPaid: dbOrder.payment_status === 'paid',
+        paymentMethod: dbOrder.payment_method,
+        shiftId: dbOrder.shift_id,
+        orderType: dbOrder.type,
+        branchId: dbOrder.branch_id
+    };
+};
 
 export const subscribeToOrders = (branchId: string, onUpdate: (orders: Order[]) => void) => {
-    const localKey = `pos-orders-${branchId}`;
-    
-    const loadLocal = () => {
-        const stored = getLocal(localKey);
-        if (Array.isArray(stored)) {
-            stored.sort((a: Order, b: Order) => b.createdAt - a.createdAt);
-            onUpdate(stored);
-        } else {
-            onUpdate([]);
+    if (!branchId) return () => {};
+
+    const fetchOrders = async () => {
+        // Ambil orders dari 24 jam terakhir agar tidak terlalu berat
+        const oneDayAgo = Date.now() - (24 * 60 * 60 * 1000);
+        const { data, error } = await supabase
+            .from('orders')
+            .select(`*, order_items (*)`)
+            .eq('branch_id', branchId)
+            .gte('created_at', oneDayAgo) 
+            .order('created_at', { ascending: false });
+
+        if (!error && data) {
+            onUpdate(data.map(mapToAppOrder));
         }
     };
 
-    if (!db) {
-        loadLocal();
-        const handler = (e: StorageEvent) => { if (e.key === localKey) loadLocal(); };
-        const localHandler = () => loadLocal();
-        window.addEventListener('storage', handler);
-        window.addEventListener('local-storage-update', localHandler);
-        return () => {
-            window.removeEventListener('storage', handler);
-            window.removeEventListener('local-storage-update', localHandler);
-        };
-    }
+    fetchOrders();
 
-    try {
-        const q = query(collection(db, "orders"), where("branchId", "==", branchId));
-        return onSnapshot(q, (snapshot) => {
-            const orders: Order[] = [];
-            snapshot.forEach((doc) => {
-                orders.push({ ...doc.data(), id: doc.id } as Order);
-            });
-            orders.sort((a, b) => b.createdAt - a.createdAt);
-            onUpdate(orders);
-        }, (error) => {
-            console.warn("Offline fallback triggered:", error.message);
-            dispatchConnectionError("Koneksi Database Gagal. Mode Offline Aktif.");
-            loadLocal();
-        });
-    } catch (e) {
-        console.error("Critical Firestore Error:", e);
-        loadLocal();
-        return () => {};
-    }
+    const channel = supabase
+        .channel(`realtime-orders-${branchId}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `branch_id=eq.${branchId}` }, () => fetchOrders())
+        .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
 };
 
 export const addOrderToCloud = async (order: Order) => {
-    const localKey = `pos-orders-${order.branchId}`;
-    try {
-        const currentOrders = getLocal(localKey);
-        if (!currentOrders.find((o: Order) => o.id === order.id)) {
-            currentOrders.push(order);
-            setLocal(localKey, currentOrders);
-            window.dispatchEvent(new Event('local-storage-update'));
-        }
-    } catch (e) { console.error("Local save failed", e); }
+    const { error: orderError } = await supabase.from('orders').insert({
+        id: order.id,
+        branch_id: order.branchId,
+        shift_id: order.shiftId,
+        customer_name: order.customerName,
+        type: order.orderType,
+        status: order.status,
+        payment_method: order.paymentMethod,
+        payment_status: order.isPaid ? 'paid' : 'unpaid',
+        subtotal: order.subtotal,
+        discount: order.discount,
+        tax: order.taxAmount,
+        service: order.serviceChargeAmount,
+        total: order.total,
+        created_at: order.createdAt
+    });
 
-    if (!db) return order.id;
-    
-    try {
-        const orderData = JSON.parse(JSON.stringify(order));
-        const docRef = await addDoc(collection(db, "orders"), { ...orderData, createdAt: Date.now() });
-        return docRef.id;
-    } catch (e) {
-        console.warn("Upload failed (Offline?), order kept locally.");
-        return order.id;
+    if (orderError) {
+        console.error("Add Order Error", orderError);
+        return;
     }
+
+    const items = order.items.map(item => ({
+        order_id: order.id,
+        product_id: item.id,
+        product_name: item.name,
+        price: item.price,
+        quantity: item.quantity,
+        note: item.note
+    }));
+    
+    await supabase.from('order_items').insert(items);
 };
 
 export const updateOrderInCloud = async (orderId: string, data: Partial<Order>) => {
-    try {
-        const keys = Object.keys(localStorage).filter(k => k.startsWith('pos-orders-'));
-        for (const key of keys) {
-            const orders = getLocal(key);
-            const idx = orders.findIndex((o: Order) => o.id === orderId);
-            if (idx !== -1) {
-                orders[idx] = { ...orders[idx], ...data };
-                setLocal(key, orders);
-                window.dispatchEvent(new Event('local-storage-update'));
-                break; 
-            }
-        }
-    } catch (e) {}
-
-    if (!db) return;
-    try {
-        // Note: In production, store the Firestore Doc ID to update directly.
-        // This is a simplified query update for robustness in this template.
-        const q = query(collection(db, "orders"), where("id", "==", orderId));
-        // Logic to update docs found by query would go here
-    } catch (e) {
-        console.warn("Cloud update failed (Offline?)");
+    const updates: any = {};
+    if (data.status) updates.status = data.status;
+    if (data.isPaid !== undefined) updates.payment_status = data.isPaid ? 'paid' : 'unpaid';
+    if (data.paymentMethod) updates.payment_method = data.paymentMethod;
+    if (data.completedAt) updates.completed_at = data.completedAt; 
+    
+    if (Object.keys(updates).length > 0) {
+        updates.updated_at = new Date().toISOString(); 
+        await supabase.from('orders').update(updates).eq('id', orderId);
     }
 };
 
-// --- ATTENDANCE ---
+// ==========================================
+// 6. ATTENDANCE
+// ==========================================
 
 export const subscribeToAttendance = (branchId: string, onUpdate: (data: AttendanceRecord[]) => void) => {
-    const localKey = `pos-attendance-${branchId}`;
-    const loadLocal = () => onUpdate(getLocal(localKey));
-
-    if (!db) {
-        loadLocal();
-        const handler = () => loadLocal();
-        window.addEventListener('attendance-update', handler);
-        return () => window.removeEventListener('attendance-update', handler);
-    }
-
-    try {
-        const q = query(collection(db, "attendance"), where("branchId", "==", branchId));
-        return onSnapshot(q, (snapshot) => {
-            const records: AttendanceRecord[] = [];
-            snapshot.forEach((doc) => records.push({ ...doc.data(), id: doc.id } as AttendanceRecord));
-            records.sort((a, b) => b.clockInTime - a.clockInTime);
-            onUpdate(records);
-        }, () => loadLocal());
-    } catch (e) {
-        loadLocal();
-        return () => {};
-    }
+    const fetch = async () => {
+        // Fetch only today's attendance
+        const startOfDay = new Date();
+        startOfDay.setHours(0,0,0,0);
+        
+        const { data } = await supabase.from('attendance')
+            .select('*')
+            .eq('branch_id', branchId)
+            .gte('clock_in', startOfDay.getTime())
+            .order('clock_in', { ascending: false });
+            
+        if (data) {
+            onUpdate(data.map((r: any) => ({
+                id: r.id,
+                userId: r.user_id,
+                userName: r.user_name,
+                branchId: r.branch_id,
+                date: r.date,
+                clockInTime: Number(r.clock_in),
+                clockOutTime: r.clock_out ? Number(r.clock_out) : undefined,
+                status: r.status,
+                photoUrl: r.photo_url,
+                location: r.lat ? { lat: r.lat, lng: r.lng } : undefined
+            })));
+        }
+    };
+    fetch();
+    return () => {};
 };
 
 export const addAttendanceToCloud = async (record: AttendanceRecord) => {
-    const localKey = `pos-attendance-${record.branchId}`;
-    const stored = getLocal(localKey);
-    stored.unshift(record);
-    setLocal(localKey, stored);
-    window.dispatchEvent(new Event('attendance-update'));
-
-    if (!db) return;
-    try { await addDoc(collection(db, "attendance"), record); } catch(e) {}
+    await supabase.from('attendance').insert({
+        id: record.id,
+        user_id: record.userId,
+        user_name: record.userName,
+        branch_id: record.branchId,
+        date: record.date,
+        clock_in: record.clockInTime,
+        status: record.status,
+        photo_url: record.photoUrl,
+        lat: record.location?.lat,
+        lng: record.location?.lng
+    });
 };
 
 export const updateAttendanceInCloud = async (id: string, data: Partial<AttendanceRecord>, branchId: string) => {
-    const localKey = `pos-attendance-${branchId}`;
-    const stored = getLocal(localKey);
-    const idx = stored.findIndex((r: AttendanceRecord) => r.id === id);
-    if (idx !== -1) {
-        stored[idx] = { ...stored[idx], ...data };
-        setLocal(localKey, stored);
-        window.dispatchEvent(new Event('attendance-update'));
-    }
+    const updates: any = {};
+    if (data.clockOutTime) updates.clock_out = data.clockOutTime;
+    if (data.status) updates.status = data.status;
+    await supabase.from('attendance').update(updates).eq('id', id);
 };
 
-// --- SYNC DATA LAIN ---
-
-export const syncMasterData = async (branchId: string, type: 'menu' | 'categories' | 'profile' | 'ingredients', data: any) => {
-    if (!db) return; 
-    try {
-        const docRef = doc(db, `branches/${branchId}/master/${type}`);
-        await setDoc(docRef, { data, updatedAt: Date.now() });
-    } catch (e) {}
-};
-
-export const subscribeToMasterData = (branchId: string, type: 'menu' | 'categories' | 'profile' | 'ingredients', onUpdate: (data: any) => void) => {
-    if (!db) return () => {};
-    try {
-        const docRef = doc(db, `branches/${branchId}/master/${type}`);
-        return onSnapshot(docRef, (doc) => {
-            if (doc.exists()) onUpdate(doc.data().data);
-        }, () => {});
-    } catch (e) { return () => {}; }
-};
+export const setStoreStatus = async (branchId: string, isOpen: boolean) => {};
