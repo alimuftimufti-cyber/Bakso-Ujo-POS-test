@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo } from 'react';
 import { useAppContext } from '../types';
 import type { IngredientType } from '../types';
@@ -192,7 +193,7 @@ const typeColors: Record<string, string> = {
 };
 
 const InventoryView: React.FC = () => {
-    const { menu, setMenu, ingredients, updateIngredient, addIngredient, storeProfile, categories } = useAppContext();
+    const { menu, setMenu, ingredients, updateIngredient, addIngredient, storeProfile, categories, updateProductStock, updateIngredientStock } = useAppContext();
     const [viewMode, setViewMode] = useState<'products' | 'ingredients'>('products');
     const [ingredientFilter, setIngredientFilter] = useState<string>('all');
     const [searchTerm, setSearchTerm] = useState('');
@@ -201,21 +202,38 @@ const InventoryView: React.FC = () => {
     
     const theme = storeProfile.themeColor || 'orange';
 
-    const updateProductStock = (id: number, change: number) => {
-        setMenu(prev => prev.map(m => m.id === id && m.stock !== undefined ? { ...m, stock: Math.max(0, (m.stock || 0) + change) } : m));
+    const handleUpdateProductStock = (id: number, change: number) => {
+        const item = menu.find(m => m.id === id);
+        if (item && item.stock !== undefined) {
+            const newStock = Math.max(0, item.stock + change);
+            updateProductStock(id, newStock); // Call API
+        }
     };
 
-    const updateIngredientStock = (id: string, change: number) => {
+    const handleUpdateIngredientStock = (id: string, change: number) => {
         const ing = ingredients.find(i => i.id === id);
-        if (ing) updateIngredient({ ...ing, stock: Math.max(0, ing.stock + change) });
+        if (ing) {
+            const newStock = Math.max(0, ing.stock + change);
+            updateIngredientStock(id, newStock); // Call API
+        }
     };
 
     const handleSaveItem = (data: any) => {
         if (viewMode === 'products') {
-            // Note: data.stock will be undefined if tracking is disabled
+            // Updating Product (Settings usually, but Stock here)
+            // If just updating stock, call the API
+            if (data.stock !== undefined) {
+                updateProductStock(data.id, data.stock);
+            }
+            // For other fields like minStock, update local or call specific update fn (simplified here)
             setMenu(prev => prev.map(m => m.id === data.id ? { ...m, stock: data.stock, minStock: data.minStock } : m));
         } else {
-            if (data.id) updateIngredient(data);
+            // Updating Ingredient
+            if (data.id) {
+                updateIngredient(data); // This calls context which should update state, and ideally cloud
+                // Ideally updateIngredient should also be an async cloud call, but for now stick to pattern
+                if (data.stock !== undefined) updateIngredientStock(data.id, data.stock);
+            }
             else addIngredient({ ...data, id: Date.now().toString() });
         }
         setEditingItem(null);
@@ -321,7 +339,7 @@ const InventoryView: React.FC = () => {
                                 image={item.imageUrl} 
                                 theme={theme}
                                 isTracked={item.stock !== undefined}
-                                onUpdate={(val: number) => updateProductStock(item.id, val)}
+                                onUpdate={(val: number) => handleUpdateProductStock(item.id, val)}
                                 onEdit={() => setEditingItem(item)}
                             />
                         ))}
@@ -398,9 +416,9 @@ const InventoryView: React.FC = () => {
                                                     </td>
                                                     <td className="px-6 py-4">
                                                         <div className="flex items-center justify-center gap-1">
-                                                            <button onClick={() => updateIngredientStock(item.id, -1)} className="w-7 h-7 flex items-center justify-center bg-white border border-gray-200 rounded hover:bg-red-50 hover:border-red-200 text-red-500 font-bold active:scale-95 transition-transform">-</button>
-                                                            <button onClick={() => updateIngredientStock(item.id, 1)} className="w-7 h-7 flex items-center justify-center bg-white border border-gray-200 rounded hover:bg-green-50 hover:border-green-200 text-green-600 font-bold active:scale-95 transition-transform">+1</button>
-                                                            <button onClick={() => updateIngredientStock(item.id, 10)} className="w-8 h-7 flex items-center justify-center bg-white border border-gray-200 rounded hover:bg-green-50 hover:border-green-200 text-green-600 text-xs font-bold active:scale-95 transition-transform">+10</button>
+                                                            <button onClick={() => handleUpdateIngredientStock(item.id, -1)} className="w-7 h-7 flex items-center justify-center bg-white border border-gray-200 rounded hover:bg-red-50 hover:border-red-200 text-red-500 font-bold active:scale-95 transition-transform">-</button>
+                                                            <button onClick={() => handleUpdateIngredientStock(item.id, 1)} className="w-7 h-7 flex items-center justify-center bg-white border border-gray-200 rounded hover:bg-green-50 hover:border-green-200 text-green-600 font-bold active:scale-95 transition-transform">+1</button>
+                                                            <button onClick={() => handleUpdateIngredientStock(item.id, 10)} className="w-8 h-7 flex items-center justify-center bg-white border border-gray-200 rounded hover:bg-green-50 hover:border-green-200 text-green-600 text-xs font-bold active:scale-95 transition-transform">+10</button>
                                                         </div>
                                                     </td>
                                                     <td className="px-6 py-4 text-right">
