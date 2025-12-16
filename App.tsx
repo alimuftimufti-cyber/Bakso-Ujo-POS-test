@@ -338,6 +338,7 @@ const App: React.FC = () => {
     const startShift = async (startCash: number) => {
         const newShiftId = Date.now().toString();
         // IMPORTANT: Include createdBy so database foreign keys work
+        // If currentUser.id is 'owner' (local), the cloud function will remap it to 'owner-1'
         const newShift: Shift = { 
             id: newShiftId, 
             start: Date.now(), 
@@ -352,10 +353,16 @@ const App: React.FC = () => {
             createdBy: currentUser?.id 
         };
         
-        await startShiftInCloud(newShift);
-        // Optimistic update - although subscription will also catch it
-        setActiveShift(newShift);
-        setExpenses([]);
+        // Wait for cloud confirmation to ensure it's saved in DB
+        const success = await startShiftInCloud(newShift);
+        
+        if (success) {
+            // Optimistic update - although subscription will also catch it
+            setActiveShift(newShift);
+            setExpenses([]);
+        } else {
+            alert("Gagal membuka shift. Periksa koneksi internet atau coba lagi.");
+        }
     };
 
     const closeShift = (closingCash: number) => {
