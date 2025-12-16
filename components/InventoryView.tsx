@@ -193,7 +193,7 @@ const typeColors: Record<string, string> = {
 };
 
 const InventoryView: React.FC = () => {
-    const { menu, setMenu, ingredients, updateIngredient, addIngredient, storeProfile, categories, updateProductStock, updateIngredientStock } = useAppContext();
+    const { menu, ingredients, storeProfile, updateProductStock, updateIngredientStock, saveMenuItem, saveIngredient, removeIngredient } = useAppContext();
     const [viewMode, setViewMode] = useState<'products' | 'ingredients'>('products');
     const [ingredientFilter, setIngredientFilter] = useState<string>('all');
     const [searchTerm, setSearchTerm] = useState('');
@@ -206,7 +206,7 @@ const InventoryView: React.FC = () => {
         const item = menu.find(m => m.id === id);
         if (item && item.stock !== undefined) {
             const newStock = Math.max(0, item.stock + change);
-            updateProductStock(id, newStock); // Call API
+            updateProductStock(id, newStock); // Call API (stock only)
         }
     };
 
@@ -214,27 +214,18 @@ const InventoryView: React.FC = () => {
         const ing = ingredients.find(i => i.id === id);
         if (ing) {
             const newStock = Math.max(0, ing.stock + change);
-            updateIngredientStock(id, newStock); // Call API
+            updateIngredientStock(id, newStock); // Call API (stock only)
         }
     };
 
     const handleSaveItem = (data: any) => {
         if (viewMode === 'products') {
-            // Updating Product (Settings usually, but Stock here)
-            // If just updating stock, call the API
-            if (data.stock !== undefined) {
-                updateProductStock(data.id, data.stock);
-            }
-            // For other fields like minStock, update local or call specific update fn (simplified here)
-            setMenu(prev => prev.map(m => m.id === data.id ? { ...m, stock: data.stock, minStock: data.minStock } : m));
+            // FULL Cloud Save/Update for Product (handles stock & other fields)
+            saveMenuItem(data);
         } else {
-            // Updating Ingredient
-            if (data.id) {
-                updateIngredient(data); // This calls context which should update state, and ideally cloud
-                // Ideally updateIngredient should also be an async cloud call, but for now stick to pattern
-                if (data.stock !== undefined) updateIngredientStock(data.id, data.stock);
-            }
-            else addIngredient({ ...data, id: Date.now().toString() });
+            // FULL Cloud Save/Update for Ingredient
+            const itemData = data.id ? data : { ...data, id: Date.now().toString() };
+            saveIngredient(itemData);
         }
         setEditingItem(null);
         setAddModalOpen(false);
@@ -436,6 +427,9 @@ const InventoryView: React.FC = () => {
                                                     <td className="px-6 py-4 text-center">
                                                         <button onClick={() => setEditingItem(item)} className="text-gray-400 hover:text-blue-600 font-bold text-xs hover:bg-blue-50 px-3 py-1.5 rounded transition-colors">
                                                             Edit
+                                                        </button>
+                                                        <button onClick={() => { if(confirm('Hapus item ini?')) { removeIngredient(item.id); } }} className="hidden">
+                                                            Delete
                                                         </button>
                                                     </td>
                                                 </tr>
