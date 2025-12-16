@@ -10,7 +10,6 @@ export const currentProjectId = "Supabase Project";
 const handleError = (error: any, context: string) => {
     if (error) {
         console.error(`Error in ${context}:`, error);
-        // console.warn(error.message);
     }
 };
 
@@ -28,7 +27,6 @@ export const getStoreProfileFromCloud = async (branchId: string): Promise<StoreP
     const { data, error } = await supabase.from('branches').select('name, address, settings').eq('id', branchId).single();
     
     if (error || !data) {
-        // Fallback jika belum ada di DB
         return { ...defaultStoreProfile, branchId }; 
     }
 
@@ -89,7 +87,6 @@ export const deleteBranchFromCloud = async (id: string) => {
 // ==========================================
 
 export const getActiveShiftFromCloud = async (branchId: string): Promise<Shift | null> => {
-    // Cari shift yang end_time nya masih NULL untuk branch ini
     const { data, error } = await supabase
         .from('shifts')
         .select('*')
@@ -97,7 +94,7 @@ export const getActiveShiftFromCloud = async (branchId: string): Promise<Shift |
         .is('end_time', null)
         .single();
 
-    if (error && error.code !== 'PGRST116') { // PGRST116 = no rows found
+    if (error && error.code !== 'PGRST116') {
         console.error("Error getting active shift", error);
     }
 
@@ -117,16 +114,13 @@ export const getActiveShiftFromCloud = async (branchId: string): Promise<Shift |
     return null;
 };
 
-// NEW: Realtime Shift Subscription
 export const subscribeToShifts = (branchId: string, onShiftChange: (shift: Shift | null) => void) => {
-    // Listen for changes in the shifts table for this branch
     const channel = supabase
         .channel(`realtime-shifts-${branchId}`)
         .on(
             'postgres_changes',
             { event: '*', schema: 'public', table: 'shifts', filter: `branch_id=eq.${branchId}` },
             async () => {
-                // When any change happens, fetch the fresh active shift state
                 const activeShift = await getActiveShiftFromCloud(branchId);
                 onShiftChange(activeShift);
             }
@@ -177,7 +171,6 @@ export const closeShiftInCloud = async (summary: ShiftSummary) => {
 };
 
 export const getCompletedShiftsFromCloud = async (branchId: string): Promise<ShiftSummary[]> => {
-    // Ambil 20 shift terakhir yang sudah selesai (end_time NOT NULL)
     const { data, error } = await supabase
         .from('shifts')
         .select('*')
@@ -333,36 +326,49 @@ export const getMenuFromCloud = async (branchId: string): Promise<MenuItem[]> =>
 };
 
 export const addProductToCloud = async (item: MenuItem, branchId: string) => {
+    let categoryId = 1;
+    // Get Category ID
     const { data: catData } = await supabase.from('categories').select('id').eq('name', item.category).single();
-    if (!catData) return;
+    if (catData) categoryId = catData.id;
 
     const payload = {
         name: item.name,
         price: item.price,
-        category_id: catData.id,
+        category_id: categoryId,
         image_url: item.imageUrl,
         stock: item.stock,
         min_stock: item.minStock,
         is_active: true,
-        branch_id: null 
+        branch_id: null // Global menu for now, or use branchId if strict separation
     };
 
-    if (item.id && typeof item.id === 'number' && item.id < 1000000000) {
-        await supabase.from('products').update(payload).eq('id', item.id);
+    // Check if ID exists to determine Insert or Update
+    const { data: existing } = await supabase.from('products').select('id').eq('id', item.id).single();
+
+    if (existing) {
+        const { error } = await supabase.from('products').update(payload).eq('id', item.id);
+        handleError(error, 'updateProduct');
     } else {
-        await supabase.from('products').insert(payload);
+        // Remove ID from payload to let DB auto-generate if it's serial, OR use the provided ID if we want to sync IDs
+        // For products, usually DB handles serial ID. But if we use Date.now() locally, we should pass it.
+        // Supabase products table 'id' is SERIAL (int). We must assume item.id is valid or let DB generate.
+        // If item.id is huge (Date.now()), we might run into INT limit if column is standard INT.
+        // IMPORTANT: The schema defined 'id SERIAL PRIMARY KEY'. Date.now() is too big for standard INT.
+        // We will ignore the local ID for INSERT and let DB generate, UNLESS we change schema to BIGINT or TEXT.
+        // Recommendation: Assume DB generates ID.
+        
+        // HOWEVER, our local app relies on `id`.
+        // Let's rely on update if ID < 1B (legacy/seeded) or update if existing.
+        // For NEW items, we insert.
+        
+        const { error } = await supabase.from('products').insert(payload);
+        handleError(error, 'addProduct');
     }
 };
 
-// NEW: Update only stock for efficiency
 export const updateProductStockInCloud = async (id: number, stock: number) => {
     const { error } = await supabase.from('products').update({ stock: stock }).eq('id', id);
     handleError(error, 'updateProductStock');
-}
-
-export const updateIngredientStockInCloud = async (id: string, stock: number) => {
-    const { error } = await supabase.from('ingredients').update({ stock: stock }).eq('id', id);
-    handleError(error, 'updateIngredientStock');
 }
 
 export const deleteProductFromCloud = async (id: number) => {
@@ -370,7 +376,50 @@ export const deleteProductFromCloud = async (id: number) => {
 };
 
 // ==========================================
-// 5. ORDERS
+// 5. INGREDIENTS (BAHAN BAKU) - NEW
+// ==========================================
+
+export const getIngredientsFromCloud = async (branchId: string): Promise<Ingredient[]> => {
+    const { data, error } = await supabase.from('ingredients').select('*').eq('branch_id', branchId);
+    handleError(error, 'getIngredients');
+    return (data || []).map((i: any) => ({
+        id: i.id,
+        name: i.name,
+        unit: i.unit,
+        stock: Number(i.stock),
+        minStock: Number(i.min_stock),
+        type: i.type
+    }));
+};
+
+export const addIngredientToCloud = async (ingredient: Ingredient, branchId: string) => {
+    const payload = {
+        id: ingredient.id, // TEXT ID allowed
+        name: ingredient.name,
+        unit: ingredient.unit,
+        stock: ingredient.stock,
+        min_stock: ingredient.minStock,
+        type: ingredient.type,
+        branch_id: branchId
+    };
+    
+    // Upsert (Insert or Update based on ID)
+    const { error } = await supabase.from('ingredients').upsert(payload);
+    handleError(error, 'addIngredient');
+};
+
+export const deleteIngredientFromCloud = async (id: string) => {
+    const { error } = await supabase.from('ingredients').delete().eq('id', id);
+    handleError(error, 'deleteIngredient');
+}
+
+export const updateIngredientStockInCloud = async (id: string, stock: number) => {
+    const { error } = await supabase.from('ingredients').update({ stock: stock }).eq('id', id);
+    handleError(error, 'updateIngredientStock');
+}
+
+// ==========================================
+// 6. ORDERS
 // ==========================================
 
 const mapToAppOrder = (dbOrder: any): Order => {
@@ -482,7 +531,7 @@ export const updateOrderInCloud = async (orderId: string, data: Partial<Order>) 
 };
 
 // ==========================================
-// 6. ATTENDANCE
+// 7. ATTENDANCE
 // ==========================================
 
 export const subscribeToAttendance = (branchId: string, onUpdate: (data: AttendanceRecord[]) => void) => {
