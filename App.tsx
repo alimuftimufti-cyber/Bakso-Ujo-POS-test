@@ -13,11 +13,11 @@ import {
     subscribeToAttendance, addAttendanceToCloud, updateAttendanceInCloud,
     getBranchesFromCloud, addBranchToCloud, deleteBranchFromCloud,
     getUsersFromCloud, addUserToCloud, deleteUserFromCloud, updateUserInCloud,
-    getMenuFromCloud, addProductToCloud, deleteProductFromCloud,
+    getMenuFromCloud, addProductToCloud, deleteProductFromCloud, updateProductStockInCloud,
     getCategoriesFromCloud, addCategoryToCloud, deleteCategoryFromCloud,
-    getActiveShiftFromCloud, startShiftInCloud, closeShiftInCloud, updateShiftInCloud,
+    getActiveShiftFromCloud, startShiftInCloud, closeShiftInCloud, updateShiftInCloud, subscribeToShifts,
     getCompletedShiftsFromCloud, getExpensesFromCloud, addExpenseToCloud, deleteExpenseFromCloud,
-    getStoreProfileFromCloud, updateStoreProfileInCloud
+    getStoreProfileFromCloud, updateStoreProfileInCloud, updateIngredientStockInCloud
 } from './services/firebase';
 
 // Lazy Load Components
@@ -237,8 +237,12 @@ const App: React.FC = () => {
         // Realtime Subscriptions
         const unsubOrders = subscribeToOrders(activeBranchId, setOrders);
         const unsubAttendance = subscribeToAttendance(activeBranchId, setAttendanceRecords);
+        // Subscribe to Shift Changes (NEW: For multi-device sync)
+        const unsubShifts = subscribeToShifts(activeBranchId, (updatedShift) => {
+            setActiveShift(updatedShift);
+        });
         
-        return () => { unsubOrders(); unsubAttendance(); };
+        return () => { unsubOrders(); unsubAttendance(); unsubShifts(); };
     }, [activeBranchId]);
 
     // --- ACTION HANDLERS (CLOUD WRAPPERS) ---
@@ -280,31 +284,24 @@ const App: React.FC = () => {
 
     // Save menu locally implies saving to cloud
     const handleSaveMenu = (newMenu: MenuItem[] | ((prev: MenuItem[]) => MenuItem[])) => {
-        // Since setMenu accepts a function, we must handle it, but for Cloud sync we usually rely on individual Add/Update/Delete functions.
-        // For simplicity in this refactor, we assume the SettingsView calls this to update LOCAL state, but we should modify SettingsView to call Cloud directly.
-        // However, to keep it compatible with existing components:
-        // We will just update local state here. The "Save" button in SettingsView should call addProductToCloud.
-        // Let's rely on the fact that SettingsView was calling setMenu. We need to intercept that.
-        // Actually, let's just expose addProductToCloud via context and have components use it.
-        // For now, simple setMenu only updates local UI.
         if (typeof newMenu === 'function') {
              setMenu(newMenu);
         } else {
              setMenu(newMenu);
         }
-        // Ideally, we trigger a cloud save here for the changed item, but finding diffs is hard.
-        // Better: Pass `addProductToCloud` to context and use it in SettingsView.
     };
     
-    // Special wrapper for SettingsView to save product
-    const saveProductToCloudWrapper = async (item: MenuItem) => {
-        await addProductToCloud(item, activeBranchId);
-        setMenu(await getMenuFromCloud(activeBranchId));
+    // Cloud Updates for Stock
+    const handleUpdateProductStock = async (id: number, stock: number) => {
+        await updateProductStockInCloud(id, stock);
+        // Optimistic update for UI
+        setMenu(prev => prev.map(m => m.id === id ? { ...m, stock } : m));
     };
-    
-    const deleteProductWrapper = async (id: number) => {
-        await deleteProductFromCloud(id);
-        setMenu(prev => prev.filter(p => p.id !== id));
+
+    const handleUpdateIngredientStock = async (id: string, stock: number) => {
+        await updateIngredientStockInCloud(id, stock);
+        // Optimistic update for UI
+        setIngredients(prev => prev.map(i => i.id === id ? { ...i, stock } : i));
     };
 
     const handleUpdateStoreProfile = async (profile: StoreProfile) => {
@@ -317,6 +314,7 @@ const App: React.FC = () => {
         const newShiftId = Date.now().toString();
         const newShift: Shift = { id: newShiftId, start: Date.now(), start_cash: startCash, revenue: 0, transactions: 0, cashRevenue: 0, nonCashRevenue: 0, totalDiscount: 0, orderCount: 0, branchId: activeBranchId };
         await startShiftInCloud(newShift);
+        // Note: setActiveShift is now handled by subscribeToShifts callback for consistency, but we set it here too for instant feedback
         setActiveShift(newShift);
         setExpenses([]);
     };
@@ -328,6 +326,7 @@ const App: React.FC = () => {
         const summary: ShiftSummary = { ...activeShift, end: Date.now(), closingCash, cashDifference: closingCash - expectedCash, totalExpenses, netRevenue: activeShift.revenue - totalExpenses, averageKitchenTime: 0, expectedCash };
         
         closeShiftInCloud(summary).then(async () => {
+            // Note: setActiveShift(null) is handled by subscribeToShifts, but good for instant UI
             setActiveShift(null);
             setCompletedShifts(await getCompletedShiftsFromCloud(activeBranchId));
         });
@@ -389,6 +388,7 @@ const App: React.FC = () => {
                  totalDiscount: activeShift.totalDiscount + discount
              };
              updateShiftInCloud(activeShift.id, updates);
+             // Note: activeShift update is handled by subscription, but optimistic update is fine
              setActiveShift(prev => prev ? ({ ...prev, ...updates }) : null);
         }
 
@@ -464,6 +464,9 @@ const App: React.FC = () => {
         setKitchenAlarmTime, setKitchenAlarmSound,
         addCategory: handleAddCategory, deleteCategory: handleDeleteCategory, setIngredients, 
         addIngredient: () => {}, updateIngredient: () => {}, deleteIngredient: () => {}, // Not yet implemented in Cloud
+        // NEW UPDATERS FOR STOCK
+        updateProductStock: handleUpdateProductStock,
+        updateIngredientStock: handleUpdateIngredientStock,
         setTables, addTable: (n) => setTables(p => [...p, {id:Date.now().toString(), number:n, qrCodeData:''}]), deleteTable: (id) => setTables(p => p.filter(t => t.id !== id)),
         addBranch: handleAddBranch, deleteBranch: handleDeleteBranch, switchBranch: setActiveBranchId,
         setUsers: () => {}, // Use wrappers

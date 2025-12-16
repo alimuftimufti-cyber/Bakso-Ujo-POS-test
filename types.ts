@@ -269,6 +269,9 @@ export interface AppContextType {
     addIngredient: (ing: Ingredient) => void;
     updateIngredient: (ing: Ingredient) => void;
     deleteIngredient: (id: string) => void;
+    // NEW: Direct Cloud Updates
+    updateProductStock: (id: number, stock: number) => Promise<void>;
+    updateIngredientStock: (id: string, stock: number) => Promise<void>;
 
     // Tables
     setTables: React.Dispatch<React.SetStateAction<Table[]>>;
