@@ -10,6 +10,10 @@ export const currentProjectId = "Supabase Project";
 const handleError = (error: any, context: string) => {
     if (error) {
         console.error(`🔴 ERROR [${context}]:`, error);
+        // Tampilkan alert untuk error fatal
+        if (error.code === '42501' || error.message?.includes('violates row-level security')) {
+             alert(`AKSES DITOLAK (RLS): ${context}\n\nDatabase menolak penyimpanan data.\nSolusi: Jalankan ulang Script SQL (Policy) di Dashboard Supabase Anda.`);
+        }
     }
 };
 
@@ -186,6 +190,8 @@ export const startShiftInCloud = async (shift: Shift): Promise<Shift | null> => 
 
         if (error) {
             console.error("🔴 DB Error:", error);
+            handleError(error, 'startShift'); // Akan mentrigger alert RLS jika ada
+            
             // Retry Mechanism for FK
             if (error.code === '23503') { 
                 console.warn("⚠️ Retrying without 'created_by'...");
@@ -195,8 +201,6 @@ export const startShiftInCloud = async (shift: Shift): Promise<Shift | null> => 
                 if (retryError) throw retryError;
                 
                 if (retryData) {
-                    console.log("✅ Success (Retry):", retryData);
-                    // Map DB result back to App Shift Type
                     return {
                         id: retryData.id,
                         start: Number(retryData.start_time),
@@ -234,7 +238,7 @@ export const startShiftInCloud = async (shift: Shift): Promise<Shift | null> => 
 
     } catch (e: any) {
         console.error("🔴 CRITICAL ERROR:", e);
-        alert(`GAGAL MENYIMPAN KE DATABASE: ${e.message}`);
+        // Error sudah dihandle oleh handleError di atas untuk kasus umum
         return null;
     }
 };

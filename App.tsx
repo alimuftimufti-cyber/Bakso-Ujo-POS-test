@@ -20,6 +20,7 @@ import {
     getStoreProfileFromCloud, updateStoreProfileInCloud, updateIngredientStockInCloud,
     getIngredientsFromCloud, addIngredientToCloud, deleteIngredientFromCloud
 } from './services/firebase';
+import { checkConnection } from './services/supabaseClient'; // Import check function
 
 // Lazy Load Components
 const POSView = React.lazy(() => import('./components/POS'));
@@ -68,7 +69,7 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
     }
 }
 
-// Local Storage Helper (Only for Session/Device prefs)
+// Local Storage Helper
 function useLocalStorage<T>(key: string, initialValue: T): [T, React.Dispatch<React.SetStateAction<T>>] {
     const [storedValue, setStoredValue] = useState<T>(() => {
         try { const item = window.localStorage.getItem(key); return item ? JSON.parse(item) : initialValue; } catch (error) { console.error(error); return initialValue; }
@@ -110,7 +111,7 @@ const OfflineIndicator = () => {
     return <div className="fixed bottom-0 left-0 right-0 bg-red-600 text-white text-center py-2 px-4 z-[999] text-xs font-bold animate-pulse pb-safe">⚠️ Koneksi Internet Terputus (Mode Offline)</div>;
 };
 
-// ... LandingPage, LoginScreen same as before ... 
+// ... LandingPage ... 
 const LandingPage = ({ onSelectMode, storeName, logo, slogan, theme = 'orange' }: { onSelectMode: (mode: AppMode) => void, storeName: string, logo?: string, slogan?: string, theme?: ThemeColor }) => (
     <div className={`h-[100dvh] w-full bg-gradient-to-br from-${theme}-600 to-${theme}-800 flex flex-col items-center justify-center p-6 text-white relative overflow-hidden`}>
         <div className="absolute top-0 left-0 w-full h-full overflow-hidden opacity-10 pointer-events-none"><div className="absolute -top-20 -left-20 w-96 h-96 bg-white rounded-full blur-3xl"></div><div className="absolute bottom-0 right-0 w-96 h-96 bg-black rounded-full blur-3xl"></div></div>
@@ -128,6 +129,13 @@ const LandingPage = ({ onSelectMode, storeName, logo, slogan, theme = 'orange' }
 const LoginScreen = ({ onLogin, onBack, theme = 'orange', activeBranchName, activeBranchId }: { onLogin: (pin: string) => void, onBack: () => void, theme?: ThemeColor, activeBranchName: string, activeBranchId: string }) => {
     const [mode, setMode] = useState<'selection' | 'login' | 'attendance'>('selection');
     const [password, setPassword] = useState('');
+    const [dbStatus, setDbStatus] = useState<'checking' | 'ok' | 'error'>('checking');
+
+    // Check DB on mount
+    useEffect(() => {
+        checkConnection().then(ok => setDbStatus(ok ? 'ok' : 'error'));
+    }, []);
+
     const handleSubmit = (e: React.FormEvent) => { e.preventDefault(); onLogin(password); };
     
     if (mode === 'selection') {
@@ -135,6 +143,14 @@ const LoginScreen = ({ onLogin, onBack, theme = 'orange', activeBranchName, acti
             <div className="fixed inset-0 bg-gray-900 flex items-center justify-center z-50 p-4">
                 <div className="bg-white rounded-3xl shadow-2xl overflow-hidden max-w-sm w-full relative flex flex-col justify-center border-t-4 border-t-orange-500 animate-scale-in p-8">
                     <button onClick={onBack} className="absolute top-4 left-4 text-gray-400 hover:text-gray-800 transition-colors p-2 rounded-full hover:bg-white"><svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg></button>
+                    
+                    {/* Database Status Indicator */}
+                    <div className="absolute top-4 right-4">
+                        {dbStatus === 'checking' && <span className="w-3 h-3 bg-yellow-400 rounded-full inline-block" title="Checking Connection..."></span>}
+                        {dbStatus === 'ok' && <span className="w-3 h-3 bg-green-500 rounded-full inline-block" title="Online: Database Connected"></span>}
+                        {dbStatus === 'error' && <span className="w-3 h-3 bg-red-500 rounded-full animate-pulse inline-block" title="Offline: Database Error"></span>}
+                    </div>
+
                     <div className="text-center mb-8 mt-2"><h2 className="text-2xl font-black text-gray-900 uppercase">Portal Akses</h2><p className="text-gray-500 text-sm mt-1">{activeBranchName}</p></div>
                     <div className="space-y-4">
                         <button onClick={() => setMode('attendance')} className={`w-full bg-blue-600 text-white p-6 rounded-2xl shadow-lg hover:bg-blue-700 transition-all flex flex-col items-center gap-2 group`}>
@@ -144,6 +160,12 @@ const LoginScreen = ({ onLogin, onBack, theme = 'orange', activeBranchName, acti
                             <Icons.Pos /> <span className="font-bold text-lg">Masuk Kasir / Admin</span>
                         </button>
                     </div>
+                    {dbStatus === 'error' && (
+                        <div className="mt-6 p-3 bg-red-50 rounded-lg text-xs text-red-600 text-center border border-red-100">
+                            <strong>Koneksi Database Gagal.</strong><br/>
+                            Data tidak akan tersimpan ke cloud. Cek file .env Anda.
+                        </div>
+                    )}
                 </div>
             </div>
         );
@@ -191,6 +213,8 @@ const App: React.FC = () => {
     
     // New: Global Loading State
     const [isGlobalLoading, setIsGlobalLoading] = useState(false);
+    // New: Shift Loading State (Separate to know if we are checking shift status)
+    const [isShiftLoading, setIsShiftLoading] = useState(true);
 
     // --- INITIAL DATA LOADING ---
     useEffect(() => {
@@ -216,6 +240,8 @@ const App: React.FC = () => {
     // --- BRANCH SPECIFIC DATA LOADING ---
     useEffect(() => {
         const loadBranchData = async () => {
+            setIsShiftLoading(true); // Start loading check
+            
             // Menu
             const menuData = await getMenuFromCloud(activeBranchId);
             setMenu(menuData);
@@ -228,16 +254,20 @@ const App: React.FC = () => {
             // Profile (From Branch Settings)
             const profileData = await getStoreProfileFromCloud(activeBranchId);
             setStoreProfile(profileData);
-            // Active Shift
+            
+            // Active Shift - IMPORTANT: Wait for this to finish
             const shiftData = await getActiveShiftFromCloud(activeBranchId);
             setActiveShift(shiftData);
             if (shiftData) {
                 const expenseData = await getExpensesFromCloud(shiftData.id);
                 setExpenses(expenseData);
             }
+            
             // Completed Shifts (History)
             const historyData = await getCompletedShiftsFromCloud(activeBranchId);
             setCompletedShifts(historyData);
+            
+            setIsShiftLoading(false); // Finished loading check
         };
         loadBranchData();
         
@@ -368,7 +398,7 @@ const App: React.FC = () => {
             setExpenses([]);
         } else {
             console.error("🔴 [App.tsx] Database failed to return Shift. Aborting UI update.");
-            alert("Gagal membuka shift. Pastikan koneksi internet stabil.");
+            alert("Gagal membuka shift. Periksa apakah .env sudah dikonfigurasi dan tabel 'shifts' memiliki RLS Policy 'public'.");
         }
     };
 
@@ -507,6 +537,7 @@ const App: React.FC = () => {
     const contextValue: AppContextType = {
         menu, categories, orders, expenses, activeShift, completedShifts, storeProfile, ingredients, tables, branches, users, currentUser, attendanceRecords, kitchenAlarmTime, kitchenAlarmSound,
         isStoreOpen: !!activeShift,
+        isShiftLoading, // Pass loading state to components
         // Setters intercepted for Cloud Sync
         setMenu: (m) => handleSaveMenu(m), // See note above
         setCategories, 
@@ -531,7 +562,7 @@ const App: React.FC = () => {
         updateProductStock: handleUpdateProductStock,
         updateIngredientStock: handleUpdateIngredientStock,
         setTables, addTable: (n) => setTables(p => [...p, {id:Date.now().toString(), number:n, qrCodeData:''}]), deleteTable: (id) => setTables(p => p.filter(t => t.id !== id)),
-        addBranch: handleAddBranch, deleteBranch: handleDeleteBranch, switchBranch: setActiveBranchId,
+        addBranch: handleAddBranch, deleteBranch: handleDeleteBranch, switchBranch: setActiveBranchId, setView,
         setUsers: () => {}, // Use wrappers
         addUser: handleAddUser, updateUser: handleUpdateUser, deleteUser: handleDeleteUser, loginUser: () => false, logout: handleLogout,
         clockIn: async (uid, name, photo, loc) => { await addAttendanceToCloud({id:Date.now().toString(), userId:uid, userName:name, branchId:activeBranchId, date:new Date().toISOString().split('T')[0], clockInTime:Date.now(), status:'Present', photoUrl:photo, location:loc}); }, 

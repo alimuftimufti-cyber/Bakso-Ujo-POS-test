@@ -253,6 +253,7 @@ export interface AppContextType {
     
     // Global Status
     isStoreOpen: boolean; // NEW: Global store open status synced via Firebase
+    isShiftLoading: boolean; // NEW: To handle initial load state
 
     // Setters & Actions
     setMenu: React.Dispatch<React.SetStateAction<MenuItem[]>>;
@@ -289,6 +290,7 @@ export interface AppContextType {
     addBranch: (branch: Branch) => void;
     deleteBranch: (id: string) => void;
     switchBranch: (branchId: string) => void;
+    setView: (view: View) => void; // Add setView to context for redirection
 
     // Users
     setUsers: React.Dispatch<React.SetStateAction<User[]>>;

@@ -86,7 +86,13 @@ const ScanQRModal = ({ onClose, onScan, theme }: { onClose: () => void, onScan: 
 };
 
 const POSView: React.FC = () => {
-    const { menu, categories, orders, addOrder, updateOrder, updateOrderStatus, payForOrder, splitOrder, voidOrder, printerDevice, connectToPrinter, storeProfile, printOrderViaBrowser, requestPassword } = useAppContext();
+    const { 
+        menu, categories, orders, addOrder, updateOrder, updateOrderStatus, 
+        payForOrder, splitOrder, voidOrder, printerDevice, connectToPrinter, 
+        storeProfile, printOrderViaBrowser, requestPassword,
+        isStoreOpen, isShiftLoading, setView 
+    } = useAppContext();
+    
     const [cart, setCart] = useState<CartItem[]>([]);
     const [selectedCategory, setSelectedCategory] = useState<Category>('All');
     const [activeOrder, setActiveOrder] = useState<Order | null>(null);
@@ -250,6 +256,42 @@ const POSView: React.FC = () => {
             alert('Gagal membaca QR Code. Pastikan ini QR Pesanan yang benar.');
         }
     };
+
+    // --- SHIFT CHECK & BLOCKING ---
+    if (isShiftLoading) {
+        return (
+            <div className="flex flex-col items-center justify-center h-full w-full bg-gray-50">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-4 border-orange-500 mb-4"></div>
+                <p className="font-bold text-gray-600">Memeriksa Status Shift...</p>
+            </div>
+        );
+    }
+
+    if (!isStoreOpen) {
+        return (
+            <div className="flex flex-col items-center justify-center h-full w-full bg-gray-100 p-6 relative overflow-hidden">
+                <div className="absolute inset-0 bg-orange-600 opacity-10 pattern-dots"></div>
+                <div className="bg-white p-10 rounded-3xl shadow-2xl max-w-md w-full text-center relative z-10 border border-gray-200">
+                    <div className="w-24 h-24 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                        </svg>
+                    </div>
+                    <h2 className="text-3xl font-black text-gray-900 mb-2">Operasional Tutup</h2>
+                    <p className="text-gray-500 mb-8 font-medium">Anda harus membuka shift terlebih dahulu untuk melakukan transaksi.</p>
+                    <button 
+                        onClick={() => setView('shift')} 
+                        className={`w-full bg-${theme}-600 text-white font-bold py-4 rounded-xl hover:bg-${theme}-700 shadow-xl transition-all transform hover:scale-[1.02] flex items-center justify-center gap-2`}
+                    >
+                        Buka Menu Keuangan
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="flex h-full w-full bg-gray-50 relative overflow-hidden">

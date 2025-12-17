@@ -291,7 +291,7 @@ const ExpenseManagement = ({ theme }: { theme: string }) => {
 }
 
 const ShiftView: React.FC = () => {
-    const { activeShift, expenses, closeShift, deleteAndResetShift, requestPassword, startShift, logout, storeProfile, printerDevice } = useAppContext();
+    const { activeShift, expenses, closeShift, deleteAndResetShift, requestPassword, startShift, logout, storeProfile, printerDevice, isShiftLoading } = useAppContext();
     const [isCloseModalOpen, setCloseModalOpen] = useState(false);
     const [shiftSummary, setShiftSummary] = useState<ShiftSummary | null>(null);
     const [activeTab, setActiveTab] = useState<'summary' | 'expenses'>('summary');
@@ -307,6 +307,14 @@ const ShiftView: React.FC = () => {
             }
         });
     };
+
+    if (isShiftLoading) {
+        return (
+            <div className="flex items-center justify-center h-full bg-gray-50">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-4 border-orange-500"></div>
+            </div>
+        );
+    }
 
     // If shift summary exists (just closed), show it
     if (shiftSummary) {
