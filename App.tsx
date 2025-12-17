@@ -188,6 +188,9 @@ const App: React.FC = () => {
     // UI State
     const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
     const [tables, setTables] = useLocalStorage<Table[]>(`pos-tables-${activeBranchId}`, []); // Tables still local for now/printer config
+    
+    // New: Global Loading State
+    const [isGlobalLoading, setIsGlobalLoading] = useState(false);
 
     // --- INITIAL DATA LOADING ---
     useEffect(() => {
@@ -334,13 +337,13 @@ const App: React.FC = () => {
         setStoreProfile(profile);
     };
 
-    // --- SHIFT LOGIC (CLOUD) ---
+    // --- SHIFT LOGIC (STRICTLY CLOUD) ---
+    // Updated to wait for cloud response and NOT optimistically update
     const startShift = async (startCash: number) => {
-        console.warn("🔘 [App.tsx] startShift Triggered. StartCash:", startCash);
+        console.warn("🔘 [App.tsx] Request to Start Shift...");
+        setIsGlobalLoading(true); // Show spinner
         
         const newShiftId = Date.now().toString();
-        // IMPORTANT: Include createdBy so database foreign keys work
-        // If currentUser.id is 'owner' (local), the cloud function will remap it to 'owner-1'
         const newShift: Shift = { 
             id: newShiftId, 
             start: Date.now(), 
@@ -355,18 +358,17 @@ const App: React.FC = () => {
             createdBy: currentUser?.id 
         };
         
-        console.warn("🔘 [App.tsx] Calling startShiftInCloud...");
-        // Wait for cloud confirmation to ensure it's saved in DB
-        const success = await startShiftInCloud(newShift);
+        // WAIT for the database to return the inserted record
+        const confirmedShift = await startShiftInCloud(newShift);
+        setIsGlobalLoading(false); // Hide spinner
         
-        if (success) {
-            console.warn("✅ [App.tsx] Shift successfully started via Cloud");
-            // Optimistic update - although subscription will also catch it
-            setActiveShift(newShift);
+        if (confirmedShift) {
+            console.warn("✅ [App.tsx] Database confirmed Shift. Updating UI.");
+            setActiveShift(confirmedShift);
             setExpenses([]);
         } else {
-            console.error("🔴 [App.tsx] startShiftInCloud returned false");
-            alert("Gagal membuka shift. Periksa koneksi internet atau coba lagi.");
+            console.error("🔴 [App.tsx] Database failed to return Shift. Aborting UI update.");
+            alert("Gagal membuka shift. Pastikan koneksi internet stabil.");
         }
     };
 
@@ -549,6 +551,14 @@ const App: React.FC = () => {
     return (
         <ErrorBoundary>
             <AppContext.Provider value={contextValue}>
+                {isGlobalLoading && (
+                    <div className="fixed inset-0 z-[100] bg-black/50 flex items-center justify-center backdrop-blur-sm">
+                        <div className="bg-white p-6 rounded-2xl flex flex-col items-center animate-scale-in">
+                            <div className="animate-spin rounded-full h-12 w-12 border-b-4 border-orange-600 mb-4"></div>
+                            <p className="font-bold text-gray-800">Menghubungkan Database...</p>
+                        </div>
+                    </div>
+                )}
                 <OfflineIndicator />
                 {passwordRequest && <PasswordModal title={passwordRequest.title} onConfirm={handlePasswordConfirm} onCancel={() => setPasswordRequest(null)} theme={themeColor} />}
                 <Suspense fallback={null}>
