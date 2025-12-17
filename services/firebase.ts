@@ -683,3 +683,4 @@ export const updateAttendanceInCloud = async (id: string, data: Partial<Attendan
 };
 
 export const setStoreStatus = async (branchId: string, isOpen: boolean) => {};
+
