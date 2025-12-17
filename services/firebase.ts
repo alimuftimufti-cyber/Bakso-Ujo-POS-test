@@ -132,35 +132,31 @@ export const subscribeToShifts = (branchId: string, onShiftChange: (shift: Shift
 };
 
 // --- SUPER SELF-HEALING START SHIFT ---
-export const startShiftInCloud = async (shift: Shift) => {
-    console.group("🚀 START SHIFT PROCESS (Self-Healing)");
-    console.warn("📥 [DEBUG] START SHIFT DATA:", shift);
+// UPDATED: Returns Shift object if success, null if failed.
+export const startShiftInCloud = async (shift: Shift): Promise<Shift | null> => {
+    console.warn("☁️ [CLOUD] Memulai proses simpan Shift ke Database...");
     
     try {
         const branchId = shift.branchId || 'pusat';
         const userId = (shift.createdBy === 'owner' || !shift.createdBy) ? 'owner-1' : shift.createdBy;
 
         // 1. CEK & BUAT CABANG (Branch)
-        console.warn(`🔍 Checking Branch: ${branchId}`);
         const { data: branchCheck } = await supabase.from('branches').select('id').eq('id', branchId).single();
         if (!branchCheck) {
             console.warn(`⚠️ Branch '${branchId}' missing. Creating...`);
             const branchInfo = initialBranches.find(b => b.id === branchId) || { id: branchId, name: 'Cabang Utama', address: '-' };
-            const { error: brErr } = await supabase.from('branches').insert({
+            await supabase.from('branches').insert({
                 id: branchInfo.id,
                 name: branchInfo.name,
                 address: branchInfo.address,
                 settings: { themeColor: 'orange' }
             });
-            if (brErr) throw new Error(`Gagal membuat cabang: ${brErr.message}`);
         }
 
-        // 2. CEK & BUAT USER (User) - Mencegah Error FK created_by
-        console.warn(`🔍 Checking User: ${userId}`);
+        // 2. CEK & BUAT USER (User)
         const { data: userCheck } = await supabase.from('users').select('id').eq('id', userId).single();
         if (!userCheck) {
-            console.warn(`⚠️ User '${userId}' missing. Creating...`);
-            const { error: usrErr } = await supabase.from('users').insert({
+            await supabase.from('users').insert({
                 id: userId,
                 name: 'Super Owner',
                 role: 'owner',
@@ -168,16 +164,12 @@ export const startShiftInCloud = async (shift: Shift) => {
                 attendance_pin: '9999',
                 branch_id: branchId
             });
-            if (usrErr) {
-                console.warn("⚠️ Gagal auto-create user (mungkin sudah ada atau error lain), mencoba lanjut tanpa user ID...", usrErr);
-            }
         }
 
         // 3. PREPARE PAYLOAD
         const payload: any = {
             id: shift.id,
             branch_id: branchId,
-            // Convert to string to ensure BIGINT safety
             start_time: shift.start.toString(), 
             start_cash: shift.start_cash,
             revenue: 0,
@@ -185,49 +177,65 @@ export const startShiftInCloud = async (shift: Shift) => {
             non_cash_revenue: 0,
             total_expenses: 0,
             transactions_count: 0,
-            // Jika user berhasil dibuat/ada, gunakan IDnya. Jika tidak, null.
             created_by: userCheck || (userId === 'owner-1') ? userId : null 
         };
 
-        console.warn("📦 Payload for Insert:", payload);
-
-        // 4. INSERT
-        const { data: insertedData, error } = await supabase.from('shifts').insert(payload).select();
+        // 4. INSERT & RETURN DB DATA
+        // KITA MENGGUNAKAN .select() AGAR MENDAPATKAN DATA RESMI DARI DB
+        const { data: insertedData, error } = await supabase.from('shifts').insert(payload).select().single();
 
         if (error) {
             console.error("🔴 DB Error:", error);
-            // Retry Mechanism: If user FK still fails, try inserting WITHOUT created_by
-            if (error.code === '23503') { // Foreign Key Violation
-                console.warn("⚠️ Foreign Key Error. Retrying without 'created_by'...");
+            // Retry Mechanism for FK
+            if (error.code === '23503') { 
+                console.warn("⚠️ Retrying without 'created_by'...");
                 delete payload.created_by;
-                const { error: retryError, data: retryData } = await supabase.from('shifts').insert(payload).select();
+                const { error: retryError, data: retryData } = await supabase.from('shifts').insert(payload).select().single();
                 
                 if (retryError) throw retryError;
                 
-                if (retryData && retryData.length > 0) {
-                    console.warn("✅ Success (Retry):", retryData);
-                    alert(`BERHASIL (RETRY)! Shift Tersimpan.\nID: ${retryData[0].id}`);
-                    console.groupEnd();
-                    return true;
+                if (retryData) {
+                    console.log("✅ Success (Retry):", retryData);
+                    // Map DB result back to App Shift Type
+                    return {
+                        id: retryData.id,
+                        start: Number(retryData.start_time),
+                        start_cash: Number(retryData.start_cash),
+                        revenue: 0,
+                        transactions: 0,
+                        cashRevenue: 0,
+                        nonCashRevenue: 0,
+                        totalDiscount: 0,
+                        branchId: retryData.branch_id,
+                        createdBy: null
+                    };
                 }
             }
             throw error;
         }
 
-        if (!insertedData || insertedData.length === 0) {
-            throw new Error("Insert berhasil (201) tapi data tidak dikembalikan. Cek RLS Policy 'SELECT'.");
-        }
+        if (!insertedData) throw new Error("No data returned from DB");
 
-        console.warn("✅ Success:", insertedData);
-        alert(`SUKSES! Shift Berhasil Dibuka.\n\nID Shift Database: ${insertedData[0].id}\nWaktu: ${new Date(Number(insertedData[0].start_time)).toLocaleTimeString()}`);
-        console.groupEnd();
-        return true;
+        console.log("✅ Shift Tersimpan di Cloud:", insertedData);
+        
+        // Return mapped object
+        return {
+            id: insertedData.id,
+            start: Number(insertedData.start_time),
+            start_cash: Number(insertedData.start_cash),
+            revenue: 0,
+            transactions: 0,
+            cashRevenue: 0,
+            nonCashRevenue: 0,
+            totalDiscount: 0,
+            branchId: insertedData.branch_id,
+            createdBy: insertedData.created_by
+        };
 
     } catch (e: any) {
         console.error("🔴 CRITICAL ERROR:", e);
-        alert(`GAGAL FATAL: ${e.message || JSON.stringify(e)}`);
-        console.groupEnd();
-        return false;
+        alert(`GAGAL MENYIMPAN KE DATABASE: ${e.message}`);
+        return null;
     }
 };
 
