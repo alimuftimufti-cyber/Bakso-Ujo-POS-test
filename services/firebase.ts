@@ -138,24 +138,18 @@ export const subscribeToShifts = (branchId: string, onShiftChange: (shift: Shift
 };
 
 export const startShiftInCloud = async (shift: Shift) => {
-    console.log("🚀 [DEBUG] Memulai proses startShiftInCloud...");
-    console.log("📥 [DEBUG] Data Shift Lokal:", shift);
+    console.group("🚀 START SHIFT DEBUG");
+    console.log("1. Original Shift Data:", shift);
 
     try {
         // --- 1. SELF HEALING: CHECK BRANCH DEPENDENCY ---
         const branchId = shift.branchId || 'pusat';
-        console.log(`🔍 [DEBUG] Memeriksa keberadaan Cabang ID: '${branchId}' di database...`);
         
-        const { data: branchCheck, error: branchCheckError } = await supabase.from('branches').select('id').eq('id', branchId).single();
+        // Cek apakah branch ada
+        const { data: branchCheck } = await supabase.from('branches').select('id').eq('id', branchId).single();
         
-        if (branchCheckError && branchCheckError.code !== 'PGRST116') {
-             console.error("🔴 [DEBUG] Error cek cabang:", branchCheckError);
-        }
-
         if (!branchCheck) {
-            console.warn(`⚠️ [DEBUG] Cabang '${branchId}' TIDAK DITEMUKAN. Mencoba membuat otomatis...`);
-            
-            // Cari data default dari data.ts atau gunakan placeholder
+            console.warn(`⚠️ Branch '${branchId}' missing. Auto-creating...`);
             const branchInfo = initialBranches.find(b => b.id === branchId) || { id: branchId, name: 'Cabang Utama', address: '-' };
             
             const { error: createBranchError } = await supabase.from('branches').insert({
@@ -166,20 +160,19 @@ export const startShiftInCloud = async (shift: Shift) => {
             });
             
             if (createBranchError) {
-                console.error("🔴 [DEBUG] Gagal membuat cabang otomatis:", createBranchError);
-                alert(`GAGAL FATAL: Cabang '${branchId}' tidak ada dan tidak bisa dibuat. Error: ${createBranchError.message}`);
+                console.error("🔴 Fail auto-create branch:", createBranchError);
+                alert(`Error System: Gagal inisialisasi Cabang. (${createBranchError.message})`);
+                console.groupEnd();
                 return false;
             }
-            console.log("✅ [DEBUG] Cabang berhasil dibuat otomatis.");
-        } else {
-            console.log("✅ [DEBUG] Cabang ditemukan.");
         }
 
         // --- 2. PREPARE PAYLOAD ---
+        // Pastikan angka tidak NaN dan tipe data sesuai
         const payload: any = {
             id: shift.id,
             branch_id: branchId,
-            start_time: shift.start,
+            start_time: shift.start, // BigInt in DB, number in JS is fine usually
             start_cash: shift.start_cash,
             revenue: 0,
             cash_revenue: 0,
@@ -190,45 +183,71 @@ export const startShiftInCloud = async (shift: Shift) => {
 
         // Mapping User ID
         if (shift.createdBy === 'owner') {
-            payload.created_by = 'owner-1'; // Mapping owner local ke DB seed
+            payload.created_by = 'owner-1';
         } else if (shift.createdBy) {
             payload.created_by = shift.createdBy;
         }
         
-        console.log("📦 [DEBUG] PAYLOAD FINAL UNTUK INSERT:", payload);
+        console.log("2. Payload to Send:", JSON.stringify(payload, null, 2));
 
-        // --- 3. ATTEMPT INSERT ---
-        const { data: insertData, error } = await supabase.from('shifts').insert(payload).select();
+        // --- 3. ATTEMPT INSERT WITH SELECT ---
+        // PENTING: .select() wajib ada untuk cek apakah RLS memblokir return data
+        const { data: insertedData, error } = await supabase.from('shifts').insert(payload).select();
 
+        // JIKA ERROR DATABASE
         if (error) {
-            console.error("🔴 [DEBUG] INSERT SHIFT GAGAL (Percobaan 1):", error);
-            console.error("🔴 [DEBUG] Detail Error:", JSON.stringify(error, null, 2));
+            console.error("🔴 DB Error (Try 1):", error);
             
-            // Error 23503: Foreign Key Violation.
+            // Error 23503: Foreign Key Violation (User ID tidak valid di DB)
             if (error.code === '23503') {
-                console.warn("⚠️ [DEBUG] Foreign Key Error (kemungkinan User ID tidak ada di tabel users). Mencoba insert TANPA created_by...");
+                console.warn("⚠️ Foreign Key Error detected. Retrying without 'created_by'...");
                 delete payload.created_by;
                 
-                const { error: retryError } = await supabase.from('shifts').insert(payload);
+                // RETRY
+                const { data: retryData, error: retryError } = await supabase.from('shifts').insert(payload).select();
+                
                 if (retryError) {
-                    console.error("🔴 [DEBUG] INSERT SHIFT GAGAL (Percobaan 2 - Retry):", retryError);
-                    alert(`Gagal Membuka Shift (Database Error): ${retryError.message}\nCode: ${retryError.code}\nCek Console untuk detail.`);
+                    console.error("🔴 DB Error (Retry):", retryError);
+                    alert(`Gagal Database: ${retryError.message} (Code: ${retryError.code})`);
+                    console.groupEnd();
                     return false;
                 }
-                console.log("✅ [DEBUG] Insert Shift BERHASIL (setelah retry tanpa user).");
+
+                // Cek Validasi Data Retry
+                if (!retryData || retryData.length === 0) {
+                    console.error("🔴 CRITICAL: Retry Success but NO DATA returned. RLS Blocked?");
+                    alert("Gagal Menyimpan Shift! Data ditolak oleh server (RLS Policy). Harap cek pengaturan Database di Supabase.");
+                    console.groupEnd();
+                    return false;
+                }
+
+                console.log("✅ Success (Retry):", retryData);
+                console.groupEnd();
                 return true; 
             } else {
-                alert(`Gagal Membuka Shift: ${error.message}\nCode: ${error.code}\nCek Console (F12) untuk detail.`);
+                alert(`Gagal Database: ${error.message} (Code: ${error.code})`);
+                console.groupEnd();
                 return false;
             }
         }
         
-        console.log("✅ [DEBUG] Insert Shift BERHASIL (Percobaan 1). Data:", insertData);
+        // JIKA TIDAK ERROR TAPI DATA KOSONG (RLS SILENT FAIL)
+        if (!insertedData || insertedData.length === 0) {
+            console.error("🔴 CRITICAL: Insert reported success (201) but NO DATA returned.");
+            console.error("Penyebab: Row Level Security (RLS) aktif tapi tidak ada Policy yang mengizinkan INSERT.");
+            alert("Gagal Menyimpan Shift! Data ditolak diam-diam oleh server.\n\nPenyebab: RLS Policy belum disetting di Supabase.\nSolusi: Matikan RLS atau tambahkan Policy 'Enable Insert for All'.");
+            console.groupEnd();
+            return false;
+        }
+        
+        console.log("✅ Success (Try 1):", insertedData);
+        console.groupEnd();
         return true; 
 
     } catch (e: any) {
-        console.error("🔴 [DEBUG] SYSTEM EXCEPTION:", e);
-        alert(`Terjadi kesalahan sistem saat membuka shift: ${e.message}`);
+        console.error("🔴 EXCEPTION:", e);
+        alert(`System Exception: ${e.message}`);
+        console.groupEnd();
         return false;
     }
 };
