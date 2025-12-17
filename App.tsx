@@ -336,6 +336,8 @@ const App: React.FC = () => {
 
     // --- SHIFT LOGIC (CLOUD) ---
     const startShift = async (startCash: number) => {
+        console.warn("🔘 [App.tsx] startShift Triggered. StartCash:", startCash);
+        
         const newShiftId = Date.now().toString();
         // IMPORTANT: Include createdBy so database foreign keys work
         // If currentUser.id is 'owner' (local), the cloud function will remap it to 'owner-1'
@@ -353,14 +355,17 @@ const App: React.FC = () => {
             createdBy: currentUser?.id 
         };
         
+        console.warn("🔘 [App.tsx] Calling startShiftInCloud...");
         // Wait for cloud confirmation to ensure it's saved in DB
         const success = await startShiftInCloud(newShift);
         
         if (success) {
+            console.warn("✅ [App.tsx] Shift successfully started via Cloud");
             // Optimistic update - although subscription will also catch it
             setActiveShift(newShift);
             setExpenses([]);
         } else {
+            console.error("🔴 [App.tsx] startShiftInCloud returned false");
             alert("Gagal membuka shift. Periksa koneksi internet atau coba lagi.");
         }
     };
