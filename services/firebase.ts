@@ -9,10 +9,9 @@ export const currentProjectId = "Supabase Project";
 
 const handleError = (error: any, context: string) => {
     if (error) {
-        console.error(`Error in ${context}:`, error);
+        console.error(`🔴 ERROR [${context}]:`, error);
         // Tampilkan alert agar user tahu jika gagal koneksi atau constraint error
         if (context === 'startShift') {
-            // Kita handle alert spesifik di dalam fungsi startShiftInCloud agar lebih detail
             console.warn("Suppressing global alert for startShift to handle locally");
         } else {
              // alert(`Error ${context}: ${error.message || JSON.stringify(error)}`);
@@ -139,15 +138,23 @@ export const subscribeToShifts = (branchId: string, onShiftChange: (shift: Shift
 };
 
 export const startShiftInCloud = async (shift: Shift) => {
+    console.log("🚀 [DEBUG] Memulai proses startShiftInCloud...");
+    console.log("📥 [DEBUG] Data Shift Lokal:", shift);
+
     try {
         // --- 1. SELF HEALING: CHECK BRANCH DEPENDENCY ---
-        // Jika database kosong/reset, shift akan gagal masuk karena branch_id tidak ada di tabel branches.
-        // Kita cek dulu, jika tidak ada, kita buatkan otomatis.
         const branchId = shift.branchId || 'pusat';
-        const { data: branchCheck } = await supabase.from('branches').select('id').eq('id', branchId).single();
+        console.log(`🔍 [DEBUG] Memeriksa keberadaan Cabang ID: '${branchId}' di database...`);
         
+        const { data: branchCheck, error: branchCheckError } = await supabase.from('branches').select('id').eq('id', branchId).single();
+        
+        if (branchCheckError && branchCheckError.code !== 'PGRST116') {
+             console.error("🔴 [DEBUG] Error cek cabang:", branchCheckError);
+        }
+
         if (!branchCheck) {
-            console.log(`Cabang '${branchId}' tidak ditemukan di database. Membuat otomatis...`);
+            console.warn(`⚠️ [DEBUG] Cabang '${branchId}' TIDAK DITEMUKAN. Mencoba membuat otomatis...`);
+            
             // Cari data default dari data.ts atau gunakan placeholder
             const branchInfo = initialBranches.find(b => b.id === branchId) || { id: branchId, name: 'Cabang Utama', address: '-' };
             
@@ -159,10 +166,13 @@ export const startShiftInCloud = async (shift: Shift) => {
             });
             
             if (createBranchError) {
-                console.error("Gagal membuat cabang otomatis:", createBranchError);
-                alert(`Gagal inisialisasi cabang: ${createBranchError.message}`);
+                console.error("🔴 [DEBUG] Gagal membuat cabang otomatis:", createBranchError);
+                alert(`GAGAL FATAL: Cabang '${branchId}' tidak ada dan tidak bisa dibuat. Error: ${createBranchError.message}`);
                 return false;
             }
+            console.log("✅ [DEBUG] Cabang berhasil dibuat otomatis.");
+        } else {
+            console.log("✅ [DEBUG] Cabang ditemukan.");
         }
 
         // --- 2. PREPARE PAYLOAD ---
@@ -178,42 +188,46 @@ export const startShiftInCloud = async (shift: Shift) => {
             transactions_count: 0
         };
 
-        // Mapping User ID: Jika 'owner' (lokal), coba map ke 'owner-1' (seed DB umum)
-        // atau gunakan ID asli jika ada.
+        // Mapping User ID
         if (shift.createdBy === 'owner') {
-            payload.created_by = 'owner-1';
+            payload.created_by = 'owner-1'; // Mapping owner local ke DB seed
         } else if (shift.createdBy) {
             payload.created_by = shift.createdBy;
         }
+        
+        console.log("📦 [DEBUG] PAYLOAD FINAL UNTUK INSERT:", payload);
 
         // --- 3. ATTEMPT INSERT ---
-        const { error } = await supabase.from('shifts').insert(payload);
+        const { data: insertData, error } = await supabase.from('shifts').insert(payload).select();
 
         if (error) {
-            console.error("Gagal insert shift pertama kali:", error);
+            console.error("🔴 [DEBUG] INSERT SHIFT GAGAL (Percobaan 1):", error);
+            console.error("🔴 [DEBUG] Detail Error:", JSON.stringify(error, null, 2));
             
             // Error 23503: Foreign Key Violation.
-            // Biasanya terjadi karena User ID (created_by) tidak ada di tabel users database.
-            // Solusi: Coba insert lagi TANPA created_by (biarkan null).
             if (error.code === '23503') {
-                console.warn("Foreign Key Error pada User ID. Mencoba menyimpan shift tanpa User ID...");
+                console.warn("⚠️ [DEBUG] Foreign Key Error (kemungkinan User ID tidak ada di tabel users). Mencoba insert TANPA created_by...");
                 delete payload.created_by;
                 
                 const { error: retryError } = await supabase.from('shifts').insert(payload);
                 if (retryError) {
-                    alert(`Gagal Membuka Shift (Database Error): ${retryError.message}\nCode: ${retryError.code}`);
+                    console.error("🔴 [DEBUG] INSERT SHIFT GAGAL (Percobaan 2 - Retry):", retryError);
+                    alert(`Gagal Membuka Shift (Database Error): ${retryError.message}\nCode: ${retryError.code}\nCek Console untuk detail.`);
                     return false;
                 }
-                return true; // Sukses pada percobaan kedua
+                console.log("✅ [DEBUG] Insert Shift BERHASIL (setelah retry tanpa user).");
+                return true; 
             } else {
-                alert(`Gagal Membuka Shift: ${error.message}\nCode: ${error.code}`);
+                alert(`Gagal Membuka Shift: ${error.message}\nCode: ${error.code}\nCek Console (F12) untuk detail.`);
                 return false;
             }
         }
         
-        return true; // Sukses pada percobaan pertama
+        console.log("✅ [DEBUG] Insert Shift BERHASIL (Percobaan 1). Data:", insertData);
+        return true; 
 
     } catch (e: any) {
+        console.error("🔴 [DEBUG] SYSTEM EXCEPTION:", e);
         alert(`Terjadi kesalahan sistem saat membuka shift: ${e.message}`);
         return false;
     }
