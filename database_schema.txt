@@ -1,0 +1,197 @@
+
+-- ==========================================
+-- SKEMA DATABASE POS BAKSO UJO (SUPABASE)
+-- ==========================================
+-- SCRIPT UPDATE (Jalankan ulang di SQL Editor Supabase untuk mereset struktur)
+
+-- 1. RESET DATABASE
+DROP TABLE IF EXISTS order_items CASCADE;
+DROP TABLE IF EXISTS orders CASCADE;
+DROP TABLE IF EXISTS attendance CASCADE;
+DROP TABLE IF EXISTS expenses CASCADE;
+DROP TABLE IF EXISTS shifts CASCADE;
+DROP TABLE IF EXISTS product_ingredients CASCADE;
+DROP TABLE IF EXISTS ingredients CASCADE;
+DROP TABLE IF EXISTS products CASCADE;
+DROP TABLE IF EXISTS categories CASCADE;
+DROP TABLE IF EXISTS users CASCADE;
+DROP TABLE IF EXISTS branches CASCADE;
+
+-- 2. MEMBUAT TABEL
+
+-- Tabel Cabang (Updated: Added settings column)
+CREATE TABLE branches (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    address TEXT,
+    settings JSONB, -- Menyimpan StoreProfile (Tax, Service, Logo, Printer, dll)
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- Tabel User
+CREATE TABLE users (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    pin TEXT,
+    attendance_pin TEXT,
+    role TEXT NOT NULL CHECK (role IN ('owner', 'admin', 'cashier', 'kitchen', 'staff')),
+    branch_id TEXT REFERENCES branches(id),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- Tabel Kategori
+CREATE TABLE categories (
+    id SERIAL PRIMARY KEY,
+    name TEXT UNIQUE NOT NULL
+);
+
+-- Tabel Produk
+CREATE TABLE products (
+    id SERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    price NUMERIC NOT NULL,
+    category_id INTEGER REFERENCES categories(id),
+    image_url TEXT,
+    stock INTEGER DEFAULT 0,
+    min_stock INTEGER DEFAULT 5,
+    is_active BOOLEAN DEFAULT true,
+    branch_id TEXT REFERENCES branches(id)
+);
+
+-- Tabel Bahan Baku
+CREATE TABLE ingredients (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    unit TEXT NOT NULL,
+    stock NUMERIC DEFAULT 0,
+    min_stock NUMERIC DEFAULT 5,
+    type TEXT CHECK (type IN ('raw', 'spice', 'packaging', 'equipment', 'other')),
+    branch_id TEXT REFERENCES branches(id)
+);
+
+-- Tabel Shift (Updated: Added totals columns explicitly)
+CREATE TABLE shifts (
+    id TEXT PRIMARY KEY,
+    branch_id TEXT REFERENCES branches(id),
+    start_time BIGINT NOT NULL,
+    end_time BIGINT, -- NULL jika shift masih aktif
+    start_cash NUMERIC NOT NULL,
+    closing_cash NUMERIC,
+    revenue NUMERIC DEFAULT 0,
+    cash_revenue NUMERIC DEFAULT 0,
+    non_cash_revenue NUMERIC DEFAULT 0,
+    total_expenses NUMERIC DEFAULT 0,
+    total_discount NUMERIC DEFAULT 0,
+    transactions_count INTEGER DEFAULT 0,
+    created_by TEXT REFERENCES users(id) -- ID User yang membuka shift
+);
+
+-- Tabel Pengeluaran
+CREATE TABLE expenses (
+    id SERIAL PRIMARY KEY,
+    shift_id TEXT REFERENCES shifts(id),
+    description TEXT NOT NULL,
+    amount NUMERIC NOT NULL,
+    created_at BIGINT NOT NULL
+);
+
+-- Tabel Pesanan
+CREATE TABLE orders (
+    id TEXT PRIMARY KEY,
+    sequential_id SERIAL,
+    branch_id TEXT REFERENCES branches(id),
+    shift_id TEXT REFERENCES shifts(id),
+    customer_name TEXT NOT NULL,
+    type TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    payment_method TEXT,
+    payment_status TEXT DEFAULT 'unpaid',
+    subtotal NUMERIC NOT NULL,
+    discount NUMERIC DEFAULT 0,
+    tax NUMERIC DEFAULT 0,
+    service NUMERIC DEFAULT 0,
+    total NUMERIC NOT NULL,
+    created_at BIGINT NOT NULL,
+    completed_at BIGINT,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
+);
+
+-- Tabel Item Pesanan
+CREATE TABLE order_items (
+    id SERIAL PRIMARY KEY,
+    order_id TEXT REFERENCES orders(id),
+    product_id INTEGER REFERENCES products(id),
+    product_name TEXT NOT NULL,
+    price NUMERIC NOT NULL,
+    quantity INTEGER NOT NULL,
+    note TEXT
+);
+
+-- Tabel Absensi
+CREATE TABLE attendance (
+    id TEXT PRIMARY KEY,
+    user_id TEXT REFERENCES users(id),
+    user_name TEXT NOT NULL,
+    branch_id TEXT REFERENCES branches(id),
+    date TEXT NOT NULL,
+    clock_in BIGINT NOT NULL,
+    clock_out BIGINT,
+    status TEXT DEFAULT 'Present',
+    photo_url TEXT,
+    lat NUMERIC,
+    lng NUMERIC
+);
+
+-- 3. REALTIME
+ALTER PUBLICATION supabase_realtime ADD TABLE orders;
+ALTER PUBLICATION supabase_realtime ADD TABLE order_items;
+ALTER PUBLICATION supabase_realtime ADD TABLE branches;
+ALTER PUBLICATION supabase_realtime ADD TABLE shifts; -- Agar shift status sync realtime
+
+-- 4. KEAMANAN (RLS)
+ALTER TABLE branches ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Public Access Branches" ON branches FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Public Access Users" ON users FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE categories ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Public Access Categories" ON categories FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE products ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Public Access Products" ON products FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE ingredients ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Public Access Ingredients" ON ingredients FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE shifts ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Public Access Shifts" ON shifts FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE expenses ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Public Access Expenses" ON expenses FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Public Access Orders" ON orders FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE order_items ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Public Access Order Items" ON order_items FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE attendance ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Public Access Attendance" ON attendance FOR ALL USING (true) WITH CHECK (true);
+
+-- 5. SEEDING DATA AWAL
+INSERT INTO branches (id, name, address, settings) VALUES
+('pusat', 'Bakso Ujo Pusat', 'Jl. Utama No. 1', '{"taxRate": 0, "enableTax": false, "themeColor": "orange", "serviceChargeRate": 0, "enableServiceCharge": false, "enableTableInput": true}'::jsonb),
+('cabang-1', 'Bakso Ujo Pasar', 'Jl. Pasar Baru No. 5', '{"taxRate": 0, "enableTax": false, "themeColor": "blue", "serviceChargeRate": 0, "enableServiceCharge": false, "enableTableInput": false}'::jsonb);
+
+INSERT INTO categories (name) VALUES ('Bakso'), ('Mie Ayam'), ('Tambahan'), ('Makanan'), ('Kriuk'), ('Minuman');
+
+INSERT INTO products (name, price, category_id, image_url) VALUES
+('Bakso Polos', 15000, 1, 'https://picsum.photos/400/300?random=1'),
+('Bakso Komplit', 23000, 1, 'https://picsum.photos/400/300?random=2'),
+('Mie Ayam', 15000, 2, 'https://picsum.photos/400/300?random=8'),
+('Es Teh Manis', 5000, 6, 'https://picsum.photos/400/300?random=26');
+
+INSERT INTO users (id, name, pin, attendance_pin, role, branch_id) VALUES
+('owner-1', 'Super Owner', '9999', '9999', 'owner', 'pusat'),
+('admin-pusat', 'Admin Pusat', '1234', '1111', 'admin', 'pusat');
