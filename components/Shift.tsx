@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo } from 'react';
 import { useAppContext } from '../types';
 import type { Shift, ShiftSummary, Expense, StoreProfile } from '../types';
@@ -23,8 +24,10 @@ const StartShiftForm = ({ onStart, onLogout, theme }: { onStart: (amount: number
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
+        console.warn("🔘 [UI] Tombol 'Buka Operasional' Ditekan");
         const cash = parseFloat(startCash);
         if (!isNaN(cash) && cash >= 0) {
+            console.warn("🔘 [UI] Validasi OK. Mengirim ke App.tsx dengan nilai:", cash);
             onStart(cash);
         } else {
             alert('Masukkan jumlah modal awal yang valid.');
