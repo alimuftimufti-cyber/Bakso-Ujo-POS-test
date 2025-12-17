@@ -10,6 +10,12 @@ export const currentProjectId = "Supabase Project";
 const handleError = (error: any, context: string) => {
     if (error) {
         console.error(`🔴 ERROR [${context}]:`, error);
+        // Tampilkan alert agar user tahu jika gagal koneksi atau constraint error
+        if (context === 'startShift') {
+            console.warn("Suppressing global alert for startShift to handle locally");
+        } else {
+             // alert(`Error ${context}: ${error.message || JSON.stringify(error)}`);
+        }
     }
 };
 
@@ -34,7 +40,7 @@ export const getStoreProfileFromCloud = async (branchId: string): Promise<StoreP
     
     return {
         ...defaultStoreProfile,
-        ...settings, 
+        ...settings, // Override defaults with DB settings
         name: data.name,
         address: data.address,
         branchId: branchId
@@ -72,7 +78,7 @@ export const addBranchToCloud = async (branch: Branch) => {
         id: branch.id,
         name: branch.name,
         address: branch.address,
-        settings: { themeColor: 'orange' } 
+        settings: { themeColor: 'orange' } // Default settings
     });
     handleError(error, 'addBranch');
 };
@@ -131,99 +137,98 @@ export const subscribeToShifts = (branchId: string, onShiftChange: (shift: Shift
     return () => { supabase.removeChannel(channel); };
 };
 
-// --- SUPER SELF-HEALING START SHIFT ---
 export const startShiftInCloud = async (shift: Shift) => {
-    console.group("🚀 START SHIFT PROCESS (Self-Healing)");
-    
-    try {
-        const branchId = shift.branchId || 'pusat';
-        const userId = (shift.createdBy === 'owner' || !shift.createdBy) ? 'owner-1' : shift.createdBy;
+    console.log("🚀 [DEBUG] Memulai proses startShiftInCloud...");
+    console.log("📥 [DEBUG] Data Shift Lokal:", shift);
 
-        // 1. CEK & BUAT CABANG (Branch)
-        const { data: branchCheck } = await supabase.from('branches').select('id').eq('id', branchId).single();
+    try {
+        // --- 1. SELF HEALING: CHECK BRANCH DEPENDENCY ---
+        const branchId = shift.branchId || 'pusat';
+        console.log(`🔍 [DEBUG] Memeriksa keberadaan Cabang ID: '${branchId}' di database...`);
+        
+        const { data: branchCheck, error: branchCheckError } = await supabase.from('branches').select('id').eq('id', branchId).single();
+        
+        if (branchCheckError && branchCheckError.code !== 'PGRST116') {
+             console.error("🔴 [DEBUG] Error cek cabang:", branchCheckError);
+        }
+
         if (!branchCheck) {
-            console.log(`⚠️ Branch '${branchId}' missing. Creating...`);
+            console.warn(`⚠️ [DEBUG] Cabang '${branchId}' TIDAK DITEMUKAN. Mencoba membuat otomatis...`);
+            
+            // Cari data default dari data.ts atau gunakan placeholder
             const branchInfo = initialBranches.find(b => b.id === branchId) || { id: branchId, name: 'Cabang Utama', address: '-' };
-            const { error: brErr } = await supabase.from('branches').insert({
+            
+            const { error: createBranchError } = await supabase.from('branches').insert({
                 id: branchInfo.id,
                 name: branchInfo.name,
                 address: branchInfo.address,
                 settings: { themeColor: 'orange' }
             });
-            if (brErr) throw new Error(`Gagal membuat cabang: ${brErr.message}`);
-        }
-
-        // 2. CEK & BUAT USER (User) - Mencegah Error FK created_by
-        const { data: userCheck } = await supabase.from('users').select('id').eq('id', userId).single();
-        if (!userCheck) {
-            console.log(`⚠️ User '${userId}' missing. Creating...`);
-            const { error: usrErr } = await supabase.from('users').insert({
-                id: userId,
-                name: 'Super Owner',
-                role: 'owner',
-                pin: '9999',
-                attendance_pin: '9999',
-                branch_id: branchId
-            });
-            if (usrErr) {
-                console.warn("⚠️ Gagal auto-create user (mungkin sudah ada atau error lain), mencoba lanjut tanpa user ID...", usrErr);
+            
+            if (createBranchError) {
+                console.error("🔴 [DEBUG] Gagal membuat cabang otomatis:", createBranchError);
+                alert(`GAGAL FATAL: Cabang '${branchId}' tidak ada dan tidak bisa dibuat. Error: ${createBranchError.message}`);
+                return false;
             }
+            console.log("✅ [DEBUG] Cabang berhasil dibuat otomatis.");
+        } else {
+            console.log("✅ [DEBUG] Cabang ditemukan.");
         }
 
-        // 3. PREPARE PAYLOAD
+        // --- 2. PREPARE PAYLOAD ---
         const payload: any = {
             id: shift.id,
             branch_id: branchId,
-            // Convert to string to ensure BIGINT safety
-            start_time: shift.start.toString(), 
+            start_time: shift.start,
             start_cash: shift.start_cash,
             revenue: 0,
             cash_revenue: 0,
             non_cash_revenue: 0,
             total_expenses: 0,
-            transactions_count: 0,
-            // Jika user berhasil dibuat/ada, gunakan IDnya. Jika tidak, null.
-            created_by: userCheck || (userId === 'owner-1') ? userId : null 
+            transactions_count: 0
         };
 
-        console.log("📦 Payload:", payload);
+        // Mapping User ID
+        if (shift.createdBy === 'owner') {
+            payload.created_by = 'owner-1'; // Mapping owner local ke DB seed
+        } else if (shift.createdBy) {
+            payload.created_by = shift.createdBy;
+        }
+        
+        console.log("📦 [DEBUG] PAYLOAD FINAL UNTUK INSERT:", payload);
 
-        // 4. INSERT
-        const { data: insertedData, error } = await supabase.from('shifts').insert(payload).select();
+        // --- 3. ATTEMPT INSERT ---
+        const { data: insertData, error } = await supabase.from('shifts').insert(payload).select();
 
         if (error) {
-            console.error("🔴 DB Error:", error);
-            // Retry Mechanism: If user FK still fails, try inserting WITHOUT created_by
-            if (error.code === '23503') { // Foreign Key Violation
-                console.warn("⚠️ Foreign Key Error. Retrying without 'created_by'...");
+            console.error("🔴 [DEBUG] INSERT SHIFT GAGAL (Percobaan 1):", error);
+            console.error("🔴 [DEBUG] Detail Error:", JSON.stringify(error, null, 2));
+            
+            // Error 23503: Foreign Key Violation.
+            if (error.code === '23503') {
+                console.warn("⚠️ [DEBUG] Foreign Key Error (kemungkinan User ID tidak ada di tabel users). Mencoba insert TANPA created_by...");
                 delete payload.created_by;
-                const { error: retryError, data: retryData } = await supabase.from('shifts').insert(payload).select();
                 
-                if (retryError) throw retryError;
-                
-                if (retryData && retryData.length > 0) {
-                    console.log("✅ Success (Retry):", retryData);
-                    alert(`BERHASIL (RETRY)! Shift Tersimpan.\nID: ${retryData[0].id}`);
-                    console.groupEnd();
-                    return true;
+                const { error: retryError } = await supabase.from('shifts').insert(payload);
+                if (retryError) {
+                    console.error("🔴 [DEBUG] INSERT SHIFT GAGAL (Percobaan 2 - Retry):", retryError);
+                    alert(`Gagal Membuka Shift (Database Error): ${retryError.message}\nCode: ${retryError.code}\nCek Console untuk detail.`);
+                    return false;
                 }
+                console.log("✅ [DEBUG] Insert Shift BERHASIL (setelah retry tanpa user).");
+                return true; 
+            } else {
+                alert(`Gagal Membuka Shift: ${error.message}\nCode: ${error.code}\nCek Console (F12) untuk detail.`);
+                return false;
             }
-            throw error;
         }
-
-        if (!insertedData || insertedData.length === 0) {
-            throw new Error("Insert berhasil (201) tapi data tidak dikembalikan. Cek RLS Policy 'SELECT'.");
-        }
-
-        console.log("✅ Success:", insertedData);
-        alert(`SUKSES! Shift Berhasil Dibuka.\n\nID Shift Database: ${insertedData[0].id}\nWaktu: ${new Date(Number(insertedData[0].start_time)).toLocaleTimeString()}`);
-        console.groupEnd();
-        return true;
+        
+        console.log("✅ [DEBUG] Insert Shift BERHASIL (Percobaan 1). Data:", insertData);
+        return true; 
 
     } catch (e: any) {
-        console.error("🔴 CRITICAL ERROR:", e);
-        alert(`GAGAL FATAL: ${e.message || JSON.stringify(e)}`);
-        console.groupEnd();
+        console.error("🔴 [DEBUG] SYSTEM EXCEPTION:", e);
+        alert(`Terjadi kesalahan sistem saat membuka shift: ${e.message}`);
         return false;
     }
 };
