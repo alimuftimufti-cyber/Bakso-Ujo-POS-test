@@ -245,11 +245,38 @@ const App: React.FC = () => {
         return () => { unsubOrders(); unsubShifts(); };
     }, [activeBranchId, isDatabaseReady]);
 
+    // FIX: LOGIN SYSTEM TO FIND USER IN CLOUD
+    const loginAction = (pin: string) => {
+        // Cari user di database yang PIN-nya cocok
+        const user = users.find(u => u.pin === pin);
+        if (user) {
+            setCurrentUser(user);
+            setIsLoggedIn(true);
+            return true;
+        } else {
+            alert("PIN Salah atau User Belum Terdaftar di Database Cloud.");
+            return false;
+        }
+    };
+
     // WRAPPERS FOR CLOUD ACTIONS
     const startShift = async (cash: number) => {
         setIsGlobalLoading(true);
         const sId = Date.now().toString();
-        const newS: Shift = { id: sId, start: Date.now(), start_cash: cash, revenue: 0, transactions: 0, cashRevenue: 0, nonCashRevenue: 0, totalDiscount: 0, branchId: activeBranchId, createdBy: currentUser?.id };
+        
+        // PENTING: Gunakan ID user dari state currentUser
+        const newS: Shift = { 
+            id: sId, 
+            start: Date.now(), 
+            start_cash: cash, 
+            revenue: 0, 
+            transactions: 0, 
+            cashRevenue: 0, 
+            nonCashRevenue: 0, 
+            totalDiscount: 0, 
+            branchId: activeBranchId, 
+            createdBy: currentUser?.id || 'owner-1' // Fallback ke owner-1 jika session baru
+        };
         
         const result = await startShiftInCloud(newS);
         setIsGlobalLoading(false);
@@ -306,7 +333,7 @@ const App: React.FC = () => {
         deleteIngredient: deleteIngredientFromCloud,
         updateProductStock: updateProductStockInCloud, updateIngredientStock: updateIngredientStockInCloud,
         addBranch: addBranchToCloud, deleteBranch: deleteBranchFromCloud, switchBranch: setActiveBranchId, setView,
-        addUser: addUserToCloud, updateUser: updateUserInCloud, deleteUser: deleteUserFromCloud, loginUser: () => false, logout: () => { setIsLoggedIn(false); setAppMode('landing'); },
+        addUser: addUserToCloud, updateUser: updateUserInCloud, deleteUser: deleteUserFromCloud, loginUser: loginAction, logout: () => { setIsLoggedIn(false); setAppMode('landing'); },
         startShift, closeShift, addOrder: addOrderWrapper, 
         updateOrder: updateOrderWrapper,
         updateOrderStatus: (id, status) => updateOrderInCloud(id, { status }),
@@ -330,7 +357,7 @@ const App: React.FC = () => {
                 {isGlobalLoading && <div className="fixed inset-0 z-[100] bg-black/50 flex items-center justify-center backdrop-blur-sm"><div className="bg-white p-6 rounded-2xl flex flex-col items-center"><div className="animate-spin rounded-full h-12 w-12 border-b-4 border-orange-600 mb-4"></div><p className="font-bold">Menyimpan ke Cloud...</p></div></div>}
                 <OfflineIndicator />
                 {appMode === 'landing' && <LandingPage onSelectMode={setAppMode} storeName={storeProfile.name} logo={storeProfile.logo} slogan={storeProfile.slogan} theme={storeProfile.themeColor} />}
-                {appMode === 'admin' && !isLoggedIn && <LoginScreen onLogin={(p) => { if(p === '9999') setIsLoggedIn(true); else alert("Salah PIN"); }} onBack={() => setAppMode('landing')} activeBranchName={branches.find(b => b.id === activeBranchId)?.name || 'Pusat'} activeBranchId={activeBranchId} />}
+                {appMode === 'admin' && !isLoggedIn && <LoginScreen onLogin={loginAction} onBack={() => setAppMode('landing')} activeBranchName={branches.find(b => b.id === activeBranchId)?.name || 'Pusat'} activeBranchId={activeBranchId} />}
                 {appMode === 'admin' && isLoggedIn && (
                     <div className="flex h-[100dvh] overflow-hidden bg-gray-50">
                         <aside className="w-64 bg-slate-800 text-white p-6 hidden md:block">
