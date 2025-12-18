@@ -10,15 +10,18 @@ export const currentProjectId = "Supabase Project";
 const handleError = (error: any, context: string) => {
     if (error) {
         console.error(`🔴 ERROR [${context}]:`, error);
-        // Alert khusus untuk masalah izin database atau struktur tabel
+        
+        // Error handling spesifik berdasarkan kode error PostgreSQL/Supabase
         if (error.code === '42501' || error.message?.includes('violates row-level security')) {
              alert(`DATABASE MENOLAK DATA (RLS Error): \n\nPastikan Anda sudah menjalankan script SQL 'Public Access' di dashboard Supabase.`);
-        } else if (error.code === '42703') {
-             alert(`STRUKTUR DATABASE TIDAK SESUAI (Column Missing): \n\nPastikan Anda sudah menjalankan ulang script di SQL Editor Supabase.`);
         } else if (error.code === '23503') {
-             alert(`REFERENSI TIDAK DITEMUKAN: \n\nUser atau Cabang belum terdaftar di database online. Pastikan Anda sudah menjalankan SQL Seeding.`);
+             alert(`GAGAL MENYIMPAN: Referensi Data Tidak Ditemukan (Error 23503). \n\nHal ini biasanya karena akun Owner/Staff Anda belum terdaftar resmi di tabel 'users' database online.\n\nSolusi: Buka SQL Editor di Supabase dan jalankan script 'INSERT INTO users'.`);
+        } else if (error.code === '42703') {
+             alert(`STRUKTUR TABEL SALAH (Column Missing): \n\nPastikan Anda sudah menjalankan ulang script skema lengkap di SQL Editor Supabase.`);
+        } else if (error.code === '409' || error.code === '23505') {
+             console.warn("Data duplikat, mengabaikan operasi insert.");
         } else {
-             console.warn(`Gagal terhubung ke Cloud di konteks ${context}: ${error.message}`);
+             console.warn(`Gagal terhubung ke Cloud [${context}]: ${error.message}`);
         }
     }
 };
@@ -34,17 +37,13 @@ export const getBranchesFromCloud = async (): Promise<Branch[]> => {
 };
 
 export const getStoreProfileFromCloud = async (branchId: string): Promise<StoreProfile> => {
-    // Gunakan maybeSingle agar tidak 406 jika data baru
     const { data, error } = await supabase
         .from('branches')
         .select('name, address, settings')
         .eq('id', branchId)
         .maybeSingle();
 
-    if (error) {
-        handleError(error, 'getStoreProfile');
-    }
-
+    if (error) handleError(error, 'getStoreProfile');
     if (!data) return { ...defaultStoreProfile, branchId }; 
     return { 
         ...defaultStoreProfile, 
@@ -65,7 +64,7 @@ export const updateStoreProfileInCloud = async (profile: StoreProfile) => {
 };
 
 export const addBranchToCloud = async (branch: Branch) => {
-    const { error } = await supabase.from('branches').insert({ id: branch.id, name: branch.name, address: branch.address });
+    const { error } = await supabase.from('branches').upsert({ id: branch.id, name: branch.name, address: branch.address });
     handleError(error, 'addBranch');
 };
 
@@ -79,8 +78,7 @@ export const deleteBranchFromCloud = async (id: string) => {
 // ==========================================
 
 export const getActiveShiftFromCloud = async (branchId: string): Promise<Shift | null> => {
-    console.log(`🔍 [Cloud] Mencari shift aktif untuk cabang: ${branchId}...`);
-    // maybeSingle() adalah kunci agar konsol tidak merah saat shift kosong
+    // maybeSingle() mencegah error 406 Not Acceptable jika data nol
     const { data, error } = await supabase
         .from('shifts')
         .select('*')
@@ -96,7 +94,6 @@ export const getActiveShiftFromCloud = async (branchId: string): Promise<Shift |
     }
 
     if (data) {
-        console.log("✅ [Cloud] Shift aktif ditemukan:", data.id);
         return {
             id: data.id,
             start: Number(data.start_time),
@@ -114,8 +111,6 @@ export const getActiveShiftFromCloud = async (branchId: string): Promise<Shift |
 };
 
 export const startShiftInCloud = async (shift: Shift): Promise<Shift | null> => {
-    console.log("☁️ [Cloud] Mencoba membuka shift baru di database...");
-    
     const payload = {
         id: shift.id,
         branch_id: shift.branchId,
@@ -126,7 +121,7 @@ export const startShiftInCloud = async (shift: Shift): Promise<Shift | null> => 
         non_cash_revenue: 0,
         transactions_count: 0,
         total_expenses: 0,
-        created_by: shift.createdBy || 'owner-1' // Gunakan fallback ID yang pasti ada di DB
+        created_by: shift.createdBy
     };
 
     const { data, error } = await supabase
@@ -139,6 +134,8 @@ export const startShiftInCloud = async (shift: Shift): Promise<Shift | null> => 
         handleError(error, 'startShift');
         return null;
     }
+
+    if (!data) return null;
 
     return {
         id: data.id,
@@ -191,7 +188,6 @@ export const subscribeToShifts = (branchId: string, onShiftChange: (shift: Shift
             }
         )
         .subscribe();
-
     return () => { supabase.removeChannel(channel); };
 };
 
@@ -224,7 +220,7 @@ export const getUsersFromCloud = async (branchId: string): Promise<User[]> => {
 };
 
 export const addUserToCloud = async (user: User) => {
-    const { error } = await supabase.from('users').insert({ id: user.id, name: user.name, pin: user.pin, attendance_pin: user.attendancePin, role: user.role, branch_id: user.branchId });
+    const { error } = await supabase.from('users').upsert({ id: user.id, name: user.name, pin: user.pin, attendance_pin: user.attendancePin, role: user.role, branch_id: user.branchId });
     handleError(error, 'addUser');
 };
 
@@ -299,7 +295,7 @@ export const subscribeToOrders = (branchId: string, onUpdate: (orders: Order[]) 
         const oneDayAgo = Date.now() - (24 * 60 * 60 * 1000);
         const { data, error } = await supabase.from('orders').select(`*, order_items (*)`).eq('branch_id', branchId).gte('created_at', oneDayAgo).order('created_at', { ascending: false });
         if (!error && data) {
-            onUpdate(data.map((dbOrder: any) => ({ id: dbOrder.id, sequentialId: dbOrder.sequential_id, customerName: dbOrder.customer_name, items: dbOrder.order_items ? dbOrder.order_items.map((i: any) => ({ id: i.product_id, name: i.product_name, price: i.price, quantity: i.quantity, note: i.note, category: 'Uncategorized' })) : [], total: dbOrder.total, subtotal: dbOrder.subtotal, discount: dbOrder.discount || 0, discountType: 'percent', discountValue: 0, taxAmount: dbOrder.tax || 0, serviceChargeAmount: dbOrder.service || 0, status: dbOrder.status, createdAt: Number(dbOrder.created_at), completedAt: dbOrder.completed_at ? Number(dbOrder.completed_at) : undefined, paidAt: dbOrder.payment_status === 'paid' ? new Date(dbOrder.updated_at).getTime() : undefined, isPaid: dbOrder.payment_status === 'paid', paymentMethod: dbOrder.payment_method, shiftId: dbOrder.shift_id, orderType: dbOrder.type, branchId: dbOrder.branch_id })));
+            onUpdate(data.map((dbOrder: any) => ({ id: dbOrder.id, sequentialId: dbOrder.sequential_id, customerName: dbOrder.customer_name, items: dbOrder.order_items ? dbOrder.order_items.map((i: any) => ({ id: i.product_id, name: i.product_name, price: i.price, quantity: i.quantity, note: i.note, category: 'Uncategorized' })) : [], total: dbOrder.total, subtotal: dbOrder.subtotal, discount: dbOrder.discount || 0, discountType: 'percent', discountValue: 0, taxAmount: dbOrder.tax || 0, serviceChargeAmount: dbOrder.service || 0, status: dbOrder.status, createdAt: Number(dbOrder.created_at), completedAt: dbOrder.completed_at ? Number(dbOrder.completed_at) : undefined, paidAt: dbOrder.payment_status === 'paid' ? new Date(dbOrder.updated_at).getTime() : undefined, isPaid: dbOrder.payment_status === 'paid', paymentMethod: dbOrder.payment_status === 'paid' ? dbOrder.payment_method : undefined, shiftId: dbOrder.shift_id, orderType: dbOrder.type, branchId: dbOrder.branch_id })));
         }
     };
     fetchOrders();
