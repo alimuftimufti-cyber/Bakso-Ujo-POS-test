@@ -1,3 +1,4 @@
+
 import { GoogleGenAI } from "@google/genai";
 
 // FIX: Aligned with Gemini API guidelines by using process.env.API_KEY directly and removing the manual check.
@@ -17,8 +18,9 @@ Gunakan bahasa yang santai dan menarik bagi pelanggan.
 Contoh: "Hujan-hujan gini, paling pas sruput kuah bakso panas! Khusus hari ini, setiap pembelian Bakso Urat Spesial, gratis Es Teh Manis. Biar angetnya dobel! Yuk, mampir ke Kedai Bakso Enak!"`;
 
   try {
+    // FIX: Updated model to gemini-3-flash-preview as per text task recommendations
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3-flash-preview',
       contents: prompt,
     });
     return response.text;

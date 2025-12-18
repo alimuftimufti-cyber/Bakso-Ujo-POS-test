@@ -1,10 +1,8 @@
+
 import { GoogleGenAI } from "@google/genai";
 
-// Gunakan VITE_API_KEY jika tersedia (standar Vite), atau fallback ke process.env.API_KEY
-// @ts-ignore
-const apiKey = import.meta.env?.VITE_API_KEY || process.env.API_KEY;
-
-const ai = new GoogleGenAI({ apiKey: apiKey });
+// FIX: Aligned with Gemini API guidelines by using process.env.API_KEY directly.
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 export const generatePromoIdea = async (theme: string): Promise<string> => {
   if (!theme.trim()) {
@@ -20,8 +18,9 @@ Gunakan bahasa yang santai dan menarik bagi pelanggan.
 Contoh: "Hujan-hujan gini, paling pas sruput kuah bakso panas! Khusus hari ini, setiap pembelian Bakso Urat Spesial, gratis Es Teh Manis. Biar angetnya dobel! Yuk, mampir ke Kedai Bakso Enak!"`;
 
   try {
+    // FIX: Updated model to gemini-3-flash-preview as per text task recommendations
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3-flash-preview',
       contents: prompt,
     });
     return response.text || "Maaf, tidak ada respon.";
