@@ -47,70 +47,98 @@ const SidebarIcons = {
     Dashboard: () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 01-2-2h-2a2 2 0 01-2-2v-2z" /></svg>
 };
 
-// --- ERROR BOUNDARY ---
-interface ErrorBoundaryProps { children?: React.ReactNode; }
-interface ErrorBoundaryState { hasError: boolean; }
-class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
-    state: ErrorBoundaryState = { hasError: false };
-    static getDerivedStateFromError(error: any) { return { hasError: true }; }
-    componentDidCatch(error: any, errorInfo: any) { console.error("Uncaught error:", error, errorInfo); }
-    render() {
-        if (this.state.hasError) {
-            return (
-                <div className="flex flex-col items-center justify-center h-screen bg-gray-50 text-center p-6">
-                    <h1 className="text-2xl font-bold text-gray-800 mb-2">Terjadi Kesalahan</h1>
-                    <button onClick={() => { localStorage.clear(); window.location.reload(); }} className="bg-red-600 text-white px-6 py-3 rounded-xl font-bold shadow-lg hover:bg-red-700 transition-colors">Reset Aplikasi</button>
-                </div>
-            );
-        }
-        return (this as any).props.children;
-    }
-}
-
-// Local Storage Helper
-function useLocalStorage<T>(key: string, initialValue: T): [T, React.Dispatch<React.SetStateAction<T>>] {
-    const [storedValue, setStoredValue] = useState<T>(() => {
-        try { const item = window.localStorage.getItem(key); return item ? JSON.parse(item) : initialValue; } catch (error) { console.error(error); return initialValue; }
-    });
-    useEffect(() => {
-        try { const item = window.localStorage.getItem(key); setStoredValue(item ? JSON.parse(item) : initialValue); } catch (error) { setStoredValue(initialValue); }
-    }, [key]);
-    const setValue: React.Dispatch<React.SetStateAction<T>> = (value) => {
-        try { const valueToStore = value instanceof Function ? value(storedValue) : value; setStoredValue(valueToStore); window.localStorage.setItem(key, JSON.stringify(valueToStore)); } catch (error) { console.error(error); }
-    };
-    return [storedValue, setValue];
-}
-
-const OfflineIndicator = () => {
-    const [isOnline, setIsOnline] = useState(navigator.onLine);
-    useEffect(() => {
-        const handleOnline = () => setIsOnline(true);
-        const handleOffline = () => setIsOnline(false);
-        window.addEventListener('online', handleOnline);
-        window.addEventListener('offline', handleOffline);
-        return () => { window.removeEventListener('online', handleOnline); window.removeEventListener('offline', handleOffline); };
-    }, []);
-    if (isOnline) return null;
-    return <div className="fixed bottom-0 left-0 right-0 bg-red-600 text-white text-center py-2 px-4 z-[999] text-xs font-bold animate-pulse pb-safe">⚠️ Koneksi Internet Terputus (Mode Offline)</div>;
-};
-
-const SetupWarning = ({ theme }: { theme: ThemeColor }) => (
-    <div className="fixed inset-0 bg-gray-900 flex items-center justify-center z-[100] p-6">
-        <div className="bg-white rounded-3xl shadow-2xl p-10 max-w-lg w-full text-center">
-            <div className="w-20 h-20 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-6">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-            </div>
-            <h2 className="text-2xl font-black text-gray-900 mb-4 uppercase">Data Cloud Belum Siap</h2>
-            <p className="text-gray-600 mb-6 leading-relaxed">Aplikasi ini memerlukan koneksi Supabase agar data bisa sinkron secara online.</p>
-            <button onClick={() => window.location.reload()} className={`w-full bg-${theme}-600 text-white font-bold py-4 rounded-2xl shadow-xl`}>Refresh Halaman</button>
+// FIX: Added ErrorBoundary component
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean }> {
+  constructor(props: any) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError() { return { hasError: true }; }
+  render() {
+    if (this.state.hasError) return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4 text-center">
+        <div>
+          <h1 className="text-2xl font-bold text-red-600 mb-2">Terjadi Kesalahan Sistem</h1>
+          <p className="text-gray-600 mb-4">Aplikasi mengalami kendala teknis.</p>
+          <button onClick={() => window.location.reload()} className="bg-orange-500 text-white px-6 py-2 rounded-xl font-bold">Refresh Halaman</button>
         </div>
+      </div>
+    );
+    return this.props.children;
+  }
+}
+
+// FIX: Added useLocalStorage hook
+function useLocalStorage<T>(key: string, initialValue: T): [T, (val: T) => void] {
+  const [storedValue, setStoredValue] = useState<T>(() => {
+    try {
+      const item = window.localStorage.getItem(key);
+      return item ? JSON.parse(item) : initialValue;
+    } catch (error) {
+      return initialValue;
+    }
+  });
+  const setValue = (value: T) => {
+    try {
+      setStoredValue(value);
+      window.localStorage.setItem(key, JSON.stringify(value));
+    } catch (error) {}
+  };
+  return [storedValue, setValue];
+}
+
+// FIX: Added LandingPage component
+const LandingPage = ({ onSelectMode, storeName, logo, slogan, theme }: any) => (
+  <div className="min-h-[100dvh] bg-slate-50 flex flex-col items-center justify-center p-6 text-center">
+    <div className="max-w-md w-full">
+      {logo ? (
+        <img src={logo} alt="Logo" className="w-24 h-24 mx-auto mb-6 object-contain" />
+      ) : (
+        <div className={`w-20 h-20 bg-${theme}-100 text-${theme}-600 rounded-3xl flex items-center justify-center mx-auto mb-6 text-3xl font-black shadow-inner`}>
+          {storeName?.charAt(0) || 'B'}
+        </div>
+      )}
+      <h1 className="text-4xl font-black text-slate-900 mb-2 tracking-tight uppercase">{storeName}</h1>
+      <p className="text-slate-500 mb-12 font-medium">{slogan}</p>
+      
+      <div className="grid gap-4">
+        <button 
+          onClick={() => onSelectMode('admin')} 
+          className="group relative p-6 bg-white border-2 border-slate-200 rounded-3xl text-left hover:border-slate-900 transition-all shadow-sm hover:shadow-xl"
+        >
+          <div className="flex items-center gap-4">
+            <div className="p-3 bg-slate-900 text-white rounded-2xl group-hover:scale-110 transition-transform">
+              <SidebarIcons.Pos />
+            </div>
+            <div>
+              <h3 className="font-bold text-slate-900">Sistem Kasir (Admin)</h3>
+              <p className="text-xs text-slate-500">Monitoring & Transaksi Penjualan</p>
+            </div>
+          </div>
+        </button>
+
+        <button 
+          onClick={() => onSelectMode('customer')} 
+          className={`group relative p-6 bg-white border-2 border-slate-200 rounded-3xl text-left hover:border-${theme}-500 transition-all shadow-sm hover:shadow-xl`}
+        >
+          <div className="flex items-center gap-4">
+            <div className={`p-3 bg-${theme}-600 text-white rounded-2xl group-hover:scale-110 transition-transform`}>
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" /></svg>
+            </div>
+            <div>
+              <h3 className="font-bold text-slate-900">Pesan Mandiri (Pelanggan)</h3>
+              <p className="text-xs text-slate-500">Scan QR & Pesan dari Meja</p>
+            </div>
+          </div>
+        </button>
+      </div>
+      
+      <p className="mt-12 text-[10px] font-bold text-slate-400 uppercase tracking-widest">v6.3.0 Cloud Edition</p>
     </div>
+  </div>
 );
 
-const LandingPage = ({ onSelectMode, storeName, logo, slogan, theme = 'orange' }: { onSelectMode: (mode: AppMode) => void, storeName: string, logo?: string, slogan?: string, theme?: ThemeColor }) => (
-    <div className={`h-[100dvh] w-full bg-gradient-to-br from-${theme}-600 to-${theme}-800 flex flex-col items-center justify-center p-6 text-white relative overflow-hidden`}><div className="absolute top-0 left-0 w-full h-full overflow-hidden opacity-10 pointer-events-none"><div className="absolute -top-20 -left-20 w-96 h-96 bg-white rounded-full blur-3xl"></div><div className="absolute bottom-0 right-0 w-96 h-96 bg-black rounded-full blur-3xl"></div></div><div onClick={() => onSelectMode('admin')} className="absolute top-0 right-0 w-20 h-20 z-50 cursor-default opacity-0 hover:opacity-10 flex items-center justify-center text-white text-xs font-bold bg-black" title="Staff Access">ADMIN</div><div className="z-10 flex flex-col items-center justify-center w-full max-w-md text-center space-y-10"><div className="bg-white/10 backdrop-blur-md p-6 rounded-full inline-block shadow-2xl ring-4 ring-white/20">{logo ? <img src={logo} alt="Logo" className="h-28 w-28 object-cover rounded-full" /> : <div className={`h-28 w-28 flex items-center justify-center text-white font-black text-5xl`}>UJO</div>}</div><div><h1 className="text-4xl md:text-5xl font-black mb-3 tracking-tight drop-shadow-sm">{storeName}</h1><p className={`text-lg md:text-xl font-medium text-${theme}-100 opacity-90`}>{slogan || "Selamat Datang"}</p></div><button onClick={() => onSelectMode('customer')} className={`bg-white text-${theme}-700 p-6 rounded-3xl shadow-2xl hover:scale-105 transition-all duration-300 flex items-center justify-center gap-6 w-full max-w-sm group border-b-4 border-${theme}-900/10`}><div className={`bg-${theme}-50 p-4 rounded-2xl group-hover:bg-${theme}-100 transition-colors`}><SidebarIcons.Pos /></div><div className="text-left"><span className="block text-xl font-extrabold tracking-tight text-gray-900">PESAN MAKAN</span><span className="text-sm text-gray-500 font-medium">Order Mandiri (Self Service)</span></div></button></div></div>
-);
-
+// --- START APP COMPONENT ---
 const DB_VER = 'v6_cloud_native';
 
 const App: React.FC = () => {
@@ -141,6 +169,7 @@ const App: React.FC = () => {
             const isReady = await checkConnection();
             setIsDatabaseReady(isReady);
             if (!isReady) return;
+
             const b = await getBranchesFromCloud(); setBranches(b.length ? b : initialBranches);
             const c = await getCategoriesFromCloud(); setCategories(c.length ? c : initialCategories);
         };
@@ -150,6 +179,7 @@ const App: React.FC = () => {
     // Branch Specific Data
     useEffect(() => {
         if (isDatabaseReady === false) return;
+        
         const loadBranchData = async () => {
             setIsShiftLoading(true); 
             const [p, m, i, u] = await Promise.all([
@@ -161,7 +191,10 @@ const App: React.FC = () => {
             setStoreProfile(p); setMenu(m); setIngredients(i); setUsers(u);
             const shift = await getActiveShiftFromCloud(activeBranchId);
             setActiveShift(shift);
-            if (shift) { const ex = await getExpensesFromCloud(shift.id); setExpenses(ex); }
+            if (shift) {
+                const ex = await getExpensesFromCloud(shift.id);
+                setExpenses(ex);
+            }
             const history = await getCompletedShiftsFromCloud(activeBranchId);
             setCompletedShifts(history);
             setIsShiftLoading(false); 
@@ -175,14 +208,13 @@ const App: React.FC = () => {
     const loginAction = (pin: string) => {
         const foundUser = users.find(u => u.pin === pin);
         if (foundUser) { setCurrentUser(foundUser); setIsLoggedIn(true); return true; } 
-        else { alert("PIN Salah atau Akun Belum Terdaftar di Cloud."); return false; }
+        else { alert("PIN Salah."); return false; }
     };
 
     const startShift = async (cash: number) => {
-        if (!currentUser) return;
         setIsGlobalLoading(true);
         const sId = Date.now().toString();
-        const newS: Shift = { id: sId, start: Date.now(), start_cash: cash, revenue: 0, transactions: 0, cashRevenue: 0, nonCashRevenue: 0, totalDiscount: 0, branchId: activeBranchId, createdBy: currentUser.id };
+        const newS: Shift = { id: sId, start: Date.now(), start_cash: cash, revenue: 0, transactions: 0, cashRevenue: 0, nonCashRevenue: 0, totalDiscount: 0, branchId: activeBranchId, createdBy: currentUser?.id };
         const result = await startShiftInCloud(newS);
         setIsGlobalLoading(false);
         if (result) setActiveShift(result);
@@ -197,27 +229,69 @@ const App: React.FC = () => {
         return summary;
     };
 
-    // WRAPPERS (Omitted for brevity, assume they stay same as before)
+    // WRAPPER: Kunci tombol pesanan harus dengan shift aktif
     const addOrderWrapper = (cart: CartItem[], name: string, dVal: number, dType: any, oType: OrderType, payment?: any) => {
-        if (!activeShift && appMode !== 'customer') { alert("Shift belum dibuka."); return null; }
+        // HANYA UNTUK ADMIN: Cek shift wajib aktif
+        if (appMode === 'admin' && !activeShift) { 
+            alert("MAAF: Anda harus membuka SHIFT terlebih dahulu untuk melakukan pesanan kasir."); 
+            return null; 
+        }
+
+        setIsGlobalLoading(true); // Mulai proses simpan (block UI)
         const sub = cart.reduce((s, i) => s + i.price * i.quantity, 0);
         let disc = dType === 'percent' ? (sub * dVal / 100) : dVal;
         const tax = storeProfile.enableTax ? (sub - disc) * (storeProfile.taxRate / 100) : 0;
         const srv = storeProfile.enableServiceCharge ? (sub - disc) * (storeProfile.serviceChargeRate / 100) : 0;
-        const order: Order = { id: Date.now().toString(), sequentialId: orders.length + 1, customerName: name, items: cart, total: Math.round(sub - disc + tax + srv), subtotal: sub, discount: disc, discountType: dType, discountValue: dVal, taxAmount: tax, serviceChargeAmount: srv, status: 'pending', createdAt: Date.now(), isPaid: !!payment, paymentMethod: payment?.method, shiftId: activeShift?.id || 'public', orderType: oType, branchId: activeBranchId };
-        addOrderToCloud(order);
-        if (payment && activeShift) {
-             const isCash = payment.method === 'Tunai';
-             const up = { revenue: activeShift.revenue + order.total, cashRevenue: isCash ? activeShift.cashRevenue + order.total : activeShift.cashRevenue, nonCashRevenue: !isCash ? activeShift.nonCashRevenue + order.total : activeShift.nonCashRevenue, transactions: activeShift.transactions + 1 };
-             updateShiftInCloud(activeShift.id, up);
-             setActiveShift(prev => prev ? ({ ...prev, ...up }) : null);
-        }
+        
+        const order: Order = { 
+            id: Date.now().toString(), 
+            sequentialId: orders.length + 1, 
+            customerName: name, 
+            items: cart, 
+            total: Math.round(sub - disc + tax + srv), 
+            subtotal: sub, 
+            discount: disc, 
+            discountType: dType, 
+            discountValue: dVal, 
+            taxAmount: tax, 
+            serviceChargeAmount: srv, 
+            status: 'pending', 
+            createdAt: Date.now(), 
+            isPaid: !!payment, 
+            paymentMethod: payment?.method, 
+            shiftId: activeShift?.id || 'public', 
+            orderType: oType, 
+            branchId: activeBranchId 
+        };
+
+        // Kirim ke Cloud & Selesaikan proses
+        addOrderToCloud(order)
+            .then(() => {
+                if (payment && activeShift) {
+                     const isCash = payment.method === 'Tunai';
+                     const up = { 
+                        revenue: activeShift.revenue + order.total, 
+                        cashRevenue: isCash ? activeShift.cashRevenue + order.total : activeShift.cashRevenue, 
+                        nonCashRevenue: !isCash ? activeShift.nonCashRevenue + order.total : activeShift.nonCashRevenue, 
+                        transactions: activeShift.transactions + 1 
+                     };
+                     updateShiftInCloud(activeShift.id, up);
+                }
+            })
+            .catch(err => {
+                console.error("Gagal simpan pesanan:", err);
+            })
+            .finally(() => {
+                setIsGlobalLoading(false); // Buka kembali UI
+            });
+
         return order;
     };
 
     const contextValue: AppContextType = {
         menu, categories, orders, expenses, activeShift, completedShifts, storeProfile, ingredients, tables: [], branches, users, currentUser, attendanceRecords: [], kitchenAlarmTime: 600, kitchenAlarmSound: 'beep',
-        isStoreOpen: !!activeShift, isShiftLoading,
+        isStoreOpen: !!activeShift,
+        isShiftLoading,
         setMenu, setCategories, setStoreProfile: (p: any) => { setStoreProfile(p); updateStoreProfileInCloud(p); },
         setKitchenAlarmTime: () => {}, setKitchenAlarmSound: () => {}, addCategory: addCategoryToCloud, deleteCategory: deleteCategoryFromCloud, setIngredients,
         saveMenuItem: (i) => addProductToCloud(i, activeBranchId), removeMenuItem: deleteProductFromCloud, saveIngredient: (i) => addIngredientToCloud(i, activeBranchId), removeIngredient: deleteIngredientFromCloud,
@@ -230,35 +304,32 @@ const App: React.FC = () => {
         updateOrderStatus: (id, status) => updateOrderInCloud(id, { status }),
         payForOrder: (o, m) => { updateOrderInCloud(o.id, { isPaid: true, paymentMethod: m }); return null; },
         voidOrder: (o) => updateOrderInCloud(o.id, { status: 'cancelled' }),
+        // FIX: Corrected property names to match Expense interface (shift_id -> shiftId, created_at -> date)
         addExpense: (d, a) => { if(activeShift) addExpenseToCloud({ id: Date.now(), shiftId: activeShift.id, description: d, amount: a, date: Date.now() }); },
-        deleteExpense: deleteExpenseFromCloud, deleteAndResetShift: () => setActiveShift(null), requestPassword: (t, c) => c(), 
+        deleteExpense: deleteExpenseFromCloud, deleteAndResetShift: () => setActiveShift(null),
+        requestPassword: (t, c) => { c(); }, 
         printerDevice: null, isPrinting: false, connectToPrinter: async () => {}, disconnectPrinter: async () => {}, previewReceipt: () => {}, printOrderToDevice: async () => {}, printShiftToDevice: async () => {}, printOrderViaBrowser: () => {},
-        setTables: () => {}, addTable: () => {}, deleteTable: () => {}, setUsers: () => {}, clockIn: async () => {}, clockOut: async () => {}, splitOrder: () => {}, customerSubmitOrder: async () => true,
+        setTables: () => {}, addTable: () => {}, deleteTable: () => {}, setUsers: () => {}, clockIn: async () => {}, clockOut: async () => {}, splitOrder: () => {}, customerSubmitOrder: async (c, n) => { addOrderWrapper(c, n, 0, 'percent', 'Dine In'); return true; },
     };
 
-    if (isDatabaseReady === false) return <SetupWarning theme={storeProfile.themeColor} />;
-
-    // Helper Navigation Item
-    const NavItem = ({ id, label, icon: Icon }: { id: View, label: string, icon: any }) => (
-        <button 
-            onClick={() => setView(id)} 
-            className={`w-full flex items-center gap-4 px-5 py-3.5 rounded-xl font-bold transition-all group relative overflow-hidden ${view === id ? 'bg-white/10 text-white' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
-        >
-            {view === id && <div className="absolute left-0 top-0 h-full w-1.5 bg-orange-500 rounded-r-full shadow-[0_0_10px_#f97316]"></div>}
-            <Icon />
-            <span className="text-sm tracking-tight">{label}</span>
-        </button>
-    );
+    if (isDatabaseReady === false) return <div className="fixed inset-0 bg-red-900 text-white flex items-center justify-center p-10 text-center"><div><h1 className="text-3xl font-bold mb-4">Error Koneksi Database</h1><p>Pastikan koneksi internet stabil.</p><button onClick={() => window.location.reload()} className="mt-6 bg-white text-red-600 px-6 py-2 rounded-xl font-bold">Refresh Halaman</button></div></div>;
 
     return (
         <ErrorBoundary>
             <AppContext.Provider value={contextValue}>
-                {isGlobalLoading && <div className="fixed inset-0 z-[100] bg-black/50 flex items-center justify-center backdrop-blur-sm"><div className="bg-white p-6 rounded-2xl flex flex-col items-center"><div className="animate-spin rounded-full h-12 w-12 border-b-4 border-orange-600 mb-4"></div><p className="font-bold">Menyimpan...</p></div></div>}
-                <OfflineIndicator />
+                {isGlobalLoading && (
+                    <div className="fixed inset-0 z-[200] bg-black/70 flex items-center justify-center backdrop-blur-md">
+                        <div className="bg-white p-8 rounded-3xl flex flex-col items-center shadow-2xl animate-scale-in">
+                            <div className="animate-spin rounded-full h-14 w-14 border-t-4 border-b-4 border-orange-600 mb-6"></div>
+                            <p className="font-black text-gray-800 text-lg uppercase tracking-widest">SINKRONISASI CLOUD...</p>
+                            <p className="text-sm text-gray-500 mt-1">Jangan tutup aplikasi saat menyimpan data.</p>
+                        </div>
+                    </div>
+                )}
                 {appMode === 'landing' && <LandingPage onSelectMode={setAppMode} storeName={storeProfile.name} logo={storeProfile.logo} slogan={storeProfile.slogan} theme={storeProfile.themeColor} />}
                 {appMode === 'admin' && !isLoggedIn && (
                      <div className="fixed inset-0 bg-gray-900 flex items-center justify-center z-50 p-4">
-                        <div className="bg-white rounded-3xl shadow-2xl overflow-hidden max-w-sm w-full border-t-4 border-t-orange-500 p-8 text-center animate-scale-in">
+                        <div className="bg-white rounded-3xl shadow-2xl overflow-hidden max-sm w-full border-t-4 border-t-orange-500 p-8 text-center animate-scale-in">
                             <h2 className="text-2xl font-black mb-6">LOGIN SISTEM</h2>
                             <input type="password" placeholder="••••" className="w-full bg-gray-50 border-2 border-gray-200 rounded-2xl p-4 text-center text-3xl tracking-[0.5em] font-bold focus:border-orange-500 outline-none mb-6" onChange={(e) => { if(e.target.value.length >= 4) loginAction(e.target.value); }} autoFocus />
                             <button onClick={() => setAppMode('landing')} className="text-sm font-bold text-gray-400 hover:text-gray-600 uppercase tracking-widest">Kembali</button>
@@ -267,7 +338,6 @@ const App: React.FC = () => {
                 )}
                 {appMode === 'admin' && isLoggedIn && (
                     <div className="flex h-[100dvh] overflow-hidden bg-slate-900">
-                        {/* THE PROFESSIONAL SIDEBAR */}
                         <aside className="w-72 bg-[#0f172a] text-white hidden md:flex flex-col border-r border-slate-800 shadow-2xl">
                             <div className="p-8 border-b border-slate-800/50 mb-4">
                                 <h2 className="font-black text-xl uppercase tracking-tighter text-white leading-tight">
@@ -275,36 +345,29 @@ const App: React.FC = () => {
                                 </h2>
                                 <p className="text-[10px] font-bold text-slate-500 mt-1 uppercase tracking-widest bg-slate-800/50 inline-block px-2 py-0.5 rounded">Point of Sale System</p>
                             </div>
-                            
                             <nav className="flex-1 px-4 space-y-1.5 custom-scrollbar overflow-y-auto">
-                                <NavItem id="pos" label="Kasir (POS)" icon={SidebarIcons.Pos} />
-                                <NavItem id="shift" label="Keuangan & Biaya" icon={SidebarIcons.Shift} />
-                                <NavItem id="kitchen" label="Monitor Dapur" icon={SidebarIcons.Kitchen} />
-                                <NavItem id="inventory" label="Manajemen Stok" icon={SidebarIcons.Inventory} />
-                                <NavItem id="report" label="Laporan Penjualan" icon={SidebarIcons.Report} />
-                                
+                                <NavItem id="pos" label="Kasir (POS)" icon={SidebarIcons.Pos} view={view} setView={setView} />
+                                <NavItem id="shift" label="Keuangan & Biaya" icon={SidebarIcons.Shift} view={view} setView={setView} />
+                                <NavItem id="kitchen" label="Monitor Dapur" icon={SidebarIcons.Kitchen} view={view} setView={setView} />
+                                <NavItem id="inventory" label="Manajemen Stok" icon={SidebarIcons.Inventory} view={view} setView={setView} />
+                                <NavItem id="report" label="Laporan Penjualan" icon={SidebarIcons.Report} view={view} setView={setView} />
                                 <div className="pt-6 pb-2 px-5">
                                     <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Pengaturan</p>
                                 </div>
-                                <NavItem id="settings" label="Toko & Menu" icon={SidebarIcons.Settings} />
-                                {currentUser?.role === 'owner' && <NavItem id="owner_settings" label="Owner Panel" icon={SidebarIcons.Dashboard} />}
+                                <NavItem id="settings" label="Toko & Menu" icon={SidebarIcons.Settings} view={view} setView={setView} />
+                                {currentUser?.role === 'owner' && <NavItem id="owner_settings" label="Owner Panel" icon={SidebarIcons.Dashboard} view={view} setView={setView} />}
                             </nav>
-
                             <div className="p-4 border-t border-slate-800">
-                                <button 
-                                    onClick={() => { setIsLoggedIn(false); setAppMode('landing'); }} 
-                                    className="w-full flex items-center gap-4 px-5 py-3.5 rounded-xl font-bold text-red-400 hover:bg-red-500/10 transition-all"
-                                >
+                                <button onClick={() => { setIsLoggedIn(false); setAppMode('landing'); }} className="w-full flex items-center gap-4 px-5 py-3.5 rounded-xl font-bold text-red-400 hover:bg-red-500/10 transition-all">
                                     <SidebarIcons.Logout />
                                     <span className="text-sm">Keluar (Logout)</span>
                                 </button>
                                 <div className="mt-4 px-5 text-[9px] text-slate-600 font-mono flex justify-between items-center">
-                                    <span>v6.1.0 Cloud</span>
+                                    <span>v6.3.0 Cloud</span>
                                     <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></span>
                                 </div>
                             </div>
                         </aside>
-
                         <main className="flex-1 relative overflow-hidden bg-white">
                             <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-500"></div></div>}>
                                 {view === 'pos' && <POSView />}
@@ -323,5 +386,17 @@ const App: React.FC = () => {
         </ErrorBoundary>
     );
 };
+
+// NavItem Helper
+const NavItem = ({ id, label, icon: Icon, view, setView }: any) => (
+    <button 
+        onClick={() => setView(id)} 
+        className={`w-full flex items-center gap-4 px-5 py-3.5 rounded-xl font-bold transition-all group relative overflow-hidden ${view === id ? 'bg-white/10 text-white' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
+    >
+        {view === id && <div className="absolute left-0 top-0 h-full w-1.5 bg-orange-500 rounded-r-full shadow-[0_0_10px_#f97316]"></div>}
+        <Icon />
+        <span className="text-sm tracking-tight">{label}</span>
+    </button>
+);
 
 export default App;
