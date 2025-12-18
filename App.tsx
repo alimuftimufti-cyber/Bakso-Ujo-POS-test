@@ -111,6 +111,31 @@ const OfflineIndicator = () => {
     return <div className="fixed bottom-0 left-0 right-0 bg-red-600 text-white text-center py-2 px-4 z-[999] text-xs font-bold animate-pulse pb-safe">⚠️ Koneksi Internet Terputus (Mode Offline)</div>;
 };
 
+const SetupWarning = ({ theme }: { theme: ThemeColor }) => (
+    <div className="fixed inset-0 bg-gray-900 flex items-center justify-center z-[100] p-6">
+        <div className="bg-white rounded-3xl shadow-2xl p-10 max-w-lg w-full text-center">
+            <div className="w-20 h-20 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+            </div>
+            <h2 className="text-2xl font-black text-gray-900 mb-4 uppercase">Data Cloud Belum Siap</h2>
+            <p className="text-gray-600 mb-6 leading-relaxed">
+                Aplikasi ini memerlukan koneksi <strong>Supabase</strong> agar data bisa sinkron antar perangkat secara online.
+            </p>
+            <div className="bg-gray-50 p-4 rounded-2xl text-left border border-gray-200 mb-8 font-mono text-xs text-gray-500">
+                <p className="font-bold mb-2 text-gray-700">Langkah Perbaikan:</p>
+                <ol className="list-decimal list-inside space-y-1">
+                    <li>Dapatkan URL & API Key dari Supabase.com</li>
+                    <li>Buat file <span className="bg-yellow-200 text-black px-1">.env</span> di folder root aplikasi.</li>
+                    <li>Masukkan <span className="text-red-600">VITE_SUPABASE_URL</span></li>
+                    <li>Masukkan <span className="text-red-600">VITE_SUPABASE_ANON_KEY</span></li>
+                    <li>Restart terminal aplikasi Anda.</li>
+                </ol>
+            </div>
+            <button onClick={() => window.location.reload()} className={`w-full bg-${theme}-600 text-white font-bold py-4 rounded-2xl hover:bg-${theme}-700 transition-all shadow-xl`}>Sudah Beres? Refresh Halaman</button>
+        </div>
+    </div>
+);
+
 const LoginScreen = ({ onLogin, onBack, theme = 'orange', activeBranchName, activeBranchId }: { onLogin: (pin: string) => void, onBack: () => void, theme?: ThemeColor, activeBranchName: string, activeBranchId: string }) => {
     const [mode, setMode] = useState<'selection' | 'login' | 'attendance'>('selection');
     const [password, setPassword] = useState('');
@@ -164,10 +189,15 @@ const App: React.FC = () => {
     const [storeProfile, setStoreProfile] = useState<StoreProfile>({ ...defaultStoreProfile, branchId: activeBranchId });
     const [isShiftLoading, setIsShiftLoading] = useState(true);
     const [isGlobalLoading, setIsGlobalLoading] = useState(false);
+    const [isDatabaseReady, setIsDatabaseReady] = useState<boolean | null>(null);
 
     // Initial Master Data
     useEffect(() => {
         const loadMaster = async () => {
+            const isReady = await checkConnection();
+            setIsDatabaseReady(isReady);
+            if (!isReady) return;
+
             const b = await getBranchesFromCloud(); setBranches(b.length ? b : initialBranches);
             const c = await getCategoriesFromCloud(); setCategories(c.length ? c : initialCategories);
         };
@@ -176,6 +206,8 @@ const App: React.FC = () => {
 
     // Branch Specific Data
     useEffect(() => {
+        if (isDatabaseReady === false) return;
+        
         const loadBranchData = async () => {
             console.warn(`🔄 Memuat data untuk cabang: ${activeBranchId}`);
             setIsShiftLoading(true); 
@@ -211,7 +243,7 @@ const App: React.FC = () => {
         });
         
         return () => { unsubOrders(); unsubShifts(); };
-    }, [activeBranchId]);
+    }, [activeBranchId, isDatabaseReady]);
 
     // WRAPPERS FOR CLOUD ACTIONS
     const startShift = async (cash: number) => {
@@ -222,7 +254,6 @@ const App: React.FC = () => {
         const result = await startShiftInCloud(newS);
         setIsGlobalLoading(false);
         if (result) setActiveShift(result); 
-        // Jika result null, startShiftInCloud sudah memunculkan alert error RLS/DB
     };
 
     const closeShift = (cash: number) => {
@@ -251,7 +282,6 @@ const App: React.FC = () => {
         return order;
     };
 
-    // FIX: Implemented updateOrderWrapper for context
     const updateOrderWrapper = (orderId: string, cart: CartItem[], dVal: number, dType: 'percent' | 'fixed', oType: OrderType) => {
         const sub = cart.reduce((s, i) => s + i.price * i.quantity, 0);
         let disc = dType === 'percent' ? (sub * dVal / 100) : dVal;
@@ -261,7 +291,6 @@ const App: React.FC = () => {
         updateOrderInCloud(orderId, updates);
     };
 
-    // FIX: Implemented deleteAndResetShift for context
     const deleteAndResetShift = () => { setActiveShift(null); };
 
     // CONTEXT PROVIDER
@@ -272,28 +301,28 @@ const App: React.FC = () => {
         setMenu, setCategories, setStoreProfile: (p: any) => { setStoreProfile(p); updateStoreProfileInCloud(p); },
         setKitchenAlarmTime: () => {}, setKitchenAlarmSound: () => {}, addCategory: addCategoryToCloud, deleteCategory: deleteCategoryFromCloud, setIngredients,
         saveMenuItem: (i) => addProductToCloud(i, activeBranchId), removeMenuItem: deleteProductFromCloud, saveIngredient: (i) => addIngredientToCloud(i, activeBranchId), removeIngredient: deleteIngredientFromCloud,
-        // FIX: Added missing ingredient management props
         addIngredient: (i) => addIngredientToCloud(i, activeBranchId),
         updateIngredient: (i) => addIngredientToCloud(i, activeBranchId),
         deleteIngredient: deleteIngredientFromCloud,
-        
         updateProductStock: updateProductStockInCloud, updateIngredientStock: updateIngredientStockInCloud,
         addBranch: addBranchToCloud, deleteBranch: deleteBranchFromCloud, switchBranch: setActiveBranchId, setView,
         addUser: addUserToCloud, updateUser: updateUserInCloud, deleteUser: deleteUserFromCloud, loginUser: () => false, logout: () => { setIsLoggedIn(false); setAppMode('landing'); },
         startShift, closeShift, addOrder: addOrderWrapper, 
-        // FIX: Added updateOrder prop
         updateOrder: updateOrderWrapper,
         updateOrderStatus: (id, status) => updateOrderInCloud(id, { status }),
         payForOrder: (o, m) => { updateOrderInCloud(o.id, { isPaid: true, paymentMethod: m }); return null; },
         voidOrder: (o) => updateOrderInCloud(o.id, { status: 'cancelled' }),
         addExpense: (d, a) => { if(activeShift) addExpenseToCloud({ id: Date.now(), shiftId: activeShift.id, description: d, amount: a, date: Date.now() }); },
         deleteExpense: deleteExpenseFromCloud,
-        // FIX: Added deleteAndResetShift prop
         deleteAndResetShift,
-        requestPassword: (t, c) => { c(); }, // Simplified
+        requestPassword: (t, c) => { c(); }, 
         printerDevice: null, isPrinting: false, connectToPrinter: async () => {}, disconnectPrinter: async () => {}, previewReceipt: () => {}, printOrderToDevice: async () => {}, printShiftToDevice: async () => {}, printOrderViaBrowser: () => {},
         setTables: () => {}, addTable: () => {}, deleteTable: () => {}, setUsers: () => {}, clockIn: async () => {}, clockOut: async () => {}, splitOrder: () => {}, customerSubmitOrder: async () => true,
     };
+
+    if (isDatabaseReady === false) {
+        return <SetupWarning theme={storeProfile.themeColor} />;
+    }
 
     return (
         <ErrorBoundary>

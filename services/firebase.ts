@@ -222,7 +222,7 @@ export const getUsersFromCloud = async (branchId: string): Promise<User[]> => {
 };
 
 export const addUserToCloud = async (user: User) => {
-    const { error } = await supabase.from('users').insert({ id: user.id, name: user.name, pin: user.pin, attendance_pin: user.attendancePin, role: user.role, branch_id: user.branchId });
+    const { error } = await supabase.from('users').insert({ id: user.id, name: user.name, pin: user.pin, attendance_pin: user.attendance_pin, role: user.role, branch_id: user.branch_id });
     handleError(error, 'addUser');
 };
 
@@ -232,7 +232,7 @@ export const deleteUserFromCloud = async (id: string) => {
 };
 
 export const updateUserInCloud = async (user: User) => {
-    const { error } = await supabase.from('users').update({ name: user.name, pin: user.pin, attendance_pin: user.attendancePin, role: user.role }).eq('id', user.id);
+    const { error } = await supabase.from('users').update({ name: user.name, pin: user.pin, attendance_pin: user.attendance_pin, role: user.role }).eq('id', user.id);
     handleError(error, 'updateUser');
 };
 
@@ -281,7 +281,8 @@ export const getIngredientsFromCloud = async (branchId: string): Promise<Ingredi
 };
 
 export const addIngredientToCloud = async (ingredient: Ingredient, branchId: string) => {
-    await supabase.from('ingredients').upsert({ id: ingredient.id, name: ingredient.name, unit: ingredient.unit, stock: ingredient.stock, min_stock: ingredient.min_stock, type: ingredient.type, branch_id: branchId });
+    // FIX: Property 'min_stock' does not exist on type 'Ingredient'. Using 'minStock' instead.
+    await supabase.from('ingredients').upsert({ id: ingredient.id, name: ingredient.name, unit: ingredient.unit, stock: ingredient.stock, min_stock: ingredient.minStock, type: ingredient.type, branch_id: branchId });
 };
 
 export const deleteIngredientFromCloud = async (id: string) => {
