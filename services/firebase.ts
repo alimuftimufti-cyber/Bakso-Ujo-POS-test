@@ -15,6 +15,8 @@ const handleError = (error: any, context: string) => {
              alert(`DATABASE MENOLAK DATA (RLS Error): \n\nPastikan Anda sudah menjalankan script SQL 'Public Access' di dashboard Supabase.`);
         } else if (error.code === '42703') {
              alert(`STRUKTUR DATABASE TIDAK SESUAI (Column Missing): \n\nPastikan Anda sudah menjalankan ulang script di SQL Editor Supabase.`);
+        } else if (error.code === '23503') {
+             alert(`REFERENSI TIDAK DITEMUKAN: \n\nUser atau Cabang belum terdaftar di database online. Pastikan Anda sudah menjalankan SQL Seeding.`);
         } else {
              console.warn(`Gagal terhubung ke Cloud di konteks ${context}: ${error.message}`);
         }
@@ -124,7 +126,7 @@ export const startShiftInCloud = async (shift: Shift): Promise<Shift | null> => 
         non_cash_revenue: 0,
         transactions_count: 0,
         total_expenses: 0,
-        created_by: shift.createdBy || 'owner'
+        created_by: shift.createdBy || 'owner-1' // Gunakan fallback ID yang pasti ada di DB
     };
 
     const { data, error } = await supabase
