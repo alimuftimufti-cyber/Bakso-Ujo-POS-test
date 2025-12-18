@@ -1,24 +1,21 @@
 
 import React, { useState, useEffect, Suspense } from 'react';
-import { createRoot } from 'react-dom/client';
 import { AppContext } from './types'; 
 import type { MenuItem, Order, Shift, CartItem, Category, StoreProfile, AppContextType, ShiftSummary, Expense, OrderType, Ingredient, User, PaymentMethod, OrderStatus, ThemeColor, View, AppMode, Table, Branch, AttendanceRecord } from './types';
 import { initialCategories, defaultStoreProfile, initialBranches } from './data';
-import PrintableReceipt from './components/PrintableReceipt';
-import { printOrder, printShift } from './services/printerService';
 
 // IMPORT CLOUD SERVICES
+// FIX: Added missing cloud service imports required by contextValue mapping
 import { 
     subscribeToOrders, addOrderToCloud, updateOrderInCloud, 
-    subscribeToAttendance, addAttendanceToCloud, updateAttendanceInCloud,
     getBranchesFromCloud, addBranchToCloud, deleteBranchFromCloud,
-    getUsersFromCloud, addUserToCloud, deleteUserFromCloud, updateUserInCloud,
-    getMenuFromCloud, addProductToCloud, deleteProductFromCloud, updateProductStockInCloud,
+    getUsersFromCloud, addUserToCloud, updateUserInCloud, deleteUserFromCloud,
+    getMenuFromCloud, addProductToCloud, deleteProductFromCloud,
     getCategoriesFromCloud, addCategoryToCloud, deleteCategoryFromCloud,
     getActiveShiftFromCloud, startShiftInCloud, closeShiftInCloud, updateShiftInCloud, subscribeToShifts,
     getCompletedShiftsFromCloud, getExpensesFromCloud, addExpenseToCloud, deleteExpenseFromCloud,
-    getStoreProfileFromCloud, updateStoreProfileInCloud, updateIngredientStockInCloud,
-    getIngredientsFromCloud, addIngredientToCloud, deleteIngredientFromCloud
+    getStoreProfileFromCloud, updateStoreProfileInCloud, updateProductStockInCloud,
+    getIngredientsFromCloud, addIngredientToCloud, deleteIngredientFromCloud, updateIngredientStockInCloud
 } from './services/firebase';
 import { checkConnection } from './services/supabaseClient'; 
 
@@ -31,9 +28,7 @@ const ShiftView = React.lazy(() => import('./components/Shift'));
 const ReportView = React.lazy(() => import('./components/Report'));
 const InventoryView = React.lazy(() => import('./components/InventoryView'));
 const CustomerOrderView = React.lazy(() => import('./components/CustomerOrderView'));
-const ReceiptPreviewModal = React.lazy(() => import('./components/ReceiptPreviewModal'));
 const OwnerDashboard = React.lazy(() => import('./components/OwnerDashboard'));
-const AttendanceView = React.lazy(() => import('./components/AttendanceView')); 
 
 // Icons Component for Sidebar
 const SidebarIcons = {
@@ -87,53 +82,53 @@ function useLocalStorage<T>(key: string, initialValue: T): [T, (val: T) => void]
   return [storedValue, setValue];
 }
 
-// FIX: Added LandingPage component
-const LandingPage = ({ onSelectMode, storeName, logo, slogan, theme }: any) => (
-  <div className="min-h-[100dvh] bg-slate-50 flex flex-col items-center justify-center p-6 text-center">
-    <div className="max-w-md w-full">
+// FIX: Added LandingPage component - DESIGNED FOR PUBLIC CUSTOMER
+const LandingPage = ({ onSelectMode, storeName, logo, slogan, theme, isStoreOpen }: any) => (
+  <div className="min-h-[100dvh] bg-white flex flex-col items-center justify-center p-6 text-center relative overflow-hidden">
+    {/* HIDDEN ADMIN BUTTON */}
+    <button 
+        onClick={() => onSelectMode('admin')} 
+        className="absolute top-4 right-4 w-12 h-12 flex items-center justify-center text-gray-100 opacity-5 hover:opacity-100 transition-opacity z-50 rounded-full hover:bg-gray-100"
+        title="Admin Login"
+    >
+        <SidebarIcons.Settings />
+    </button>
+
+    <div className="max-w-md w-full animate-fade-in">
       {logo ? (
-        <img src={logo} alt="Logo" className="w-24 h-24 mx-auto mb-6 object-contain" />
+        <img src={logo} alt="Logo" className="w-32 h-32 mx-auto mb-6 object-contain" />
       ) : (
-        <div className={`w-20 h-20 bg-${theme}-100 text-${theme}-600 rounded-3xl flex items-center justify-center mx-auto mb-6 text-3xl font-black shadow-inner`}>
+        <div className={`w-24 h-24 bg-${theme}-600 text-white rounded-[2rem] flex items-center justify-center mx-auto mb-6 text-4xl font-black shadow-xl`}>
           {storeName?.charAt(0) || 'B'}
         </div>
       )}
-      <h1 className="text-4xl font-black text-slate-900 mb-2 tracking-tight uppercase">{storeName}</h1>
-      <p className="text-slate-500 mb-12 font-medium">{slogan}</p>
+      <h1 className="text-4xl font-black text-gray-900 mb-2 tracking-tight uppercase">{storeName}</h1>
+      <p className="text-gray-500 mb-12 font-medium text-lg">{slogan}</p>
       
-      <div className="grid gap-4">
-        <button 
-          onClick={() => onSelectMode('admin')} 
-          className="group relative p-6 bg-white border-2 border-slate-200 rounded-3xl text-left hover:border-slate-900 transition-all shadow-sm hover:shadow-xl"
-        >
-          <div className="flex items-center gap-4">
-            <div className="p-3 bg-slate-900 text-white rounded-2xl group-hover:scale-110 transition-transform">
-              <SidebarIcons.Pos />
+      <div className="space-y-4">
+        {isStoreOpen ? (
+            <button 
+                onClick={() => onSelectMode('customer')} 
+                className={`w-full group relative p-6 bg-${theme}-600 rounded-[2rem] text-center transition-all shadow-xl shadow-${theme}-200 hover:scale-[1.02] active:scale-95`}
+            >
+                <div className="flex flex-col items-center justify-center">
+                    <span className="text-white font-black text-2xl uppercase tracking-wider mb-1">Pesan Sekarang</span>
+                    <span className="text-white/80 text-sm font-bold">Mulai Pilih Menu Lezat Kami</span>
+                </div>
+            </button>
+        ) : (
+            <div className="p-8 bg-gray-100 rounded-[2rem] border-2 border-dashed border-gray-300">
+                <p className="font-bold text-gray-400 uppercase tracking-widest mb-1">Maaf, Kedai Sedang Tutup</p>
+                <p className="text-xs text-gray-500">Silakan kembali saat jam operasional kami.</p>
             </div>
-            <div>
-              <h3 className="font-bold text-slate-900">Sistem Kasir (Admin)</h3>
-              <p className="text-xs text-slate-500">Monitoring & Transaksi Penjualan</p>
-            </div>
-          </div>
-        </button>
-
-        <button 
-          onClick={() => onSelectMode('customer')} 
-          className={`group relative p-6 bg-white border-2 border-slate-200 rounded-3xl text-left hover:border-${theme}-500 transition-all shadow-sm hover:shadow-xl`}
-        >
-          <div className="flex items-center gap-4">
-            <div className={`p-3 bg-${theme}-600 text-white rounded-2xl group-hover:scale-110 transition-transform`}>
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" /></svg>
-            </div>
-            <div>
-              <h3 className="font-bold text-slate-900">Pesan Mandiri (Pelanggan)</h3>
-              <p className="text-xs text-slate-500">Scan QR & Pesan dari Meja</p>
-            </div>
-          </div>
-        </button>
+        )}
       </div>
       
-      <p className="mt-12 text-[10px] font-bold text-slate-400 uppercase tracking-widest">v6.3.0 Cloud Edition</p>
+      <div className="mt-16 flex items-center justify-center gap-4 text-gray-300">
+          <span className="h-px w-8 bg-gray-200"></span>
+          <p className="text-[10px] font-black uppercase tracking-widest">v6.5.0 Public Edition</p>
+          <span className="h-px w-8 bg-gray-200"></span>
+      </div>
     </div>
   </div>
 );
@@ -169,7 +164,6 @@ const App: React.FC = () => {
             const isReady = await checkConnection();
             setIsDatabaseReady(isReady);
             if (!isReady) return;
-
             const b = await getBranchesFromCloud(); setBranches(b.length ? b : initialBranches);
             const c = await getCategoriesFromCloud(); setCategories(c.length ? c : initialCategories);
         };
@@ -179,7 +173,6 @@ const App: React.FC = () => {
     // Branch Specific Data
     useEffect(() => {
         if (isDatabaseReady === false) return;
-        
         const loadBranchData = async () => {
             setIsShiftLoading(true); 
             const [p, m, i, u] = await Promise.all([
@@ -229,15 +222,14 @@ const App: React.FC = () => {
         return summary;
     };
 
-    // WRAPPER: Kunci tombol pesanan harus dengan shift aktif
     const addOrderWrapper = (cart: CartItem[], name: string, dVal: number, dType: any, oType: OrderType, payment?: any) => {
-        // HANYA UNTUK ADMIN: Cek shift wajib aktif
-        if (appMode === 'admin' && !activeShift) { 
-            alert("MAAF: Anda harus membuka SHIFT terlebih dahulu untuk melakukan pesanan kasir."); 
+        // CEK SHIFT: WAJIB AKTIF UNTUK SEMUA MODE
+        if (!activeShift) { 
+            alert("MAAF: Kedai sedang tidak menerima pesanan (Shift Belum Dibuka)."); 
             return null; 
         }
 
-        setIsGlobalLoading(true); // Mulai proses simpan (block UI)
+        setIsGlobalLoading(true); 
         const sub = cart.reduce((s, i) => s + i.price * i.quantity, 0);
         let disc = dType === 'percent' ? (sub * dVal / 100) : dVal;
         const tax = storeProfile.enableTax ? (sub - disc) * (storeProfile.taxRate / 100) : 0;
@@ -259,15 +251,14 @@ const App: React.FC = () => {
             createdAt: Date.now(), 
             isPaid: !!payment, 
             paymentMethod: payment?.method, 
-            shiftId: activeShift?.id || 'public', 
+            shiftId: activeShift.id, 
             orderType: oType, 
             branchId: activeBranchId 
         };
 
-        // Kirim ke Cloud & Selesaikan proses
         addOrderToCloud(order)
             .then(() => {
-                if (payment && activeShift) {
+                if (payment) {
                      const isCash = payment.method === 'Tunai';
                      const up = { 
                         revenue: activeShift.revenue + order.total, 
@@ -278,12 +269,7 @@ const App: React.FC = () => {
                      updateShiftInCloud(activeShift.id, up);
                 }
             })
-            .catch(err => {
-                console.error("Gagal simpan pesanan:", err);
-            })
-            .finally(() => {
-                setIsGlobalLoading(false); // Buka kembali UI
-            });
+            .finally(() => setIsGlobalLoading(false));
 
         return order;
     };
@@ -301,37 +287,43 @@ const App: React.FC = () => {
         addUser: addUserToCloud, updateUser: updateUserInCloud, deleteUser: deleteUserFromCloud, loginUser: loginAction, logout: () => { setIsLoggedIn(false); setAppMode('landing'); },
         startShift, closeShift, addOrder: addOrderWrapper, 
         updateOrder: (id, cart, dVal, dType, oType) => updateOrderInCloud(id, { items: cart, orderType: oType }),
-        updateOrderStatus: (id, status) => updateOrderInCloud(id, { status }),
+        // FIX: Perbaikan update status agar status 'completed' benar-benar terekam di Cloud
+        updateOrderStatus: (id, status) => { 
+            const completedAt = status === 'completed' ? Date.now() : undefined;
+            updateOrderInCloud(id, { status, completedAt }); 
+        },
         payForOrder: (o, m) => { updateOrderInCloud(o.id, { isPaid: true, paymentMethod: m }); return null; },
         voidOrder: (o) => updateOrderInCloud(o.id, { status: 'cancelled' }),
-        // FIX: Corrected property names to match Expense interface (shift_id -> shiftId, created_at -> date)
         addExpense: (d, a) => { if(activeShift) addExpenseToCloud({ id: Date.now(), shiftId: activeShift.id, description: d, amount: a, date: Date.now() }); },
         deleteExpense: deleteExpenseFromCloud, deleteAndResetShift: () => setActiveShift(null),
         requestPassword: (t, c) => { c(); }, 
         printerDevice: null, isPrinting: false, connectToPrinter: async () => {}, disconnectPrinter: async () => {}, previewReceipt: () => {}, printOrderToDevice: async () => {}, printShiftToDevice: async () => {}, printOrderViaBrowser: () => {},
-        setTables: () => {}, addTable: () => {}, deleteTable: () => {}, setUsers: () => {}, clockIn: async () => {}, clockOut: async () => {}, splitOrder: () => {}, customerSubmitOrder: async (c, n) => { addOrderWrapper(c, n, 0, 'percent', 'Dine In'); return true; },
+        setTables: () => {}, addTable: () => {}, deleteTable: () => {}, setUsers: () => {}, clockIn: async () => {}, clockOut: async () => {}, splitOrder: () => {}, 
+        customerSubmitOrder: async (cart, name) => { 
+            const res = addOrderWrapper(cart, name, 0, 'percent', 'Dine In'); 
+            return !!res; 
+        },
     };
 
-    if (isDatabaseReady === false) return <div className="fixed inset-0 bg-red-900 text-white flex items-center justify-center p-10 text-center"><div><h1 className="text-3xl font-bold mb-4">Error Koneksi Database</h1><p>Pastikan koneksi internet stabil.</p><button onClick={() => window.location.reload()} className="mt-6 bg-white text-red-600 px-6 py-2 rounded-xl font-bold">Refresh Halaman</button></div></div>;
+    if (isDatabaseReady === false) return <div className="fixed inset-0 bg-red-900 text-white flex items-center justify-center p-10 text-center"><div><h1 className="text-3xl font-bold mb-4">Error Koneksi Database</h1><button onClick={() => window.location.reload()} className="mt-6 bg-white text-red-600 px-6 py-2 rounded-xl font-bold">Refresh</button></div></div>;
 
     return (
         <ErrorBoundary>
             <AppContext.Provider value={contextValue}>
                 {isGlobalLoading && (
                     <div className="fixed inset-0 z-[200] bg-black/70 flex items-center justify-center backdrop-blur-md">
-                        <div className="bg-white p-8 rounded-3xl flex flex-col items-center shadow-2xl animate-scale-in">
+                        <div className="bg-white p-8 rounded-[2.5rem] flex flex-col items-center shadow-2xl animate-scale-in">
                             <div className="animate-spin rounded-full h-14 w-14 border-t-4 border-b-4 border-orange-600 mb-6"></div>
-                            <p className="font-black text-gray-800 text-lg uppercase tracking-widest">SINKRONISASI CLOUD...</p>
-                            <p className="text-sm text-gray-500 mt-1">Jangan tutup aplikasi saat menyimpan data.</p>
+                            <p className="font-black text-gray-800 text-lg uppercase tracking-widest">SINKRONISASI...</p>
                         </div>
                     </div>
                 )}
-                {appMode === 'landing' && <LandingPage onSelectMode={setAppMode} storeName={storeProfile.name} logo={storeProfile.logo} slogan={storeProfile.slogan} theme={storeProfile.themeColor} />}
+                {appMode === 'landing' && <LandingPage onSelectMode={setAppMode} storeName={storeProfile.name} logo={storeProfile.logo} slogan={storeProfile.slogan} theme={storeProfile.themeColor} isStoreOpen={!!activeShift} />}
                 {appMode === 'admin' && !isLoggedIn && (
                      <div className="fixed inset-0 bg-gray-900 flex items-center justify-center z-50 p-4">
-                        <div className="bg-white rounded-3xl shadow-2xl overflow-hidden max-sm w-full border-t-4 border-t-orange-500 p-8 text-center animate-scale-in">
-                            <h2 className="text-2xl font-black mb-6">LOGIN SISTEM</h2>
-                            <input type="password" placeholder="••••" className="w-full bg-gray-50 border-2 border-gray-200 rounded-2xl p-4 text-center text-3xl tracking-[0.5em] font-bold focus:border-orange-500 outline-none mb-6" onChange={(e) => { if(e.target.value.length >= 4) loginAction(e.target.value); }} autoFocus />
+                        <div className="bg-white rounded-[2.5rem] shadow-2xl overflow-hidden max-w-sm w-full border-t-8 border-t-orange-500 p-10 text-center animate-scale-in">
+                            <h2 className="text-2xl font-black mb-6">LOGIN ADMIN</h2>
+                            <input type="password" placeholder="••••" className="w-full bg-gray-50 border-2 border-gray-200 rounded-2xl p-4 text-center text-4xl tracking-[0.5em] font-bold focus:border-orange-500 outline-none mb-6" onChange={(e) => { if(e.target.value.length >= 4) loginAction(e.target.value); }} autoFocus />
                             <button onClick={() => setAppMode('landing')} className="text-sm font-bold text-gray-400 hover:text-gray-600 uppercase tracking-widest">Kembali</button>
                         </div>
                     </div>
@@ -343,7 +335,7 @@ const App: React.FC = () => {
                                 <h2 className="font-black text-xl uppercase tracking-tighter text-white leading-tight">
                                     {branches.find(b => b.id === activeBranchId)?.name || 'CABANG PUSAT'}
                                 </h2>
-                                <p className="text-[10px] font-bold text-slate-500 mt-1 uppercase tracking-widest bg-slate-800/50 inline-block px-2 py-0.5 rounded">Point of Sale System</p>
+                                <p className="text-[10px] font-bold text-slate-500 mt-1 uppercase tracking-widest bg-slate-800/50 inline-block px-2 py-0.5 rounded">Terminal Kasir</p>
                             </div>
                             <nav className="flex-1 px-4 space-y-1.5 custom-scrollbar overflow-y-auto">
                                 <NavItem id="pos" label="Kasir (POS)" icon={SidebarIcons.Pos} view={view} setView={setView} />
@@ -362,10 +354,6 @@ const App: React.FC = () => {
                                     <SidebarIcons.Logout />
                                     <span className="text-sm">Keluar (Logout)</span>
                                 </button>
-                                <div className="mt-4 px-5 text-[9px] text-slate-600 font-mono flex justify-between items-center">
-                                    <span>v6.3.0 Cloud</span>
-                                    <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></span>
-                                </div>
                             </div>
                         </aside>
                         <main className="flex-1 relative overflow-hidden bg-white">
@@ -387,7 +375,6 @@ const App: React.FC = () => {
     );
 };
 
-// NavItem Helper
 const NavItem = ({ id, label, icon: Icon, view, setView }: any) => (
     <button 
         onClick={() => setView(id)} 

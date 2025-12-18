@@ -349,11 +349,13 @@ export const updateOrderInCloud = async (orderId: string, data: Partial<Order>) 
 export const getUsersFromCloud = async (branchId: string): Promise<User[]> => {
     const { data, error } = await supabase.from('users').select('*');
     if (error) handleError(error, 'getUsers');
-    return (data || []).map((u: any) => ({ id: u.id, name: u.name, pin: u.pin, attendance_pin: u.attendance_pin, role: u.role, branchId: u.branch_id }));
+    // FIX: Map attendance_pin from database to attendancePin property in User object
+    return (data || []).map((u: any) => ({ id: u.id, name: u.name, pin: u.pin, attendancePin: u.attendance_pin, role: u.role, branchId: u.branch_id }));
 };
 
 export const addUserToCloud = async (user: User) => {
-    const { error } = await supabase.from('users').upsert({ id: user.id, name: user.name, pin: user.pin, attendance_pin: user.attendance_pin, role: user.role, branch_id: user.branchId });
+    // FIX: Map attendancePin property from User object to attendance_pin for database insertion
+    const { error } = await supabase.from('users').upsert({ id: user.id, name: user.name, pin: user.pin, attendance_pin: user.attendancePin, role: user.role, branch_id: user.branchId });
     if (error) handleError(error, 'addUser');
 };
 
@@ -363,7 +365,8 @@ export const deleteUserFromCloud = async (id: string) => {
 };
 
 export const updateUserInCloud = async (user: User) => {
-    const { error } = await supabase.from('users').update({ name: user.name, pin: user.pin, attendance_pin: user.attendance_pin, role: user.role }).eq('id', user.id);
+    // FIX: Map attendancePin property from User object to attendance_pin for database update
+    const { error } = await supabase.from('users').update({ name: user.name, pin: user.pin, attendance_pin: user.attendancePin, role: user.role }).eq('id', user.id);
     if (error) handleError(error, 'updateUser');
 };
 
