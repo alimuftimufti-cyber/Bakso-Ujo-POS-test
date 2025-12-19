@@ -138,6 +138,10 @@ const App: React.FC = () => {
     const [newOrderIncoming, setNewOrderIncoming] = useState(false);
     const [hasUnreadOrders, setHasUnreadOrders] = useState(false);
 
+    // Ref to store appMode for use in realtime listeners
+    const appModeRef = useRef(appMode);
+    useEffect(() => { appModeRef.current = appMode; }, [appMode]);
+
     // --- REFRESH DATA LOGIC ---
     const refreshAllData = useCallback(async (isInitial = false) => {
         if (isDatabaseReady === false) return;
@@ -184,38 +188,26 @@ const App: React.FC = () => {
         init();
     }, [activeBranchId, refreshAllData]);
 
-    // Real-time Listeners (FIXED)
+    // Real-time Listeners (FIXED: Added mode check for notifications)
     useEffect(() => {
         if (isDatabaseReady !== true) return;
         
-        console.log(`[App] Initializing realtime listeners for ${activeBranchId}`);
-        
         const unsubOrders = subscribeToOrders(activeBranchId, (newOrders, isNew) => {
             setOrders(newOrders);
-            if (isNew) {
-                console.log("[App] New order detected via realtime!");
+            // HANYA BUNYI DAN MUNCUL TOAST JIKA MODE ADMIN
+            if (isNew && appModeRef.current === 'admin') {
                 const audio = new Audio(BEEP_URL);
-                audio.play().catch(e => console.warn("Audio play blocked", e));
+                audio.play().catch(() => {});
                 setNewOrderIncoming(true);
                 setHasUnreadOrders(true);
                 setTimeout(() => setNewOrderIncoming(false), 5000);
             }
         });
         
-        const unsubInv = subscribeToInventory(activeBranchId, () => {
-            refreshAllData();
-        });
+        const unsubInv = subscribeToInventory(activeBranchId, () => refreshAllData());
+        const unsubShifts = subscribeToShifts(activeBranchId, (s) => setActiveShift(s));
 
-        const unsubShifts = subscribeToShifts(activeBranchId, (s) => {
-            console.log("[App] Shift status updated via realtime");
-            setActiveShift(s);
-        });
-
-        return () => { 
-            unsubOrders(); 
-            unsubInv(); 
-            unsubShifts(); 
-        };
+        return () => { unsubOrders(); unsubInv(); unsubShifts(); };
     }, [activeBranchId, isDatabaseReady, refreshAllData]);
 
     // Reset unread mark when going to POS
@@ -249,9 +241,6 @@ const App: React.FC = () => {
     };
 
     const addOrderWrapper = (cart: CartItem[], name: string, dVal: number, dType: any, oType: OrderType, payment?: any) => {
-        // PERBAIKAN: Jika mode pelanggan, kita izinkan proses meskipun activeShift belum ter-sync sempurna di lokal
-        // Karena di cloud pasti sudah dicek oleh ketersediaan tombol "Pesan".
-        
         const sub = cart.reduce((s, i) => s + i.price * i.quantity, 0);
         let disc = dType === 'percent' ? (sub * dVal / 100) : dVal;
         const tax = storeProfile.enableTax ? (sub - disc) * (storeProfile.taxRate / 100) : 0;
@@ -278,7 +267,6 @@ const App: React.FC = () => {
             branchId: activeBranchId 
         };
         
-        // Optimistic UI
         setOrders(prev => [order, ...prev]);
 
         if (isDatabaseReady) {
@@ -289,9 +277,9 @@ const App: React.FC = () => {
                      updateShiftInCloud(activeShift.id, up);
                      setActiveShift(prev => prev ? { ...prev, ...up } : null);
                 }
-            }).catch(err => {
+            }).catch(() => {
                 setOrders(prev => prev.filter(o => o.id !== order.id));
-                alert("Gagal sinkron cloud. Coba lagi.");
+                alert("Gagal sinkron cloud.");
             });
         }
         
@@ -358,7 +346,6 @@ const App: React.FC = () => {
         printerDevice: null, isPrinting: false, connectToPrinter: async () => {}, disconnectPrinter: async () => {}, previewReceipt: () => {}, printOrderToDevice: async () => {}, printShiftToDevice: async () => {}, printOrderViaBrowser: () => {},
         setTables: () => {}, addTable: () => {}, deleteTable: () => {}, setUsers: () => {}, clockIn: async () => {}, clockOut: async () => {}, splitOrder: () => {}, 
         customerSubmitOrder: async (cart, name) => {
-             // Izinkan order meskipun shift null (fallback ke 'public')
              const res = addOrderWrapper(cart, name, 0, 'percent', 'Dine In'); 
              return !!res; 
         },
@@ -369,136 +356,120 @@ const App: React.FC = () => {
     return (
         <ErrorBoundary>
             <AppContext.Provider value={contextValue}>
-                {isGlobalLoading && (
-                    <div className="fixed inset-0 z-[200] bg-black/70 flex items-center justify-center backdrop-blur-md">
-                        <div className="bg-white p-8 rounded-[2.5rem] flex flex-col items-center shadow-2xl animate-scale-in">
-                            <div className="animate-spin rounded-full h-14 w-14 border-t-4 border-b-4 border-orange-600 mb-6"></div>
-                            <p className="font-black text-gray-800 text-lg uppercase tracking-widest">SINKRONISASI...</p>
-                        </div>
-                    </div>
-                )}
-
-                {/* NEW ORDER NOTIFICATION TOAST (VITAL) */}
-                {newOrderIncoming && (
-                    <div className="fixed top-6 left-1/2 transform -translate-x-1/2 z-[300] animate-slide-in-up">
-                        <div className="bg-orange-600 text-white px-8 py-4 rounded-2xl shadow-2xl flex items-center gap-4 border-4 border-white">
-                            <div className="bg-white/20 p-2 rounded-full animate-bounce">
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
-                            </div>
-                            <div className="text-center">
-                                <p className="text-xs font-black uppercase tracking-widest opacity-80">Self-Service</p>
-                                <p className="text-lg font-black leading-tight">PESANAN BARU MASUK!</p>
+                <div className="h-full w-full relative">
+                    {isGlobalLoading && (
+                        <div className="fixed inset-0 z-[200] bg-black/70 flex items-center justify-center backdrop-blur-md">
+                            <div className="bg-white p-8 rounded-[2.5rem] flex flex-col items-center shadow-2xl animate-scale-in">
+                                <div className="animate-spin rounded-full h-14 w-14 border-t-4 border-b-4 border-orange-600 mb-6"></div>
+                                <p className="font-black text-gray-800 text-lg uppercase tracking-widest">SINKRONISASI...</p>
                             </div>
                         </div>
-                    </div>
-                )}
-                
-                {appMode === 'landing' && (
-                    <LandingPage 
-                        onSelectMode={setAppMode} 
-                        storeName={storeProfile.name} 
-                        logo={storeProfile.logo} 
-                        slogan={storeProfile.slogan} 
-                        theme={storeProfile.themeColor} 
-                        isStoreOpen={!!activeShift} 
-                        isLoading={isShiftLoading}
-                    />
-                )}
-                
-                {appMode === 'admin' && !isLoggedIn && (
-                     <div className="fixed inset-0 bg-gray-900 flex items-center justify-center z-50 p-4">
-                        <div className="bg-white rounded-[2.5rem] shadow-2xl overflow-hidden max-w-sm w-full border-t-8 border-t-orange-500 p-10 text-center animate-scale-in">
-                            <h2 className="text-2xl font-black mb-6 uppercase tracking-widest">Login Kasir</h2>
-                            <input type="password" placeholder="••••" className="w-full bg-gray-50 border-2 border-gray-200 rounded-2xl p-4 text-center text-4xl tracking-[0.5em] font-bold focus:border-orange-500 outline-none mb-6" onChange={(e) => { if(e.target.value.length >= 4) loginAction(e.target.value); }} autoFocus />
-                            <button onClick={() => setAppMode('landing')} className="text-sm font-bold text-gray-400 hover:text-gray-600 uppercase tracking-widest">Kembali</button>
-                        </div>
-                    </div>
-                )}
-                {appMode === 'admin' && isLoggedIn && (
-                    <div className="flex h-[100dvh] overflow-hidden bg-slate-900">
-                        {/* SIDEBAR ASIDE */}
-                        <aside className={`${isSidebarCollapsed ? 'w-20' : 'w-72'} transition-all duration-300 bg-[#0f172a] text-white hidden md:flex flex-col border-r border-slate-800 shadow-2xl relative`}>
-                            {/* Toggle Button */}
-                            <button 
-                                onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-                                className="absolute -right-3 top-20 bg-orange-600 text-white w-6 h-6 rounded-full flex items-center justify-center shadow-lg z-50 hover:bg-orange-700 transition-colors"
-                            >
-                                <svg xmlns="http://www.w3.org/2000/svg" className={`h-4 w-4 transition-transform duration-300 ${isSidebarCollapsed ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M15 19l-7-7 7-7" /></svg>
-                            </button>
+                    )}
 
-                            <div className={`p-8 border-b border-slate-800/50 mb-4 transition-all ${isSidebarCollapsed ? 'px-4' : 'px-8'}`}>
-                                {!isSidebarCollapsed ? (
-                                    <>
-                                        <h2 className="font-black text-xl uppercase tracking-tighter text-white leading-tight truncate">{branches.find(b => b.id === activeBranchId)?.name || 'CABANG PUSAT'}</h2>
-                                        <p className="text-[10px] font-bold text-slate-500 mt-1 uppercase tracking-widest bg-slate-800/50 inline-block px-2 py-0.5 rounded">Terminal Kasir</p>
-                                    </>
-                                ) : (
-                                    <div className="w-12 h-12 bg-orange-600 rounded-2xl flex items-center justify-center font-black text-white text-xl shadow-lg mx-auto">
-                                        {(branches.find(b => b.id === activeBranchId)?.name || 'B').charAt(0)}
+                    {/* NEW ORDER NOTIFICATION TOAST (ADMIN ONLY) */}
+                    {newOrderIncoming && appMode === 'admin' && (
+                        <div className="fixed top-6 left-1/2 transform -translate-x-1/2 z-[300] animate-slide-in-up">
+                            <div className="bg-orange-600 text-white px-8 py-4 rounded-2xl shadow-2xl flex items-center gap-4 border-4 border-white">
+                                <div className="bg-white/20 p-2 rounded-full animate-bounce">
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
+                                </div>
+                                <div className="text-center">
+                                    <p className="text-xs font-black uppercase tracking-widest opacity-80">Self-Service</p>
+                                    <p className="text-lg font-black leading-tight">PESANAN BARU MASUK!</p>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    
+                    {/* ADDING KEYS TO PREVENT insertBefore ERRORS DURING MODE SWITCH */}
+                    {appMode === 'landing' && (
+                        <div key="mode-landing" className="h-full">
+                            <LandingPage 
+                                onSelectMode={setAppMode} 
+                                storeName={storeProfile.name} 
+                                logo={storeProfile.logo} 
+                                slogan={storeProfile.slogan} 
+                                theme={storeProfile.themeColor} 
+                                isStoreOpen={!!activeShift} 
+                                isLoading={isShiftLoading}
+                            />
+                        </div>
+                    )}
+                    
+                    {appMode === 'admin' && (
+                        <div key="mode-admin" className="h-full">
+                            {!isLoggedIn ? (
+                                <div className="fixed inset-0 bg-gray-900 flex items-center justify-center z-50 p-4">
+                                    <div className="bg-white rounded-[2.5rem] shadow-2xl overflow-hidden max-w-sm w-full border-t-8 border-t-orange-500 p-10 text-center animate-scale-in">
+                                        <h2 className="text-2xl font-black mb-6 uppercase tracking-widest">Login Kasir</h2>
+                                        <input type="password" placeholder="••••" className="w-full bg-gray-50 border-2 border-gray-200 rounded-2xl p-4 text-center text-4xl tracking-[0.5em] font-bold focus:border-orange-500 outline-none mb-6" onChange={(e) => { if(e.target.value.length >= 4) loginAction(e.target.value); }} autoFocus />
+                                        <button onClick={() => setAppMode('landing')} className="text-sm font-bold text-gray-400 hover:text-gray-600 uppercase tracking-widest">Kembali</button>
                                     </div>
-                                )}
-                            </div>
-                            
-                            <nav className="flex-1 px-4 space-y-1.5 custom-scrollbar overflow-y-auto">
-                                <NavItem 
-                                    id="pos" 
-                                    label="Kasir (POS)" 
-                                    icon={SidebarIcons.Pos} 
-                                    view={view} 
-                                    setView={setView} 
-                                    isCollapsed={isSidebarCollapsed} 
-                                    hasBadge={hasUnreadOrders}
-                                />
-                                <NavItem id="shift" label="Keuangan & Biaya" icon={SidebarIcons.Shift} view={view} setView={setView} isCollapsed={isSidebarCollapsed} />
-                                <NavItem id="kitchen" label="Monitor Dapur" icon={SidebarIcons.Kitchen} view={view} setView={setView} isCollapsed={isSidebarCollapsed} />
-                                <NavItem id="inventory" label="Manajemen Stok" icon={SidebarIcons.Inventory} view={view} setView={setView} isCollapsed={isSidebarCollapsed} />
-                                <NavItem id="report" label="Laporan Penjualan" icon={SidebarIcons.Report} view={view} setView={setView} isCollapsed={isSidebarCollapsed} />
-                                
-                                {!isSidebarCollapsed && <div className="pt-6 pb-2 px-5"><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Pengaturan</p></div>}
-                                {isSidebarCollapsed && <div className="h-px bg-slate-800 my-4"></div>}
-
-                                <NavItem id="settings" label="Toko & Menu" icon={SidebarIcons.Settings} view={view} setView={setView} isCollapsed={isSidebarCollapsed} />
-                                {currentUser?.role === 'owner' && <NavItem id="owner_settings" label="Owner Panel" icon={SidebarIcons.Dashboard} view={view} setView={setView} isCollapsed={isSidebarCollapsed} />}
-                            </nav>
-                            
-                            <div className="p-4 border-t border-slate-800">
-                                <button onClick={() => { setIsLoggedIn(false); setAppMode('landing'); }} className={`w-full flex items-center gap-4 px-5 py-3.5 rounded-xl font-bold text-red-400 hover:bg-red-500/10 transition-all ${isSidebarCollapsed ? 'justify-center px-0' : ''}`}>
-                                    <SidebarIcons.Logout />
-                                    {!isSidebarCollapsed && <span className="text-sm">Keluar (Logout)</span>}
-                                </button>
-                            </div>
-                        </aside>
-                        
-                        <main className="flex-1 relative overflow-hidden bg-white">
-                            <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-500"></div></div>}>
-                                {view === 'pos' && <POSView />}
-                                {view === 'shift' && <ShiftView />}
-                                {view === 'kitchen' && <KitchenView />}
-                                {view === 'inventory' && <InventoryView />}
-                                {view === 'report' && <ReportView />}
-                                {view === 'settings' && <SettingsView />}
-                                {view === 'owner_settings' && <OwnerSettingsView />}
-                            </Suspense>
-                        </main>
-                    </div>
-                )}
-                {appMode === 'customer' && <Suspense fallback={null}><CustomerOrderView onBack={() => setAppMode('landing')} /></Suspense>}
+                                </div>
+                            ) : (
+                                <div className="flex h-[100dvh] overflow-hidden bg-slate-900">
+                                    <aside className={`${isSidebarCollapsed ? 'w-20' : 'w-72'} transition-all duration-300 bg-[#0f172a] text-white hidden md:flex flex-col border-r border-slate-800 shadow-2xl relative`}>
+                                        <button onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)} className="absolute -right-3 top-20 bg-orange-600 text-white w-6 h-6 rounded-full flex items-center justify-center shadow-lg z-50 hover:bg-orange-700 transition-colors">
+                                            <svg xmlns="http://www.w3.org/2000/svg" className={`h-4 w-4 transition-transform duration-300 ${isSidebarCollapsed ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M15 19l-7-7 7-7" /></svg>
+                                        </button>
+                                        <div className={`p-8 border-b border-slate-800/50 mb-4 transition-all ${isSidebarCollapsed ? 'px-4' : 'px-8'}`}>
+                                            {!isSidebarCollapsed ? (
+                                                <>
+                                                    <h2 className="font-black text-xl uppercase tracking-tighter text-white leading-tight truncate">{branches.find(b => b.id === activeBranchId)?.name || 'CABANG PUSAT'}</h2>
+                                                    <p className="text-[10px] font-bold text-slate-500 mt-1 uppercase tracking-widest bg-slate-800/50 inline-block px-2 py-0.5 rounded">Terminal Kasir</p>
+                                                </>
+                                            ) : (
+                                                <div className="w-12 h-12 bg-orange-600 rounded-2xl flex items-center justify-center font-black text-white text-xl shadow-lg mx-auto">{(branches.find(b => b.id === activeBranchId)?.name || 'B').charAt(0)}</div>
+                                            )}
+                                        </div>
+                                        <nav className="flex-1 px-4 space-y-1.5 custom-scrollbar overflow-y-auto">
+                                            <NavItem id="pos" label="Kasir (POS)" icon={SidebarIcons.Pos} view={view} setView={setView} isCollapsed={isSidebarCollapsed} hasBadge={hasUnreadOrders} />
+                                            <NavItem id="shift" label="Keuangan & Biaya" icon={SidebarIcons.Shift} view={view} setView={setView} isCollapsed={isSidebarCollapsed} />
+                                            <NavItem id="kitchen" label="Monitor Dapur" icon={SidebarIcons.Kitchen} view={view} setView={setView} isCollapsed={isSidebarCollapsed} />
+                                            <NavItem id="inventory" label="Manajemen Stok" icon={SidebarIcons.Inventory} view={view} setView={setView} isCollapsed={isSidebarCollapsed} />
+                                            <NavItem id="report" label="Laporan Penjualan" icon={SidebarIcons.Report} view={view} setView={setView} isCollapsed={isSidebarCollapsed} />
+                                            {!isSidebarCollapsed && <div className="pt-6 pb-2 px-5"><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Pengaturan</p></div>}
+                                            {isSidebarCollapsed && <div className="h-px bg-slate-800 my-4"></div>}
+                                            <NavItem id="settings" label="Toko & Menu" icon={SidebarIcons.Settings} view={view} setView={setView} isCollapsed={isSidebarCollapsed} />
+                                            {currentUser?.role === 'owner' && <NavItem id="owner_settings" label="Owner Panel" icon={SidebarIcons.Dashboard} view={view} setView={setView} isCollapsed={isSidebarCollapsed} />}
+                                        </nav>
+                                        <div className="p-4 border-t border-slate-800">
+                                            <button onClick={() => { setIsLoggedIn(false); setAppMode('landing'); }} className={`w-full flex items-center gap-4 px-5 py-3.5 rounded-xl font-bold text-red-400 hover:bg-red-500/10 transition-all ${isSidebarCollapsed ? 'justify-center px-0' : ''}`}>
+                                                <SidebarIcons.Logout />{!isSidebarCollapsed && <span className="text-sm">Keluar (Logout)</span>}
+                                            </button>
+                                        </div>
+                                    </aside>
+                                    <main className="flex-1 relative overflow-hidden bg-white">
+                                        <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-500"></div></div>}>
+                                            {view === 'pos' && <POSView />}
+                                            {view === 'shift' && <ShiftView />}
+                                            {view === 'kitchen' && <KitchenView />}
+                                            {view === 'inventory' && <InventoryView />}
+                                            {view === 'report' && <ReportView />}
+                                            {view === 'settings' && <SettingsView />}
+                                            {view === 'owner_settings' && <OwnerSettingsView />}
+                                        </Suspense>
+                                    </main>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                    
+                    {appMode === 'customer' && (
+                        <div key="mode-customer" className="h-full">
+                            <Suspense fallback={null}><CustomerOrderView onBack={() => setAppMode('landing')} /></Suspense>
+                        </div>
+                    )}
+                </div>
             </AppContext.Provider>
         </ErrorBoundary>
     );
 };
 
 const NavItem = ({ id, label, icon: Icon, view, setView, isCollapsed, hasBadge }: any) => (
-    <button 
-        onClick={() => setView(id)} 
-        title={isCollapsed ? label : ''}
-        className={`w-full flex items-center gap-4 px-5 py-3.5 rounded-xl font-bold transition-all group relative overflow-hidden ${isCollapsed ? 'justify-center px-0' : ''} ${view === id ? 'bg-white/10 text-white' : 'text-slate-400 hover:text-white hover:bg-white/5'} ${hasBadge ? 'animate-pulse' : ''}`}
-    >
+    <button onClick={() => setView(id)} title={isCollapsed ? label : ''} className={`w-full flex items-center gap-4 px-5 py-3.5 rounded-xl font-bold transition-all group relative overflow-hidden ${isCollapsed ? 'justify-center px-0' : ''} ${view === id ? 'bg-white/10 text-white' : 'text-slate-400 hover:text-white hover:bg-white/5'} ${hasBadge ? 'animate-pulse' : ''}`}>
         {view === id && <div className={`absolute left-0 top-0 h-full bg-orange-500 rounded-r-full shadow-[0_0_10px_#f97316] ${isCollapsed ? 'w-1' : 'w-1.5'}`}></div>}
-        <div className="relative">
-            <Icon />
-            {hasBadge && <div className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-orange-500 rounded-full border-2 border-[#0f172a]"></div>}
-        </div>
+        <div className="relative"><Icon />{hasBadge && <div className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-orange-500 rounded-full border-2 border-[#0f172a]"></div>}</div>
         {!isCollapsed && <span className="text-sm tracking-tight truncate">{label}</span>}
     </button>
 );
