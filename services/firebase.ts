@@ -10,7 +10,6 @@ export const currentProjectId = "Supabase Project";
 const handleError = (error: any, context: string) => {
     if (error) {
         console.error(`🔴 DATABASE ERROR [${context}]:`, error.message, error.details);
-        // Jika error terkait foreign key shift_id
         if (error.code === '23503') {
             alert(`Gagal Simpan: Data Shift atau Cabang tidak valid di database.`);
         } else {
@@ -179,7 +178,7 @@ export const deleteExpenseFromCloud = async (id: number) => {
 // ==========================================
 
 export const getMenuFromCloud = async (branchId: string): Promise<MenuItem[]> => {
-    const { data, error } = await supabase.from('products').select(`*, categories (name)`).eq('is_active', true);
+    const { data, error } = await supabase.from('products').select(`*, categories (name)`).eq('is_active', true).order('name', { ascending: true });
     if (error) handleError(error, 'getMenu');
     return (data || []).map((p: any) => ({ 
         id: p.id, 
@@ -187,8 +186,8 @@ export const getMenuFromCloud = async (branchId: string): Promise<MenuItem[]> =>
         price: Number(p.price), 
         category: p.categories?.name || 'Umum', 
         imageUrl: p.image_url, 
-        stock: p.stock, 
-        minStock: p.min_stock 
+        stock: p.stock === null ? undefined : Number(p.stock), 
+        minStock: p.min_stock === null ? undefined : Number(p.min_stock)
     }));
 };
 
@@ -200,8 +199,8 @@ export const addProductToCloud = async (item: MenuItem, branchId: string) => {
         price: item.price, 
         category_id: catData?.id || 1, 
         image_url: item.imageUrl, 
-        stock: item.stock || 0, 
-        min_stock: item.minStock || 5, 
+        stock: item.stock === undefined ? null : item.stock, 
+        min_stock: item.minStock === undefined ? null : item.minStock, 
         is_active: true, 
         branch_id: null 
     };
@@ -226,7 +225,7 @@ export const deleteProductFromCloud = async (id: number) => {
 };
 
 export const getIngredientsFromCloud = async (branchId: string): Promise<Ingredient[]> => {
-    const { data, error } = await supabase.from('ingredients').select('*').eq('branch_id', branchId);
+    const { data, error } = await supabase.from('ingredients').select('*').eq('branch_id', branchId).order('name', { ascending: true });
     if (error) handleError(error, 'getIngredients');
     return (data || []).map((i: any) => ({ id: i.id, name: i.name, unit: i.unit, stock: Number(i.stock), minStock: Number(i.min_stock), type: i.type }));
 };
@@ -254,6 +253,17 @@ export const deleteIngredientFromCloud = async (id: string) => {
     if (error) handleError(error, 'deleteIngredient');
 };
 
+// NEW: Real-time listener for products and ingredients
+export const subscribeToInventory = (branchId: string, onUpdate: () => void) => {
+    const productsChannel = supabase.channel(`inv-products`).on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, () => onUpdate()).subscribe();
+    const ingredientsChannel = supabase.channel(`inv-ingredients-${branchId}`).on('postgres_changes', { event: '*', schema: 'public', table: 'ingredients', filter: `branch_id=eq.${branchId}` }, () => onUpdate()).subscribe();
+    
+    return () => {
+        supabase.removeChannel(productsChannel);
+        supabase.removeChannel(ingredientsChannel);
+    };
+};
+
 // ==========================================
 // 4. ORDERS & REALTIME
 // ==========================================
@@ -277,6 +287,7 @@ export const subscribeToOrders = (branchId: string, onUpdate: (orders: Order[]) 
                 status: dbOrder.status, 
                 createdAt: Number(dbOrder.created_at), 
                 completedAt: dbOrder.completed_at ? Number(dbOrder.completed_at) : undefined, 
+                readyAt: dbOrder.ready_at ? Number(dbOrder.ready_at) : undefined,
                 isPaid: dbOrder.payment_status === 'paid', 
                 paymentMethod: dbOrder.payment_method, 
                 shiftId: dbOrder.shift_id, 
@@ -335,9 +346,7 @@ export const updateOrderInCloud = async (orderId: string, data: Partial<Order> |
     if (data.payment_status) updates.payment_status = data.payment_status; 
     if (data.paymentMethod) updates.payment_method = data.paymentMethod;
     if (data.completedAt) updates.completed_at = data.completedAt;
-    
-    // FIX: Remove ready_at from direct updates until column is created in SQL
-    // if (data.readyAt) updates.ready_at = data.readyAt; 
+    if (data.readyAt) updates.ready_at = data.readyAt; 
     
     updates.updated_at = new Date().toISOString();
     
@@ -385,14 +394,12 @@ export const deleteCategoryFromCloud = async (name: string) => {
 export const subscribeToAttendance = (branchId: string, onUpdate: (data: AttendanceRecord[]) => void) => {
     const fetch = async () => {
         const { data } = await supabase.from('attendance').select('*').eq('branch_id', branchId).order('clock_in', { ascending: false });
-        // FIX: Map database fields to AttendanceRecord type properties correctly
         if (data) onUpdate(data.map((r: any) => ({ id: r.id, userId: r.user_id, userName: r.user_name, branchId: r.branch_id, date: r.date, clockInTime: Number(r.clock_in), clockOutTime: r.clock_out ? Number(r.clock_out) : undefined, status: r.status, photoUrl: r.photo_url, location: { lat: Number(r.lat), lng: Number(r.lng) } })));
     };
     fetch(); return () => {};
 };
 
 export const addAttendanceToCloud = async (record: AttendanceRecord) => {
-    // FIX: Access clockInTime instead of non-existent clock_in property on record
     const { error } = await supabase.from('attendance').insert({ id: record.id, user_id: record.userId, user_name: record.userName, branch_id: record.branchId, date: record.date, clock_in: record.clockInTime, status: record.status, photo_url: record.photoUrl, lat: record.location?.lat, lng: record.location?.lng });
     if (error) handleError(error, 'addAttendance');
 };
