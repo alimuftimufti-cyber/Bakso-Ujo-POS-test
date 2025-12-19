@@ -135,7 +135,6 @@ const App: React.FC = () => {
 
     // --- REFRESH DATA LOGIC ---
     const refreshAllData = useCallback(async (isInitial = false) => {
-        // Hanya jalan jika DB siap
         if (isDatabaseReady === false) return;
         
         try {
@@ -175,30 +174,17 @@ const App: React.FC = () => {
         const init = async () => {
             const isReady = await checkConnection();
             setIsDatabaseReady(isReady);
-            
-            // Tunggu status isDatabaseReady ter-update di state lewat render berikutnya
-            // atau panggil refresh langsung jika isReady true
-            if (isReady) {
-                await refreshAllData(true);
-            } else {
-                setIsShiftLoading(false);
-            }
+            if (isReady) { await refreshAllData(true); } else { setIsShiftLoading(false); }
         };
         init();
-    }, [activeBranchId]); // Re-run when branch changes
-
-    // Background Refresh on View Change
-    useEffect(() => {
-        if (isLoggedIn && view !== 'dashboard' && isDatabaseReady) {
-            refreshAllData();
-        }
-    }, [view, isLoggedIn, isDatabaseReady, refreshAllData]);
+    }, [activeBranchId, refreshAllData]);
 
     // Real-time Listeners
     useEffect(() => {
         if (isDatabaseReady !== true) return;
         
         const unsubOrders = subscribeToOrders(activeBranchId, (newOrders) => {
+            // Merge local orders with cloud orders to avoid duplicate flickering but prioritize cloud
             setOrders(newOrders);
         });
         
@@ -238,25 +224,56 @@ const App: React.FC = () => {
 
     const addOrderWrapper = (cart: CartItem[], name: string, dVal: number, dType: any, oType: OrderType, payment?: any) => {
         if (!activeShift) { alert("MAAF: Kedai sedang tidak menerima pesanan (Shift Belum Dibuka)."); return null; }
-        setIsGlobalLoading(true); 
+        
         const sub = cart.reduce((s, i) => s + i.price * i.quantity, 0);
         let disc = dType === 'percent' ? (sub * dVal / 100) : dVal;
         const tax = storeProfile.enableTax ? (sub - disc) * (storeProfile.taxRate / 100) : 0;
         const srv = storeProfile.enableServiceCharge ? (sub - disc) * (storeProfile.serviceChargeRate / 100) : 0;
-        const order: Order = { id: Date.now().toString(), sequentialId: orders.length + 1, customerName: name, items: cart, total: Math.round(sub - disc + tax + srv), subtotal: sub, discount: disc, discountType: dType, discountValue: dVal, taxAmount: tax, serviceChargeAmount: srv, status: 'pending', createdAt: Date.now(), isPaid: !!payment, paymentMethod: payment?.method, shiftId: activeShift.id, orderType: oType, branchId: activeBranchId };
         
+        // Buat objek pesanan baru
+        const order: Order = { 
+            id: Date.now().toString(), 
+            sequentialId: orders.length + 1, 
+            customerName: name, 
+            items: cart, 
+            total: Math.round(sub - disc + tax + srv), 
+            subtotal: sub, 
+            discount: disc, 
+            discountType: dType, 
+            discountValue: dVal, 
+            taxAmount: tax, 
+            serviceChargeAmount: srv, 
+            status: 'pending', 
+            createdAt: Date.now(), 
+            isPaid: !!payment, 
+            paymentMethod: payment?.method, 
+            shiftId: activeShift.id, 
+            orderType: oType, 
+            branchId: activeBranchId 
+        };
+        
+        // OPTIMISTIC UPDATE: Langsung tambahkan ke layar
+        setOrders(prev => [order, ...prev]);
+
         if (isDatabaseReady) {
+            setIsGlobalLoading(true);
             addOrderToCloud(order).then(() => {
                 if (payment) {
                      const isCash = payment.method === 'Tunai';
                      const up = { revenue: activeShift.revenue + order.total, cashRevenue: isCash ? activeShift.cashRevenue + order.total : activeShift.cashRevenue, nonCashRevenue: !isCash ? activeShift.nonCashRevenue + order.total : activeShift.nonCashRevenue, transactions: activeShift.transactions + 1 };
                      updateShiftInCloud(activeShift.id, up);
+                     
+                     // Update local active shift as well for immediate calculation
+                     setActiveShift(prev => prev ? { ...prev, ...up } : null);
                 }
+            }).catch(err => {
+                console.error("Gagal sinkron cloud:", err);
+                // Rollback if critical failure
+                setOrders(prev => prev.filter(o => o.id !== order.id));
+                alert("Gagal mengirim pesanan ke Cloud. Silakan coba lagi.");
             }).finally(() => setIsGlobalLoading(false));
-        } else {
-            setOrders([order, ...orders]);
-            setIsGlobalLoading(false);
         }
+        
         return order;
     };
 
@@ -312,7 +329,7 @@ const App: React.FC = () => {
             setOrders(prev => prev.map(order => order.id === o.id ? updated : order));
             return updated; 
         },
-        voidOrder: (o) => { if(isDatabaseReady) updateOrderInCloud(o.id, { status: 'cancelled' }); },
+        voidOrder: (o) => { if(isDatabaseReady) updateOrderInCloud(o.id, { status: 'cancelled' }); setOrders(prev => prev.map(order => order.id === o.id ? { ...order, status: 'cancelled' } : order)); },
         addExpense: (d, a) => { if(activeShift && isDatabaseReady) addExpenseToCloud({ id: Date.now(), shiftId: activeShift.id, description: d, amount: a, date: Date.now() }); },
         deleteExpense: deleteExpenseFromCloud, deleteAndResetShift: () => setActiveShift(null),
         refreshOrders: () => refreshAllData(),
