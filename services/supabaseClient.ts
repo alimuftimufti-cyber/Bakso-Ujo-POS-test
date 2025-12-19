@@ -2,13 +2,10 @@
 // @ts-ignore
 import { createClient } from '@supabase/supabase-js';
 
-// Fungsi pencari Env Var yang lebih pintar
 const getEnvVar = (key: string) => {
   // @ts-ignore
   const env = import.meta.env || process.env || {};
-  // Coba cari dengan awalan VITE_ (Standar Vite)
   if (env[`VITE_${key}`]) return env[`VITE_${key}`];
-  // Coba cari tanpa awalan (Standar Hosting Umum)
   if (env[key]) return env[key];
   return '';
 };
@@ -16,18 +13,14 @@ const getEnvVar = (key: string) => {
 const supabaseUrl = getEnvVar('SUPABASE_URL');
 const supabaseAnonKey = getEnvVar('SUPABASE_ANON_KEY');
 
-// Logging untuk membantu diagnosa
-if (!supabaseUrl || !supabaseAnonKey || supabaseUrl.includes('placeholder')) {
-  console.warn("⚠️ [Supabase] Database belum terkonfigurasi. Aplikasi berjalan dalam MODE OFFLINE.");
-}
+// Deteksi apakah konfigurasi valid
+const isConfigValid = supabaseUrl && 
+                     !supabaseUrl.includes('placeholder') && 
+                     supabaseAnonKey && 
+                     supabaseAnonKey !== 'placeholder';
 
-// Inisialisasi klien dengan penanganan URL kosong
-const finalUrl = (!supabaseUrl || supabaseUrl.includes('placeholder')) 
-    ? 'https://placeholder.supabase.co' 
-    : supabaseUrl;
-const finalKey = (!supabaseAnonKey || supabaseAnonKey.includes('placeholder')) 
-    ? 'placeholder' 
-    : supabaseAnonKey;
+const finalUrl = isConfigValid ? supabaseUrl : 'https://placeholder-project.supabase.co';
+const finalKey = isConfigValid ? supabaseAnonKey : 'placeholder-key';
 
 export const supabase = createClient(finalUrl, finalKey, {
     auth: {
@@ -37,14 +30,16 @@ export const supabase = createClient(finalUrl, finalKey, {
 });
 
 export const checkConnection = async () => {
-    // Jika masih placeholder, langsung anggap tidak siap (gagal koneksi)
-    if (!supabaseUrl || supabaseUrl.includes('placeholder')) return false;
+    if (!isConfigValid) {
+        console.warn("⚠️ [Supabase] Konfigurasi tidak ditemukan atau masih placeholder.");
+        return false;
+    }
     
     try {
-        // Gunakan timeout agar fetch tidak gantung selamanya jika URL salah
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000);
+        const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 detik timeout
         
+        // Gunakan query super ringan untuk cek koneksi
         const { error } = await supabase
             .from('branches')
             .select('id')
@@ -54,12 +49,14 @@ export const checkConnection = async () => {
         clearTimeout(timeoutId);
         
         if (error) {
-            console.error("🔴 Koneksi Database Ditolak:", error.message);
+            console.error("🔴 Supabase Error:", error.message);
+            // Jika errornya 'PGRST116' (no rows found) itu sebenarnya koneksi OK tapi tabel kosong
+            if (error.code === 'PGRST116') return true;
             return false;
         }
         return true;
     } catch (e) {
-        console.error("🔴 Koneksi Database Gagal (Network Error):", e);
+        console.error("🔴 Jaringan Gagal:", e);
         return false;
     }
 };
