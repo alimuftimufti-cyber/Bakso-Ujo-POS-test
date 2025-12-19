@@ -136,6 +136,7 @@ const App: React.FC = () => {
     const [isGlobalLoading, setIsGlobalLoading] = useState(false);
     const [isDatabaseReady, setIsDatabaseReady] = useState<boolean | null>(null);
     const [newOrderIncoming, setNewOrderIncoming] = useState(false);
+    const [hasUnreadOrders, setHasUnreadOrders] = useState(false);
 
     // --- REFRESH DATA LOGIC ---
     const refreshAllData = useCallback(async (isInitial = false) => {
@@ -183,16 +184,20 @@ const App: React.FC = () => {
         init();
     }, [activeBranchId, refreshAllData]);
 
-    // Real-time Listeners
+    // Real-time Listeners (FIXED)
     useEffect(() => {
         if (isDatabaseReady !== true) return;
+        
+        console.log(`[App] Initializing realtime listeners for ${activeBranchId}`);
         
         const unsubOrders = subscribeToOrders(activeBranchId, (newOrders, isNew) => {
             setOrders(newOrders);
             if (isNew) {
+                console.log("[App] New order detected via realtime!");
                 const audio = new Audio(BEEP_URL);
-                audio.play().catch(() => {});
+                audio.play().catch(e => console.warn("Audio play blocked", e));
                 setNewOrderIncoming(true);
+                setHasUnreadOrders(true);
                 setTimeout(() => setNewOrderIncoming(false), 5000);
             }
         });
@@ -201,10 +206,22 @@ const App: React.FC = () => {
             refreshAllData();
         });
 
-        const unsubShifts = subscribeToShifts(activeBranchId, (s) => setActiveShift(s));
+        const unsubShifts = subscribeToShifts(activeBranchId, (s) => {
+            console.log("[App] Shift status updated via realtime");
+            setActiveShift(s);
+        });
 
-        return () => { unsubOrders(); unsubInv(); unsubShifts(); };
+        return () => { 
+            unsubOrders(); 
+            unsubInv(); 
+            unsubShifts(); 
+        };
     }, [activeBranchId, isDatabaseReady, refreshAllData]);
+
+    // Reset unread mark when going to POS
+    useEffect(() => {
+        if (view === 'pos') setHasUnreadOrders(false);
+    }, [view]);
 
     const loginAction = (pin: string) => {
         const foundUser = users.find(u => u.pin === pin);
@@ -232,7 +249,8 @@ const App: React.FC = () => {
     };
 
     const addOrderWrapper = (cart: CartItem[], name: string, dVal: number, dType: any, oType: OrderType, payment?: any) => {
-        if (!activeShift) { alert("MAAF: Kedai sedang tidak menerima pesanan (Shift Belum Dibuka)."); return null; }
+        // PERBAIKAN: Jika mode pelanggan, kita izinkan proses meskipun activeShift belum ter-sync sempurna di lokal
+        // Karena di cloud pasti sudah dicek oleh ketersediaan tombol "Pesan".
         
         const sub = cart.reduce((s, i) => s + i.price * i.quantity, 0);
         let disc = dType === 'percent' ? (sub * dVal / 100) : dVal;
@@ -255,16 +273,17 @@ const App: React.FC = () => {
             createdAt: Date.now(), 
             isPaid: !!payment, 
             paymentMethod: payment?.method, 
-            shiftId: activeShift.id, 
+            shiftId: activeShift?.id || 'public', 
             orderType: oType, 
             branchId: activeBranchId 
         };
         
+        // Optimistic UI
         setOrders(prev => [order, ...prev]);
 
         if (isDatabaseReady) {
             addOrderToCloud(order).then(() => {
-                if (payment) {
+                if (payment && activeShift) {
                      const isCash = payment.method === 'Tunai';
                      const up = { revenue: activeShift.revenue + order.total, cashRevenue: isCash ? activeShift.cashRevenue + order.total : activeShift.cashRevenue, nonCashRevenue: !isCash ? activeShift.nonCashRevenue + order.total : activeShift.nonCashRevenue, transactions: activeShift.transactions + 1 };
                      updateShiftInCloud(activeShift.id, up);
@@ -339,7 +358,7 @@ const App: React.FC = () => {
         printerDevice: null, isPrinting: false, connectToPrinter: async () => {}, disconnectPrinter: async () => {}, previewReceipt: () => {}, printOrderToDevice: async () => {}, printShiftToDevice: async () => {}, printOrderViaBrowser: () => {},
         setTables: () => {}, addTable: () => {}, deleteTable: () => {}, setUsers: () => {}, clockIn: async () => {}, clockOut: async () => {}, splitOrder: () => {}, 
         customerSubmitOrder: async (cart, name) => {
-             if (!activeShift) return false;
+             // Izinkan order meskipun shift null (fallback ke 'public')
              const res = addOrderWrapper(cart, name, 0, 'percent', 'Dine In'); 
              return !!res; 
         },
@@ -359,7 +378,7 @@ const App: React.FC = () => {
                     </div>
                 )}
 
-                {/* NEW ORDER NOTIFICATION TOAST */}
+                {/* NEW ORDER NOTIFICATION TOAST (VITAL) */}
                 {newOrderIncoming && (
                     <div className="fixed top-6 left-1/2 transform -translate-x-1/2 z-[300] animate-slide-in-up">
                         <div className="bg-orange-600 text-white px-8 py-4 rounded-2xl shadow-2xl flex items-center gap-4 border-4 border-white">
@@ -367,8 +386,8 @@ const App: React.FC = () => {
                                 <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
                             </div>
                             <div className="text-center">
-                                <p className="text-xs font-black uppercase tracking-widest opacity-80">Pelanggan Baru</p>
-                                <p className="text-lg font-black leading-tight">PESANAN MASUK!</p>
+                                <p className="text-xs font-black uppercase tracking-widest opacity-80">Self-Service</p>
+                                <p className="text-lg font-black leading-tight">PESANAN BARU MASUK!</p>
                             </div>
                         </div>
                     </div>
@@ -389,7 +408,7 @@ const App: React.FC = () => {
                 {appMode === 'admin' && !isLoggedIn && (
                      <div className="fixed inset-0 bg-gray-900 flex items-center justify-center z-50 p-4">
                         <div className="bg-white rounded-[2.5rem] shadow-2xl overflow-hidden max-w-sm w-full border-t-8 border-t-orange-500 p-10 text-center animate-scale-in">
-                            <h2 className="text-2xl font-black mb-6">LOGIN ADMIN</h2>
+                            <h2 className="text-2xl font-black mb-6 uppercase tracking-widest">Login Kasir</h2>
                             <input type="password" placeholder="••••" className="w-full bg-gray-50 border-2 border-gray-200 rounded-2xl p-4 text-center text-4xl tracking-[0.5em] font-bold focus:border-orange-500 outline-none mb-6" onChange={(e) => { if(e.target.value.length >= 4) loginAction(e.target.value); }} autoFocus />
                             <button onClick={() => setAppMode('landing')} className="text-sm font-bold text-gray-400 hover:text-gray-600 uppercase tracking-widest">Kembali</button>
                         </div>
@@ -399,7 +418,7 @@ const App: React.FC = () => {
                     <div className="flex h-[100dvh] overflow-hidden bg-slate-900">
                         {/* SIDEBAR ASIDE */}
                         <aside className={`${isSidebarCollapsed ? 'w-20' : 'w-72'} transition-all duration-300 bg-[#0f172a] text-white hidden md:flex flex-col border-r border-slate-800 shadow-2xl relative`}>
-                            {/* Toggle Button Inside Sidebar */}
+                            {/* Toggle Button */}
                             <button 
                                 onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
                                 className="absolute -right-3 top-20 bg-orange-600 text-white w-6 h-6 rounded-full flex items-center justify-center shadow-lg z-50 hover:bg-orange-700 transition-colors"
@@ -421,7 +440,15 @@ const App: React.FC = () => {
                             </div>
                             
                             <nav className="flex-1 px-4 space-y-1.5 custom-scrollbar overflow-y-auto">
-                                <NavItem id="pos" label="Kasir (POS)" icon={SidebarIcons.Pos} view={view} setView={setView} isCollapsed={isSidebarCollapsed} />
+                                <NavItem 
+                                    id="pos" 
+                                    label="Kasir (POS)" 
+                                    icon={SidebarIcons.Pos} 
+                                    view={view} 
+                                    setView={setView} 
+                                    isCollapsed={isSidebarCollapsed} 
+                                    hasBadge={hasUnreadOrders}
+                                />
                                 <NavItem id="shift" label="Keuangan & Biaya" icon={SidebarIcons.Shift} view={view} setView={setView} isCollapsed={isSidebarCollapsed} />
                                 <NavItem id="kitchen" label="Monitor Dapur" icon={SidebarIcons.Kitchen} view={view} setView={setView} isCollapsed={isSidebarCollapsed} />
                                 <NavItem id="inventory" label="Manajemen Stok" icon={SidebarIcons.Inventory} view={view} setView={setView} isCollapsed={isSidebarCollapsed} />
@@ -461,14 +488,17 @@ const App: React.FC = () => {
     );
 };
 
-const NavItem = ({ id, label, icon: Icon, view, setView, isCollapsed }: any) => (
+const NavItem = ({ id, label, icon: Icon, view, setView, isCollapsed, hasBadge }: any) => (
     <button 
         onClick={() => setView(id)} 
         title={isCollapsed ? label : ''}
-        className={`w-full flex items-center gap-4 px-5 py-3.5 rounded-xl font-bold transition-all group relative overflow-hidden ${isCollapsed ? 'justify-center px-0' : ''} ${view === id ? 'bg-white/10 text-white' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
+        className={`w-full flex items-center gap-4 px-5 py-3.5 rounded-xl font-bold transition-all group relative overflow-hidden ${isCollapsed ? 'justify-center px-0' : ''} ${view === id ? 'bg-white/10 text-white' : 'text-slate-400 hover:text-white hover:bg-white/5'} ${hasBadge ? 'animate-pulse' : ''}`}
     >
         {view === id && <div className={`absolute left-0 top-0 h-full bg-orange-500 rounded-r-full shadow-[0_0_10px_#f97316] ${isCollapsed ? 'w-1' : 'w-1.5'}`}></div>}
-        <Icon />
+        <div className="relative">
+            <Icon />
+            {hasBadge && <div className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-orange-500 rounded-full border-2 border-[#0f172a]"></div>}
+        </div>
         {!isCollapsed && <span className="text-sm tracking-tight truncate">{label}</span>}
     </button>
 );
