@@ -332,10 +332,12 @@ export const updateOrderInCloud = async (orderId: string, data: Partial<Order> |
     const updates: any = {};
     if (data.status) updates.status = data.status;
     if (data.isPaid !== undefined) updates.payment_status = data.isPaid ? 'paid' : 'unpaid';
-    if (data.payment_status) updates.payment_status = data.payment_status; // Handle raw field name
+    if (data.payment_status) updates.payment_status = data.payment_status; 
     if (data.paymentMethod) updates.payment_method = data.paymentMethod;
     if (data.completedAt) updates.completed_at = data.completedAt;
-    if (data.readyAt) updates.ready_at = data.readyAt; // Assuming this column exists or update_at
+    
+    // FIX: Remove ready_at from direct updates until column is created in SQL
+    // if (data.readyAt) updates.ready_at = data.readyAt; 
     
     updates.updated_at = new Date().toISOString();
     
@@ -383,12 +385,14 @@ export const deleteCategoryFromCloud = async (name: string) => {
 export const subscribeToAttendance = (branchId: string, onUpdate: (data: AttendanceRecord[]) => void) => {
     const fetch = async () => {
         const { data } = await supabase.from('attendance').select('*').eq('branch_id', branchId).order('clock_in', { ascending: false });
-        if (data) onUpdate(data.map((r: any) => ({ id: r.id, userId: r.user_id, userName: r.user_name, branchId: r.branch_id, date: r.date, clockInTime: Number(r.clock_in), clockOutTime: r.clock_out ? Number(r.clock_out) : undefined, status: r.status, photo_url: r.photo_url, location: { lat: Number(r.lat), lng: Number(r.lng) } })));
+        // FIX: Map database fields to AttendanceRecord type properties correctly
+        if (data) onUpdate(data.map((r: any) => ({ id: r.id, userId: r.user_id, userName: r.user_name, branchId: r.branch_id, date: r.date, clockInTime: Number(r.clock_in), clockOutTime: r.clock_out ? Number(r.clock_out) : undefined, status: r.status, photoUrl: r.photo_url, location: { lat: Number(r.lat), lng: Number(r.lng) } })));
     };
     fetch(); return () => {};
 };
 
 export const addAttendanceToCloud = async (record: AttendanceRecord) => {
+    // FIX: Access clockInTime instead of non-existent clock_in property on record
     const { error } = await supabase.from('attendance').insert({ id: record.id, user_id: record.userId, user_name: record.userName, branch_id: record.branchId, date: record.date, clock_in: record.clockInTime, status: record.status, photo_url: record.photoUrl, lat: record.location?.lat, lng: record.location?.lng });
     if (error) handleError(error, 'addAttendance');
 };
