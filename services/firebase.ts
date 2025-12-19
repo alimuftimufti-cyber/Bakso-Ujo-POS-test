@@ -141,7 +141,7 @@ export const closeShiftInCloud = async (summary: ShiftSummary) => {
 
 export const subscribeToShifts = (branchId: string, onShiftChange: (shift: Shift | null) => void) => {
     const channel = supabase
-        .channel(`shifts-${branchId}`)
+        .channel(`shifts-realtime-${branchId}`)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'shifts', filter: `branch_id=eq.${branchId}` }, 
             async () => {
                 const shift = await getActiveShiftFromCloud(branchId);
@@ -264,11 +264,12 @@ export const subscribeToInventory = (branchId: string, onUpdate: () => void) => 
 };
 
 // ==========================================
-// 4. ORDERS & REALTIME
+// 4. ORDERS & REALTIME (VITAL FIX)
 // ==========================================
 
 export const subscribeToOrders = (branchId: string, onUpdate: (orders: Order[], isNew: boolean) => void) => {
     const fetchOrders = async (isNew: boolean = false) => {
+        console.log(`[Realtime] Syncing orders for branch: ${branchId}`);
         const { data, error } = await supabase
             .from('orders')
             .select(`*, order_items (*)`)
@@ -282,7 +283,7 @@ export const subscribeToOrders = (branchId: string, onUpdate: (orders: Order[], 
                 sequentialId: dbOrder.sequential_id, 
                 customerName: dbOrder.customer_name, 
                 items: dbOrder.order_items ? dbOrder.order_items.map((i: any) => ({ 
-                    id: i.product_id, 
+                    id: i.product_id || 0, 
                     name: i.product_name, 
                     price: Number(i.price), 
                     quantity: Number(i.quantity), 
@@ -310,27 +311,42 @@ export const subscribeToOrders = (branchId: string, onUpdate: (orders: Order[], 
         }
     };
 
-    fetchOrders(false); // Initial load
+    // Beban awal
+    fetchOrders(false);
 
-    // Listen to changes in both orders and order_items for full reliability
-    const channel = supabase.channel(`orders-live-${branchId}`)
+    // FIX: Gunakan nama channel yang unik untuk setiap sesi agar tidak ada tabrakan cache realtime
+    const channelId = `orders-push-${branchId}-${Math.random().toString(36).substring(7)}`;
+    const channel = supabase.channel(channelId)
         .on('postgres_changes', { 
-            event: '*', 
+            event: 'INSERT', // Pantau khusus penambahan baru untuk notifikasi
             schema: 'public', 
             table: 'orders', 
             filter: `branch_id=eq.${branchId}` 
         }, (payload) => {
-            console.log("🔔 Perubahan Pesanan:", payload.eventType);
-            // DEBOUNCE: Tunggu 500ms agar order_items selesai masuk sebelum fetch
-            const isNew = payload.eventType === 'INSERT';
-            setTimeout(() => fetchOrders(isNew), 600);
+            console.log("🔔 Pesanan Baru Masuk dari Self-Service!");
+            // DEBOUNCE 800ms: Memberikan waktu bagi tabel order_items untuk selesai menyimpan detail menu
+            setTimeout(() => fetchOrders(true), 800);
         })
-        .subscribe();
+        .on('postgres_changes', { 
+            event: 'UPDATE', // Pantau perubahan status (siap, bayar, dll)
+            schema: 'public', 
+            table: 'orders', 
+            filter: `branch_id=eq.${branchId}` 
+        }, () => {
+            fetchOrders(false);
+        })
+        .subscribe((status) => {
+            console.log(`[Realtime] Subscription Status for ${branchId}:`, status);
+        });
 
-    return () => { supabase.removeChannel(channel); };
+    return () => { 
+        console.log(`[Realtime] Unsubscribing from ${channelId}`);
+        supabase.removeChannel(channel); 
+    };
 };
 
 export const addOrderToCloud = async (order: Order) => {
+    // Validasi Shift: Jika pesanan dari customer dan shift_id kosong, tetap izinkan masuk (Public)
     const validShiftId = (order.shiftId === 'public' || !order.shiftId) ? null : order.shiftId;
 
     const { error: orderError } = await supabase.from('orders').insert({ 
@@ -357,7 +373,7 @@ export const addOrderToCloud = async (order: Order) => {
 
     const items = order.items.map(item => ({ 
         order_id: order.id, 
-        product_id: item.id > 2000000000 ? null : item.id, 
+        product_id: (item.id > 2000000000 || item.id === 0) ? null : item.id, 
         product_name: item.name, 
         price: item.price, 
         quantity: item.quantity, 
@@ -428,7 +444,6 @@ export const subscribeToAttendance = (branchId: string, onUpdate: (data: Attenda
     fetch(); return () => {};
 };
 
-// FIX: Updated record.clock_in to record.clockInTime to match the AttendanceRecord interface definition.
 export const addAttendanceToCloud = async (record: AttendanceRecord) => {
     const { error } = await supabase.from('attendance').insert({ id: record.id, user_id: record.userId, user_name: record.userName, branch_id: record.branchId, date: record.date, clock_in: record.clockInTime, status: record.status, photo_url: record.photoUrl, lat: record.location?.lat, lng: record.location?.lng });
     if (error) handleError(error, 'addAttendance');
