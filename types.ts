@@ -109,7 +109,8 @@ export interface Branch {
 }
 
 // --- ORDER TYPES ---
-export type OrderStatus = 'pending' | 'ready' | 'completed' | 'cancelled';
+// UPDATED: added 'serving' status
+export type OrderStatus = 'pending' | 'ready' | 'serving' | 'completed' | 'cancelled';
 export type OrderType = 'Dine In' | 'Take Away';
 export type PaymentMethod = 'Tunai' | 'QRIS' | 'Debit';
 
