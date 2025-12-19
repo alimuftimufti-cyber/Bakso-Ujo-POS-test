@@ -39,7 +39,7 @@ const SidebarIcons = {
     Report: () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>,
     Settings: () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066 2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>,
     Logout: () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>,
-    Dashboard: () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 01-2-2h-2a2 2 0 01-2-2v-2z" /></svg>
+    Dashboard: () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v-2zM14 16a2 2 0 012-2h2a2 2 0 01-2-2h-2a2 2 0 01-2-2v-2z" /></svg>
 };
 
 const ConfigMissingView = () => (
@@ -81,22 +81,30 @@ function useLocalStorage<T>(key: string, initialValue: T): [T, (val: T) => void]
   return [storedValue, setValue];
 }
 
-const LandingPage = ({ onSelectMode, storeName, logo, slogan, theme, isStoreOpen }: any) => (
+const LandingPage = ({ onSelectMode, storeName, logo, slogan, theme, isStoreOpen, isLoading }: any) => (
   <div className="min-h-[100dvh] bg-white flex flex-col items-center justify-center p-6 text-center relative overflow-hidden">
     <button onClick={() => onSelectMode('admin')} className="absolute top-4 right-4 w-12 h-12 flex items-center justify-center text-gray-100 opacity-5 hover:opacity-100 transition-opacity z-50 rounded-full hover:bg-gray-100"><SidebarIcons.Settings /></button>
     <div className="max-w-md w-full animate-fade-in">
       {logo ? <img src={logo} alt="Logo" className="w-32 h-32 mx-auto mb-6 object-contain" /> : <div className={`w-24 h-24 bg-${theme}-600 text-white rounded-[2rem] flex items-center justify-center mx-auto mb-6 text-4xl font-black shadow-xl`}>{storeName?.charAt(0) || 'B'}</div>}
       <h1 className="text-4xl font-black text-gray-900 mb-2 tracking-tight uppercase">{storeName}</h1>
       <p className="text-gray-500 mb-12 font-medium text-lg">{slogan}</p>
-      <div className="space-y-4">
-        {isStoreOpen ? (
-            <button onClick={() => onSelectMode('customer')} className={`w-full group relative p-6 bg-${theme}-600 rounded-[2rem] text-center transition-all shadow-xl shadow-${theme}-200 hover:scale-[1.02] active:scale-95`}>
-                <div className="flex flex-col items-center justify-center"><span className="text-white font-black text-2xl uppercase tracking-wider mb-1">Pesan Sekarang</span><span className="text-white/80 text-sm font-bold">Mulai Pilih Menu Lezat Kami</span></div>
-            </button>
-        ) : (
-            <div className="p-8 bg-gray-100 rounded-[2rem] border-2 border-dashed border-gray-300"><p className="font-bold text-gray-400 uppercase tracking-widest mb-1">Maaf, Kedai Sedang Tutup</p><p className="text-xs text-gray-500">Silakan kembali saat jam operasional kami.</p></div>
-        )}
-      </div>
+      
+      {isLoading ? (
+          <div className="flex flex-col items-center gap-4 animate-pulse">
+            <div className="w-12 h-12 border-4 border-orange-200 border-t-orange-600 rounded-full animate-spin"></div>
+            <p className="text-sm font-bold text-gray-400 uppercase tracking-widest">Sinkronisasi Data...</p>
+          </div>
+      ) : (
+          <div className="space-y-4">
+            {isStoreOpen ? (
+                <button onClick={() => onSelectMode('customer')} className={`w-full group relative p-6 bg-${theme}-600 rounded-[2rem] text-center transition-all shadow-xl shadow-${theme}-200 hover:scale-[1.02] active:scale-95`}>
+                    <div className="flex flex-col items-center justify-center"><span className="text-white font-black text-2xl uppercase tracking-wider mb-1">Pesan Sekarang</span><span className="text-white/80 text-sm font-bold">Mulai Pilih Menu Lezat Kami</span></div>
+                </button>
+            ) : (
+                <div className="p-8 bg-gray-100 rounded-[2rem] border-2 border-dashed border-gray-300"><p className="font-bold text-gray-400 uppercase tracking-widest mb-1">Maaf, Kedai Sedang Tutup</p><p className="text-xs text-gray-500">Silakan kembali saat jam operasional kami.</p></div>
+            )}
+          </div>
+      )}
     </div>
   </div>
 );
@@ -120,14 +128,19 @@ const App: React.FC = () => {
     const [activeShift, setActiveShift] = useState<Shift | null>(null);
     const [completedShifts, setCompletedShifts] = useState<ShiftSummary[]>([]);
     const [storeProfile, setStoreProfile] = useState<StoreProfile>({ ...defaultStoreProfile, branchId: activeBranchId });
+    
     const [isShiftLoading, setIsShiftLoading] = useState(true);
     const [isGlobalLoading, setIsGlobalLoading] = useState(false);
     const [isDatabaseReady, setIsDatabaseReady] = useState<boolean | null>(null);
 
     // --- REFRESH DATA LOGIC ---
-    const refreshAllData = useCallback(async () => {
-        if (isDatabaseReady !== true) return;
+    const refreshAllData = useCallback(async (isInitial = false) => {
+        // Hanya jalan jika DB siap
+        if (isDatabaseReady === false) return;
+        
         try {
+            if (isInitial) setIsShiftLoading(true);
+            
             const [p, m, i, u, cat, br] = await Promise.all([
                 getStoreProfileFromCloud(activeBranchId),
                 getMenuFromCloud(activeBranchId),
@@ -136,36 +149,50 @@ const App: React.FC = () => {
                 getCategoriesFromCloud(),
                 getBranchesFromCloud()
             ]);
+            
             setStoreProfile(p); setMenu(m); setIngredients(i); setUsers(u); setCategories(cat); setBranches(br);
             
             const shift = await getActiveShiftFromCloud(activeBranchId);
             setActiveShift(shift);
-            if (shift) { const ex = await getExpensesFromCloud(shift.id); setExpenses(ex); }
+            
+            if (shift) { 
+                const ex = await getExpensesFromCloud(shift.id); 
+                setExpenses(ex); 
+            }
+            
             const history = await getCompletedShiftsFromCloud(activeBranchId);
             setCompletedShifts(history);
-        } catch (err) { console.error("Gagal refresh data:", err); }
-    }, [activeBranchId, isDatabaseReady]);
-
-    // Background Refresh on View Change
-    useEffect(() => {
-        if (isLoggedIn && view !== 'dashboard') {
-            refreshAllData();
+            
+        } catch (err) { 
+            console.error("Gagal refresh data:", err); 
+        } finally {
+            if (isInitial) setIsShiftLoading(false);
         }
-    }, [view, isLoggedIn, refreshAllData]);
+    }, [activeBranchId, isDatabaseReady]);
 
     // Initial Load & Real-time Subscriptions
     useEffect(() => {
         const init = async () => {
             const isReady = await checkConnection();
             setIsDatabaseReady(isReady);
-            if (!isReady) return;
             
-            setIsShiftLoading(true);
-            await refreshAllData();
-            setIsShiftLoading(false);
+            // Tunggu status isDatabaseReady ter-update di state lewat render berikutnya
+            // atau panggil refresh langsung jika isReady true
+            if (isReady) {
+                await refreshAllData(true);
+            } else {
+                setIsShiftLoading(false);
+            }
         };
         init();
-    }, [activeBranchId]);
+    }, [activeBranchId]); // Re-run when branch changes
+
+    // Background Refresh on View Change
+    useEffect(() => {
+        if (isLoggedIn && view !== 'dashboard' && isDatabaseReady) {
+            refreshAllData();
+        }
+    }, [view, isLoggedIn, isDatabaseReady, refreshAllData]);
 
     // Real-time Listeners
     useEffect(() => {
@@ -176,7 +203,6 @@ const App: React.FC = () => {
         });
         
         const unsubInv = subscribeToInventory(activeBranchId, () => {
-            // Background fetch when inventory changes
             refreshAllData();
         });
 
@@ -240,7 +266,6 @@ const App: React.FC = () => {
         setMenu, setCategories, setStoreProfile: (p: any) => { setStoreProfile(p); if(isDatabaseReady) updateStoreProfileInCloud(p); },
         setKitchenAlarmTime: () => {}, setKitchenAlarmSound: () => {}, addCategory: addCategoryToCloud, deleteCategory: deleteCategoryFromCloud, setIngredients,
         saveMenuItem: async (i) => {
-            // Optimistic Update
             setMenu(prev => {
                 const existing = prev.findIndex(m => m.id === i.id);
                 if (existing > -1) { const n = [...prev]; n[existing] = i; return n; }
@@ -262,12 +287,10 @@ const App: React.FC = () => {
         updateIngredient: (i) => addIngredientToCloud(i, activeBranchId),
         deleteIngredient: deleteIngredientFromCloud,
         updateProductStock: async (id, stock) => {
-            // Optimistic Update
             setMenu(prev => prev.map(m => m.id === id ? { ...m, stock } : m));
             await updateProductStockInCloud(id, stock);
         },
         updateIngredientStock: async (id, stock) => {
-            // Optimistic Update
             setIngredients(prev => prev.map(i => i.id === id ? { ...i, stock } : i));
             await updateIngredientStockInCloud(id, stock);
         },
@@ -292,7 +315,7 @@ const App: React.FC = () => {
         voidOrder: (o) => { if(isDatabaseReady) updateOrderInCloud(o.id, { status: 'cancelled' }); },
         addExpense: (d, a) => { if(activeShift && isDatabaseReady) addExpenseToCloud({ id: Date.now(), shiftId: activeShift.id, description: d, amount: a, date: Date.now() }); },
         deleteExpense: deleteExpenseFromCloud, deleteAndResetShift: () => setActiveShift(null),
-        refreshOrders: refreshAllData,
+        refreshOrders: () => refreshAllData(),
         requestPassword: (t, c) => { c(); }, 
         printerDevice: null, isPrinting: false, connectToPrinter: async () => {}, disconnectPrinter: async () => {}, previewReceipt: () => {}, printOrderToDevice: async () => {}, printShiftToDevice: async () => {}, printOrderViaBrowser: () => {},
         setTables: () => {}, addTable: () => {}, deleteTable: () => {}, setUsers: () => {}, clockIn: async () => {}, clockOut: async () => {}, splitOrder: () => {}, 
@@ -312,7 +335,19 @@ const App: React.FC = () => {
                         </div>
                     </div>
                 )}
-                {appMode === 'landing' && <LandingPage onSelectMode={setAppMode} storeName={storeProfile.name} logo={storeProfile.logo} slogan={storeProfile.slogan} theme={storeProfile.themeColor} isStoreOpen={!!activeShift} />}
+                
+                {appMode === 'landing' && (
+                    <LandingPage 
+                        onSelectMode={setAppMode} 
+                        storeName={storeProfile.name} 
+                        logo={storeProfile.logo} 
+                        slogan={storeProfile.slogan} 
+                        theme={storeProfile.themeColor} 
+                        isStoreOpen={!!activeShift} 
+                        isLoading={isShiftLoading}
+                    />
+                )}
+                
                 {appMode === 'admin' && !isLoggedIn && (
                      <div className="fixed inset-0 bg-gray-900 flex items-center justify-center z-50 p-4">
                         <div className="bg-white rounded-[2.5rem] shadow-2xl overflow-hidden max-w-sm w-full border-t-8 border-t-orange-500 p-10 text-center animate-scale-in">
