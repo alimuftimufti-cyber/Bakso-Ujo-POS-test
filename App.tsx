@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, Suspense, useCallback } from 'react';
+import React, { useState, useEffect, Suspense, useCallback, useRef } from 'react';
 import { AppContext } from './types'; 
 import type { MenuItem, Order, Shift, CartItem, Category, StoreProfile, AppContextType, ShiftSummary, Expense, OrderType, Ingredient, User, PaymentMethod, OrderStatus, ThemeColor, View, AppMode, Table, Branch, AttendanceRecord } from './types';
 import { initialCategories, defaultStoreProfile, initialBranches, initialMenuData } from './data';
@@ -18,6 +18,8 @@ import {
     subscribeToInventory
 } from './services/firebase';
 import { checkConnection, supabase } from './services/supabaseClient'; 
+
+const BEEP_URL = "https://actions.google.com/sounds/v1/alarms/beep_short.ogg"; 
 
 // Lazy Load Components
 const POSView = React.lazy(() => import('./components/POS'));
@@ -132,6 +134,7 @@ const App: React.FC = () => {
     const [isShiftLoading, setIsShiftLoading] = useState(true);
     const [isGlobalLoading, setIsGlobalLoading] = useState(false);
     const [isDatabaseReady, setIsDatabaseReady] = useState<boolean | null>(null);
+    const [newOrderIncoming, setNewOrderIncoming] = useState(false);
 
     // --- REFRESH DATA LOGIC ---
     const refreshAllData = useCallback(async (isInitial = false) => {
@@ -169,7 +172,7 @@ const App: React.FC = () => {
         }
     }, [activeBranchId, isDatabaseReady]);
 
-    // Initial Load & Real-time Subscriptions
+    // Initial Load
     useEffect(() => {
         const init = async () => {
             const isReady = await checkConnection();
@@ -183,9 +186,14 @@ const App: React.FC = () => {
     useEffect(() => {
         if (isDatabaseReady !== true) return;
         
-        const unsubOrders = subscribeToOrders(activeBranchId, (newOrders) => {
-            // Merge local orders with cloud orders to avoid duplicate flickering but prioritize cloud
+        const unsubOrders = subscribeToOrders(activeBranchId, (newOrders, isNew) => {
             setOrders(newOrders);
+            if (isNew) {
+                const audio = new Audio(BEEP_URL);
+                audio.play().catch(() => {});
+                setNewOrderIncoming(true);
+                setTimeout(() => setNewOrderIncoming(false), 5000);
+            }
         });
         
         const unsubInv = subscribeToInventory(activeBranchId, () => {
@@ -230,7 +238,6 @@ const App: React.FC = () => {
         const tax = storeProfile.enableTax ? (sub - disc) * (storeProfile.taxRate / 100) : 0;
         const srv = storeProfile.enableServiceCharge ? (sub - disc) * (storeProfile.serviceChargeRate / 100) : 0;
         
-        // Buat objek pesanan baru
         const order: Order = { 
             id: Date.now().toString(), 
             sequentialId: orders.length + 1, 
@@ -252,26 +259,20 @@ const App: React.FC = () => {
             branchId: activeBranchId 
         };
         
-        // OPTIMISTIC UPDATE: Langsung tambahkan ke layar
         setOrders(prev => [order, ...prev]);
 
         if (isDatabaseReady) {
-            setIsGlobalLoading(true);
             addOrderToCloud(order).then(() => {
                 if (payment) {
                      const isCash = payment.method === 'Tunai';
                      const up = { revenue: activeShift.revenue + order.total, cashRevenue: isCash ? activeShift.cashRevenue + order.total : activeShift.cashRevenue, nonCashRevenue: !isCash ? activeShift.nonCashRevenue + order.total : activeShift.nonCashRevenue, transactions: activeShift.transactions + 1 };
                      updateShiftInCloud(activeShift.id, up);
-                     
-                     // Update local active shift as well for immediate calculation
                      setActiveShift(prev => prev ? { ...prev, ...up } : null);
                 }
             }).catch(err => {
-                console.error("Gagal sinkron cloud:", err);
-                // Rollback if critical failure
                 setOrders(prev => prev.filter(o => o.id !== order.id));
-                alert("Gagal mengirim pesanan ke Cloud. Silakan coba lagi.");
-            }).finally(() => setIsGlobalLoading(false));
+                alert("Gagal sinkron cloud. Coba lagi.");
+            });
         }
         
         return order;
@@ -336,7 +337,11 @@ const App: React.FC = () => {
         requestPassword: (t, c) => { c(); }, 
         printerDevice: null, isPrinting: false, connectToPrinter: async () => {}, disconnectPrinter: async () => {}, previewReceipt: () => {}, printOrderToDevice: async () => {}, printShiftToDevice: async () => {}, printOrderViaBrowser: () => {},
         setTables: () => {}, addTable: () => {}, deleteTable: () => {}, setUsers: () => {}, clockIn: async () => {}, clockOut: async () => {}, splitOrder: () => {}, 
-        customerSubmitOrder: async (cart, name) => { const res = addOrderWrapper(cart, name, 0, 'percent', 'Dine In'); return !!res; },
+        customerSubmitOrder: async (cart, name) => {
+             if (!activeShift) return false;
+             const res = addOrderWrapper(cart, name, 0, 'percent', 'Dine In'); 
+             return !!res; 
+        },
     };
 
     if (isDatabaseReady === false) return <ConfigMissingView />;
@@ -349,6 +354,21 @@ const App: React.FC = () => {
                         <div className="bg-white p-8 rounded-[2.5rem] flex flex-col items-center shadow-2xl animate-scale-in">
                             <div className="animate-spin rounded-full h-14 w-14 border-t-4 border-b-4 border-orange-600 mb-6"></div>
                             <p className="font-black text-gray-800 text-lg uppercase tracking-widest">SINKRONISASI...</p>
+                        </div>
+                    </div>
+                )}
+
+                {/* NEW ORDER NOTIFICATION TOAST */}
+                {newOrderIncoming && (
+                    <div className="fixed top-6 left-1/2 transform -translate-x-1/2 z-[300] animate-slide-in-up">
+                        <div className="bg-orange-600 text-white px-8 py-4 rounded-2xl shadow-2xl flex items-center gap-4 border-4 border-white">
+                            <div className="bg-white/20 p-2 rounded-full animate-bounce">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
+                            </div>
+                            <div className="text-center">
+                                <p className="text-xs font-black uppercase tracking-widest opacity-80">Pelanggan Baru</p>
+                                <p className="text-lg font-black leading-tight">PESANAN MASUK!</p>
+                            </div>
                         </div>
                     </div>
                 )}
