@@ -90,7 +90,7 @@ const POSView: React.FC = () => {
         menu, categories, orders, addOrder, updateOrder, updateOrderStatus, 
         payForOrder, splitOrder, voidOrder, printerDevice, connectToPrinter, 
         storeProfile, printOrderViaBrowser, requestPassword,
-        isStoreOpen, isShiftLoading, setView 
+        isStoreOpen, isShiftLoading, setView, refreshOrders 
     } = useAppContext();
     
     const [cart, setCart] = useState<CartItem[]>([]);
@@ -109,6 +109,7 @@ const POSView: React.FC = () => {
     const [searchTerm, setSearchTerm] = useState('');
     const [pendingAction, setPendingAction] = useState<'save' | 'pay' | null>(null);
     const [sidebarTab, setSidebarTab] = useState<'active' | 'history'>('active');
+    const [isRefreshing, setIsRefreshing] = useState(false);
     
     const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(false);
     const theme = storeProfile.themeColor || 'orange';
@@ -212,6 +213,16 @@ const POSView: React.FC = () => {
         });
     }
 
+    const handleManualRefresh = async () => {
+        setIsRefreshing(true);
+        try {
+            await refreshOrders();
+        } finally {
+            // Memberikan sedikit jeda visual agar animasi putar terlihat
+            setTimeout(() => setIsRefreshing(false), 800);
+        }
+    };
+
     // --- QR SCAN HANDLER ---
     const handleQRScan = (rawData: string) => {
         try {
@@ -308,14 +319,21 @@ const POSView: React.FC = () => {
                     <button onClick={() => { setSidebarTab('history'); setActiveOrder(null); }} className={`flex-1 py-2.5 rounded-lg font-bold text-sm transition-all ${sidebarTab === 'history' ? `bg-white shadow text-${theme}-600` : 'text-gray-500 hover:bg-gray-200'}`}>Riwayat</button>
                 </div>
                 
-                <div className="p-3 border-b flex gap-2 bg-white">
-                    <button onClick={() => { setActiveOrder(null); if (window.innerWidth < 1024) setIsLeftSidebarOpen(false); }} className={`flex-1 text-xs bg-${theme}-500 text-white px-3 py-2 rounded-md font-bold hover:bg-${theme}-600 shadow-md flex items-center justify-center gap-1`}>
+                <div className="p-3 border-b flex gap-2 bg-white items-center">
+                    <button onClick={() => { setActiveOrder(null); if (window.innerWidth < 1024) setIsLeftSidebarOpen(false); }} className={`flex-1 text-xs bg-${theme}-500 text-white px-3 py-2.5 rounded-md font-bold hover:bg-${theme}-600 shadow-md flex items-center justify-center gap-1`}>
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" /></svg>
                         Manual
                     </button>
-                    <button onClick={() => setIsScanOpen(true)} className="flex-1 text-xs bg-gray-800 text-white px-3 py-2 rounded-md font-bold hover:bg-gray-900 shadow-md flex items-center justify-center gap-1">
+                    <button onClick={() => setIsScanOpen(true)} className="flex-1 text-xs bg-gray-800 text-white px-3 py-2.5 rounded-md font-bold hover:bg-gray-900 shadow-md flex items-center justify-center gap-1">
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" /></svg>
                         Scan QR
+                    </button>
+                    <button 
+                        onClick={handleManualRefresh} 
+                        className={`p-2 rounded-md transition-all ${isRefreshing ? 'bg-orange-100 text-orange-600' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+                        title="Tarik Data Terbaru"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 ${isRefreshing ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
                     </button>
                 </div>
                 
