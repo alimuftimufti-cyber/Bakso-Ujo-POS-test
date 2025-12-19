@@ -41,10 +41,10 @@ const OrderCard: React.FC<{ order: Order, elapsed: number, isOverdue: boolean, t
                     <span className="font-black text-2xl text-white font-mono">{formatTime(elapsed)}</span>
                 </div>
                 <button 
-                    onClick={() => onAction(order.id, order.status === 'pending' ? 'ready' : 'completed')}
-                    className={`px-6 py-3 rounded-xl font-black text-white shadow-lg transition-all active:scale-95 ${order.status === 'pending' ? 'bg-orange-600 hover:bg-orange-700' : 'bg-green-600 hover:bg-green-700'}`}
+                    onClick={() => onAction(order.id, 'serving')}
+                    className="px-6 py-3 rounded-xl font-black text-white shadow-lg transition-all active:scale-95 bg-orange-600 hover:bg-orange-700"
                 >
-                    {order.status === 'pending' ? 'SIAP!' : 'SELESAI'}
+                    SELESAI MASAK
                 </button>
             </div>
         </div>
@@ -61,15 +61,15 @@ const KitchenView: React.FC = () => {
         return () => clearInterval(timer);
     }, []);
 
-    // FILTER PESANAN AKTIF (Hanya yang pending atau ready, bukan completed/cancelled)
+    // FILTER PESANAN AKTIF (Hanya yang pending atau ready, serving sudah hilang dari dapur)
     const activeOrders = useMemo(() => {
         return orders.filter(o => o.status === 'pending' || o.status === 'ready')
                      .sort((a, b) => a.createdAt - b.createdAt);
     }, [orders]);
 
     const historyOrders = useMemo(() => {
-        return orders.filter(o => o.status === 'completed' || o.status === 'cancelled')
-                     .sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0));
+        return orders.filter(o => o.status === 'serving' || o.status === 'completed' || o.status === 'cancelled')
+                     .sort((a, b) => (b.completedAt || b.readyAt || 0) - (a.completedAt || a.readyAt || 0));
     }, [orders]);
 
     return (
@@ -111,14 +111,14 @@ const KitchenView: React.FC = () => {
                             <div key={order.id} className="bg-slate-800/50 p-4 rounded-2xl border border-slate-700 opacity-60">
                                 <div className="flex justify-between items-center mb-3">
                                     <span className="font-black text-white">#{order.sequentialId}</span>
-                                    <span className={`text-[10px] font-black px-2 py-1 rounded uppercase ${order.status === 'completed' ? 'bg-green-500 text-white' : 'bg-red-500 text-white'}`}>{order.status}</span>
+                                    <span className={`text-[10px] font-black px-2 py-1 rounded uppercase ${order.status === 'completed' ? 'bg-green-500 text-white' : (order.status === 'serving' ? 'bg-blue-500 text-white' : 'bg-red-500 text-white')}`}>{order.status}</span>
                                 </div>
                                 <div className="text-sm font-bold text-gray-300 truncate mb-2">{order.customerName}</div>
                                 <div className="space-y-1">
                                     {order.items.map(i => <div key={i.id} className="text-xs text-gray-500">{i.quantity}x {i.name}</div>)}
                                 </div>
                                 <div className="mt-4 pt-3 border-t border-slate-700 text-[10px] text-slate-500 flex justify-between uppercase font-black">
-                                    <span>Selesai: {order.completedAt ? new Date(order.completedAt).toLocaleTimeString() : '-'}</span>
+                                    <span>Masuk: {new Date(order.createdAt).toLocaleTimeString()}</span>
                                 </div>
                             </div>
                         ))}

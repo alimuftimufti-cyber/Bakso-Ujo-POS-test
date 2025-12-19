@@ -5,8 +5,6 @@ import type { MenuItem, CartItem, Category, Order, OrderType, PaymentMethod } fr
 
 const formatRupiah = (number: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(number);
 
-// Simple notification sound (base64)
-const NOTIFICATION_SOUND = "data:audio/wav;base64,UklGRl9vT1BXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YU"; 
 const BEEP_URL = "https://actions.google.com/sounds/v1/alarms/beep_short.ogg"; 
 
 const SplitBillModal = ({ order, onClose, onSplit, theme }: { order: Order, onClose: () => void, onSplit: (items: CartItem[]) => void, theme: string }) => {
@@ -43,7 +41,6 @@ const CustomerNameModal = ({ onConfirm, onCancel, theme, requireTable }: { onCon
     <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="Nama Pelanggan" className="w-full p-3 border rounded mb-4" autoFocus={!requireTable} required /><div className="space-y-2"><button type="submit" disabled={!name} className={`w-full bg-${theme}-500 text-white font-semibold py-3 rounded-lg hover:bg-${theme}-600 disabled:bg-gray-300`}>Konfirmasi</button><button type="button" onClick={onCancel} className="w-full bg-gray-200 text-gray-800 py-2 rounded-lg mt-2 hover:bg-gray-300">Batal</button></div></form></div>);
 };
 
-// NEW: Scan QR Modal for accepting offline customer orders
 const ScanQRModal = ({ onClose, onScan, theme }: { onClose: () => void, onScan: (data: string) => void, theme: string }) => {
     const inputRef = useRef<HTMLInputElement>(null);
     const [val, setVal] = useState('');
@@ -121,7 +118,6 @@ const POSView: React.FC = () => {
     useEffect(() => {
         if (orders.length > prevOrdersLength.current) {
             const latestOrder = orders[orders.length - 1];
-            // If new pending order arrives
             if (latestOrder.status === 'pending') {
                 const audio = new Audio(BEEP_URL);
                 audio.play().catch(e => console.log("Audio play blocked", e));
@@ -167,6 +163,7 @@ const POSView: React.FC = () => {
         return menu.filter(item => (selectedCategory === 'All' || item.category === selectedCategory) && item.name.toLowerCase().includes(lower));
     }, [menu, selectedCategory, searchTerm]);
 
+    // UPDATED: 'serving' is now considered an active status
     const pendingOrders = useMemo(() => orders.filter(o => o.status !== 'completed' && o.status !== 'cancelled').sort((a, b) => b.createdAt - a.createdAt), [orders]);
     const historyOrders = useMemo(() => orders.filter(o => o.status === 'completed' || o.status === 'cancelled').sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0)).slice(0, 20), [orders]);
     const displayedOrders = sidebarTab === 'active' ? pendingOrders : historyOrders;
@@ -174,7 +171,6 @@ const POSView: React.FC = () => {
     const addToCart = useCallback((item: MenuItem) => { 
         if (isReadOnly) return; 
         
-        // Stock Validation
         if (item.stock !== undefined && item.stock <= 0) {
             alert(`Stok ${item.name} habis!`);
             return;
@@ -182,7 +178,6 @@ const POSView: React.FC = () => {
 
         setCart(prev => { 
             const existing = prev.find(i => i.id === item.id);
-            // Check stock again for existing items in cart
             if (existing && item.stock !== undefined && existing.quantity >= item.stock) {
                 alert(`Stok tidak mencukupi.`);
                 return prev;
@@ -200,7 +195,6 @@ const POSView: React.FC = () => {
     const handleSelectOrder = (o: Order) => { 
         if(activeOrder?.id === o.id) { setActiveOrder(null); } else { setActiveOrder(o); } 
         if (window.innerWidth < 1024) setIsLeftSidebarOpen(false); 
-        // Stop highlighting if selected
         if (highlightedOrderId === o.id) setHighlightedOrderId(null);
     }
 
@@ -218,57 +212,43 @@ const POSView: React.FC = () => {
         try {
             await refreshOrders();
         } finally {
-            // Memberikan sedikit jeda visual agar animasi putar terlihat
             setTimeout(() => setIsRefreshing(false), 800);
         }
     };
 
-    // --- QR SCAN HANDLER ---
     const handleQRScan = (rawData: string) => {
         try {
-            // Expected format: POS|<Customer>|<Total>|<ID:Qty:Note,ID:Qty:Note...>
-            // Or decodeURIComponent first
             const decoded = decodeURIComponent(rawData);
             const parts = decoded.split('|');
-            
             if (parts[0] !== 'POS') throw new Error('Format QR tidak valid');
-            
             const customerName = parts[1];
             const itemsString = parts[3];
-            
             const itemStrings = itemsString.split(',');
             const newCart: CartItem[] = [];
-            
             itemStrings.forEach(str => {
                 const [idStr, qtyStr, note] = str.split(':');
                 const id = parseInt(idStr);
                 const qty = parseInt(qtyStr);
-                
                 const menuItem = menu.find(m => m.id === id);
                 if (menuItem) {
                     newCart.push({ ...menuItem, quantity: qty, note: note || '' });
                 }
             });
-            
             if (newCart.length > 0) {
-                // Auto-create order
                 const newOrder = addOrder(newCart, customerName, 0, 'percent', 'Dine In');
                 if (newOrder) {
                     setActiveOrder(newOrder);
-                    // Play notification
                     const audio = new Audio(BEEP_URL);
                     audio.play().catch(() => {});
                     alert(`Pesanan ${customerName} berhasil diterima!`);
                 }
             }
-            
             setIsScanOpen(false);
         } catch (e) {
             alert('Gagal membaca QR Code. Pastikan ini QR Pesanan yang benar.');
         }
     };
 
-    // --- SHIFT CHECK & BLOCKING ---
     if (isShiftLoading) {
         return (
             <div className="flex flex-col items-center justify-center h-full w-full bg-gray-50">
@@ -295,9 +275,6 @@ const POSView: React.FC = () => {
                         className={`w-full bg-${theme}-600 text-white font-bold py-4 rounded-xl hover:bg-${theme}-700 shadow-xl transition-all transform hover:scale-[1.02] flex items-center justify-center gap-2`}
                     >
                         Buka Menu Keuangan
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                            <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
-                        </svg>
                     </button>
                 </div>
             </div>
@@ -325,14 +302,9 @@ const POSView: React.FC = () => {
                         Manual
                     </button>
                     <button onClick={() => setIsScanOpen(true)} className="flex-1 text-xs bg-gray-800 text-white px-3 py-2.5 rounded-md font-bold hover:bg-gray-900 shadow-md flex items-center justify-center gap-1">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" /></svg>
                         Scan QR
                     </button>
-                    <button 
-                        onClick={handleManualRefresh} 
-                        className={`p-2 rounded-md transition-all ${isRefreshing ? 'bg-orange-100 text-orange-600' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
-                        title="Tarik Data Terbaru"
-                    >
+                    <button onClick={handleManualRefresh} className={`p-2 rounded-md transition-all ${isRefreshing ? 'bg-orange-100 text-orange-600' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
                         <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 ${isRefreshing ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
                     </button>
                 </div>
@@ -340,13 +312,11 @@ const POSView: React.FC = () => {
                 <div className="flex-1 overflow-y-auto">
                     {displayedOrders.length === 0 && (
                         <div className="flex flex-col items-center justify-center h-40 text-gray-400 text-sm mt-10">
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 mb-2 opacity-20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>
                             {sidebarTab === 'active' ? 'Tidak ada pesanan aktif' : 'Belum ada riwayat'}
                         </div>
                     )}
                     {displayedOrders.map(o => {
-                        // Pending Online Order Highlight Logic
-                        const isPendingOnline = o.status === 'pending' && !o.isPaid; // Assuming customer orders start unpaid/pending
+                        const isPendingOnline = o.status === 'pending' && !o.isPaid;
                         const shouldHighlight = highlightedOrderId === o.id || isPendingOnline;
 
                         return (
@@ -366,7 +336,9 @@ const POSView: React.FC = () => {
                                     <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide ${o.isPaid ? 'bg-green-100 text-green-700' : (o.status === 'cancelled' ? 'bg-red-100 text-red-600' : 'bg-gray-200 text-gray-600')}`}>{o.status === 'cancelled' ? 'BATAL' : (o.isPaid ? 'Lunas' : 'Unpaid')}</span>
                                 </div>
                                 <div className="flex justify-between items-end mt-2">
-                                    <span className={`text-xs ${o.status === 'ready' ? 'text-blue-600 font-bold' : 'text-gray-500'}`}>{o.status === 'ready' ? 'SIAP DISAJIKAN' : (o.status === 'completed' ? 'Selesai' : (o.status === 'cancelled' ? 'Dibatalkan' : 'Menunggu Dapur'))}</span>
+                                    <span className={`text-[10px] font-black uppercase ${o.status === 'serving' ? 'text-blue-600' : (o.status === 'ready' ? 'text-blue-600' : 'text-gray-500')}`}>
+                                        {o.status === 'serving' ? 'SEDANG DISAJIKAN' : (o.status === 'ready' ? 'SIAP DISAJIKAN' : (o.status === 'completed' ? 'Selesai' : (o.status === 'cancelled' ? 'Dibatalkan' : 'Menunggu Dapur')))}
+                                    </span>
                                     <span className={`font-black ${o.status === 'cancelled' ? 'text-gray-400 line-through' : 'text-gray-800'}`}>{formatRupiah(o.total)}</span>
                                 </div>
                                 {shouldHighlight && (
@@ -376,26 +348,14 @@ const POSView: React.FC = () => {
                         );
                     })}
                 </div>
-                <div className="p-3 border-t text-xs text-center bg-gray-50">
-                    {printerDevice ? 
-                        <button onClick={connectToPrinter ? () => connectToPrinter('bluetooth') : undefined} className="text-green-600 font-bold flex items-center justify-center gap-1 bg-green-50 py-1 px-2 rounded border border-green-200 w-full"><svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5 4v3H4a2 2 0 00-2 2v3a2 2 0 002 2h1v2a2 2 0 002 2h6a2 2 0 002-2v-2h1a2 2 0 002-2V9a2 2 0 00-2-2h-1V4a2 2 0 00-2-2H7a2 2 0 00-2 2zm8 0H7v3h6V4zm0 8H7v4h6v-4z" clipRule="evenodd" /></svg> {printerDevice.productName || 'Printer Terhubung'}</button> 
-                        : 
-                        <button onClick={() => connectToPrinter('bluetooth')} className={`text-${theme}-600 hover:text-${theme}-800 font-semibold underline flex items-center justify-center gap-1 w-full py-1`}>
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
-                            Hubungkan Printer
-                        </button>
-                    }
-                </div>
             </aside>
 
             {/* PRODUCT GRID */}
             <main className="flex-1 flex flex-col overflow-hidden w-full relative">
-                 {/* Header & Categories */}
                 <div className="bg-white shadow-sm z-20">
                     <div className="p-3 border-b flex items-center gap-3">
                         <button onClick={() => setIsLeftSidebarOpen(true)} className="lg:hidden p-2 text-gray-500 hover:bg-gray-100 rounded-md"><svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg></button>
                         <div className="relative flex-1">
-                             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
                              <input type="text" placeholder="Cari menu..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2 bg-gray-100 border-none rounded-full focus:ring-2 focus:ring-gray-200 text-sm outline-none" />
                         </div>
                     </div>
@@ -412,19 +372,17 @@ const POSView: React.FC = () => {
                             return (
                                 <div key={item.id} onClick={() => addToCart(item)} className={`bg-white rounded-xl shadow-sm border border-gray-100 transition-all flex flex-col overflow-hidden active:scale-95 group relative ${isOutOfStock ? 'opacity-60 cursor-not-allowed grayscale' : 'hover:shadow-lg cursor-pointer'}`}>
                                     <div className="h-32 bg-gray-200 relative overflow-hidden">
-                                        {item.imageUrl ? <img src={item.imageUrl} alt={item.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" loading="lazy" /> : <div className="w-full h-full flex items-center justify-center text-gray-300"><svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2-2v12a2 2 0 002 2z" /></svg></div>}
+                                        {item.imageUrl ? <img src={item.imageUrl} alt={item.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" loading="lazy" /> : <div className="w-full h-full flex items-center justify-center text-gray-300 font-bold">?</div>}
                                         {item.stock !== undefined && <span className={`absolute top-2 right-2 backdrop-blur-md text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-sm ${item.stock <= 0 ? 'bg-red-600' : 'bg-black/70'}`}>{item.stock <= 0 ? 'HABIS' : `${item.stock} Stok`}</span>}
                                     </div>
                                     <div className="p-3 flex flex-col flex-1">
                                         <h3 className="font-bold text-gray-800 text-sm line-clamp-2 leading-snug mb-1">{item.name}</h3>
                                         <p className={`text-${theme}-600 font-black mt-auto`}>{formatRupiah(item.price)}</p>
                                     </div>
-                                    {isOutOfStock && <div className="absolute inset-0 bg-white/20 flex items-center justify-center"><span className="bg-red-600 text-white font-black px-4 py-1 text-sm transform -rotate-12 shadow-lg border-2 border-white">STOK HABIS</span></div>}
                                 </div>
                             );
                         })}
                     </div>
-                    {filteredMenu.length === 0 && <div className="h-full flex flex-col items-center justify-center text-gray-400"><p>Menu tidak ditemukan.</p></div>}
                 </div>
             </main>
 
@@ -438,7 +396,6 @@ const POSView: React.FC = () => {
                     {isReadOnly && <span className={`text-[10px] font-bold px-2 py-1 rounded-full uppercase tracking-wide ${activeOrder?.status === 'cancelled' ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-700'}`}>{activeOrder?.status === 'cancelled' ? 'BATAL' : 'LUNAS'}</span>}
                 </div>
                 
-                {/* Order Type Toggle */}
                 {!isReadOnly && (
                     <div className="p-2 border-b grid grid-cols-2 gap-2 bg-white">
                         <button onClick={() => setOrderType('Dine In')} className={`py-1.5 text-xs font-bold rounded-md transition-all ${orderType === 'Dine In' ? `bg-${theme}-100 text-${theme}-700 ring-1 ring-${theme}-500` : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>Makan Ditempat</button>
@@ -448,10 +405,7 @@ const POSView: React.FC = () => {
 
                 <div className="flex-1 overflow-y-auto p-3 space-y-3 bg-gray-50/50">
                     {cart.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center h-40 text-gray-400 text-sm mt-10">
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mb-3 opacity-20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
-                            Pilih menu untuk memesan
-                        </div>
+                        <div className="flex flex-col items-center justify-center h-40 text-gray-400 text-sm mt-10">Pilih menu untuk memesan</div>
                     ) : (
                         cart.map(item => (
                             <div key={item.id} className="flex flex-col bg-white p-3 rounded-lg border border-gray-200 shadow-sm">
@@ -486,7 +440,6 @@ const POSView: React.FC = () => {
                 
                 <div className="p-4 bg-white border-t shadow-[0_-4px_20px_rgba(0,0,0,0.05)] text-sm space-y-2">
                     <div className="flex justify-between text-gray-600"><span>Subtotal</span> <span>{formatRupiah(totals.subtotal)}</span></div>
-                    
                     {!isReadOnly && (
                         <div className="flex justify-between items-center">
                             <span className="text-gray-600">Diskon</span>
@@ -496,28 +449,23 @@ const POSView: React.FC = () => {
                             </div>
                         </div>
                     )}
-                    {isReadOnly && totals.discount > 0 && <div className="flex justify-between text-green-600 font-medium"><span>Diskon</span> <span>-{formatRupiah(totals.discount)}</span></div>}
-
-                    {totals.tax > 0 && <div className="flex justify-between text-gray-500 text-xs"><span>Pajak ({storeProfile.taxRate}%)</span> <span>{formatRupiah(totals.tax)}</span></div>}
-                    {totals.service > 0 && <div className="flex justify-between text-gray-500 text-xs"><span>Service ({storeProfile.serviceChargeRate}%)</span> <span>{formatRupiah(totals.service)}</span></div>}
-                    
                     <div className="flex justify-between font-black text-xl text-gray-900 border-t border-dashed pt-3 mt-1"><span>Total</span><span>{formatRupiah(totals.total)}</span></div>
 
                     {!isReadOnly ? (
                         <div className="grid grid-cols-2 gap-3 mt-4">
                             <button onClick={() => handleAction('save')} className={`bg-gray-800 text-white py-3 rounded-xl font-bold hover:bg-gray-900 text-sm shadow-md`}>Simpan</button>
-                            <button onClick={() => handleAction('pay')} className={`bg-${theme}-600 text-white py-3 rounded-xl font-bold hover:bg-${theme}-700 text-sm shadow-md shadow-${theme}-200`}>Bayar</button>
+                            <button onClick={() => handleAction('pay')} className={`bg-${theme}-600 text-white py-3 rounded-xl font-bold hover:bg-${theme}-700 text-sm shadow-md`}>Bayar</button>
                             {activeOrder && (
                                 <>
                                     <button onClick={() => setIsSplitOpen(true)} className="bg-white border border-gray-300 text-gray-700 py-2 rounded-xl font-bold hover:bg-gray-50 text-xs">Split Bill</button>
-                                    <button onClick={handleVoidOrder} className="bg-red-50 border border-red-200 text-red-600 py-2 rounded-xl font-bold hover:bg-red-100 text-xs">Batalkan Pesanan</button>
+                                    <button onClick={handleVoidOrder} className="bg-red-50 border border-red-200 text-red-600 py-2 rounded-xl font-bold hover:bg-red-100 text-xs">Batalkan</button>
                                 </>
                             )}
                         </div>
                     ) : (
                         <div className="grid grid-cols-2 gap-3 mt-4">
-                            <button onClick={() => printOrderViaBrowser({ ...activeOrder!, items: cart }, 'receipt')} className="bg-gray-600 text-white py-3 rounded-xl font-bold hover:bg-gray-700 text-sm shadow-md">Cetak Ulang</button>
-                            <button onClick={() => handleCompleteOrder(activeOrder!)} className="bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700 text-sm shadow-md shadow-blue-200">Selesai</button>
+                            <button onClick={() => printOrderViaBrowser({ ...activeOrder!, items: cart }, 'receipt')} className="bg-gray-600 text-white py-3 rounded-xl font-bold hover:bg-gray-700 text-sm shadow-md">Cetak</button>
+                            <button onClick={() => handleCompleteOrder(activeOrder!)} className="bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700 text-sm shadow-md">Selesai</button>
                         </div>
                     )}
                 </div>
