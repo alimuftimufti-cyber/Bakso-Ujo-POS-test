@@ -119,6 +119,7 @@ const App: React.FC = () => {
     const [isLoggedIn, setIsLoggedIn] = useLocalStorage<boolean>(`pos-isLoggedIn-${DB_VER}`, false);
     const [currentUser, setCurrentUser] = useLocalStorage<User | null>(`pos-currentUser-${DB_VER}`, null);
     const [activeBranchId, setActiveBranchId] = useLocalStorage<string>(`pos-activeBranchId-${DB_VER}`, 'pusat');
+    const [isSidebarCollapsed, setIsSidebarCollapsed] = useLocalStorage<boolean>(`pos-isSidebarCollapsed-${DB_VER}`, false);
 
     const [branches, setBranches] = useState<Branch[]>([]);
     const [menu, setMenu] = useState<MenuItem[]>([]);
@@ -396,27 +397,51 @@ const App: React.FC = () => {
                 )}
                 {appMode === 'admin' && isLoggedIn && (
                     <div className="flex h-[100dvh] overflow-hidden bg-slate-900">
-                        <aside className="w-72 bg-[#0f172a] text-white hidden md:flex flex-col border-r border-slate-800 shadow-2xl">
-                            <div className="p-8 border-b border-slate-800/50 mb-4">
-                                <h2 className="font-black text-xl uppercase tracking-tighter text-white leading-tight">{branches.find(b => b.id === activeBranchId)?.name || 'CABANG PUSAT'}</h2>
-                                <p className="text-[10px] font-bold text-slate-500 mt-1 uppercase tracking-widest bg-slate-800/50 inline-block px-2 py-0.5 rounded">Terminal Kasir</p>
+                        {/* SIDEBAR ASIDE */}
+                        <aside className={`${isSidebarCollapsed ? 'w-20' : 'w-72'} transition-all duration-300 bg-[#0f172a] text-white hidden md:flex flex-col border-r border-slate-800 shadow-2xl relative`}>
+                            {/* Toggle Button Inside Sidebar */}
+                            <button 
+                                onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+                                className="absolute -right-3 top-20 bg-orange-600 text-white w-6 h-6 rounded-full flex items-center justify-center shadow-lg z-50 hover:bg-orange-700 transition-colors"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" className={`h-4 w-4 transition-transform duration-300 ${isSidebarCollapsed ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M15 19l-7-7 7-7" /></svg>
+                            </button>
+
+                            <div className={`p-8 border-b border-slate-800/50 mb-4 transition-all ${isSidebarCollapsed ? 'px-4' : 'px-8'}`}>
+                                {!isSidebarCollapsed ? (
+                                    <>
+                                        <h2 className="font-black text-xl uppercase tracking-tighter text-white leading-tight truncate">{branches.find(b => b.id === activeBranchId)?.name || 'CABANG PUSAT'}</h2>
+                                        <p className="text-[10px] font-bold text-slate-500 mt-1 uppercase tracking-widest bg-slate-800/50 inline-block px-2 py-0.5 rounded">Terminal Kasir</p>
+                                    </>
+                                ) : (
+                                    <div className="w-12 h-12 bg-orange-600 rounded-2xl flex items-center justify-center font-black text-white text-xl shadow-lg mx-auto">
+                                        {(branches.find(b => b.id === activeBranchId)?.name || 'B').charAt(0)}
+                                    </div>
+                                )}
                             </div>
+                            
                             <nav className="flex-1 px-4 space-y-1.5 custom-scrollbar overflow-y-auto">
-                                <NavItem id="pos" label="Kasir (POS)" icon={SidebarIcons.Pos} view={view} setView={setView} />
-                                <NavItem id="shift" label="Keuangan & Biaya" icon={SidebarIcons.Shift} view={view} setView={setView} />
-                                <NavItem id="kitchen" label="Monitor Dapur" icon={SidebarIcons.Kitchen} view={view} setView={setView} />
-                                <NavItem id="inventory" label="Manajemen Stok" icon={SidebarIcons.Inventory} view={view} setView={setView} />
-                                <NavItem id="report" label="Laporan Penjualan" icon={SidebarIcons.Report} view={view} setView={setView} />
-                                <div className="pt-6 pb-2 px-5"><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Pengaturan</p></div>
-                                <NavItem id="settings" label="Toko & Menu" icon={SidebarIcons.Settings} view={view} setView={setView} />
-                                {currentUser?.role === 'owner' && <NavItem id="owner_settings" label="Owner Panel" icon={SidebarIcons.Dashboard} view={view} setView={setView} />}
+                                <NavItem id="pos" label="Kasir (POS)" icon={SidebarIcons.Pos} view={view} setView={setView} isCollapsed={isSidebarCollapsed} />
+                                <NavItem id="shift" label="Keuangan & Biaya" icon={SidebarIcons.Shift} view={view} setView={setView} isCollapsed={isSidebarCollapsed} />
+                                <NavItem id="kitchen" label="Monitor Dapur" icon={SidebarIcons.Kitchen} view={view} setView={setView} isCollapsed={isSidebarCollapsed} />
+                                <NavItem id="inventory" label="Manajemen Stok" icon={SidebarIcons.Inventory} view={view} setView={setView} isCollapsed={isSidebarCollapsed} />
+                                <NavItem id="report" label="Laporan Penjualan" icon={SidebarIcons.Report} view={view} setView={setView} isCollapsed={isSidebarCollapsed} />
+                                
+                                {!isSidebarCollapsed && <div className="pt-6 pb-2 px-5"><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Pengaturan</p></div>}
+                                {isSidebarCollapsed && <div className="h-px bg-slate-800 my-4"></div>}
+
+                                <NavItem id="settings" label="Toko & Menu" icon={SidebarIcons.Settings} view={view} setView={setView} isCollapsed={isSidebarCollapsed} />
+                                {currentUser?.role === 'owner' && <NavItem id="owner_settings" label="Owner Panel" icon={SidebarIcons.Dashboard} view={view} setView={setView} isCollapsed={isSidebarCollapsed} />}
                             </nav>
+                            
                             <div className="p-4 border-t border-slate-800">
-                                <button onClick={() => { setIsLoggedIn(false); setAppMode('landing'); }} className="w-full flex items-center gap-4 px-5 py-3.5 rounded-xl font-bold text-red-400 hover:bg-red-500/10 transition-all">
-                                    <SidebarIcons.Logout /><span className="text-sm">Keluar (Logout)</span>
+                                <button onClick={() => { setIsLoggedIn(false); setAppMode('landing'); }} className={`w-full flex items-center gap-4 px-5 py-3.5 rounded-xl font-bold text-red-400 hover:bg-red-500/10 transition-all ${isSidebarCollapsed ? 'justify-center px-0' : ''}`}>
+                                    <SidebarIcons.Logout />
+                                    {!isSidebarCollapsed && <span className="text-sm">Keluar (Logout)</span>}
                                 </button>
                             </div>
                         </aside>
+                        
                         <main className="flex-1 relative overflow-hidden bg-white">
                             <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-500"></div></div>}>
                                 {view === 'pos' && <POSView />}
@@ -436,10 +461,15 @@ const App: React.FC = () => {
     );
 };
 
-const NavItem = ({ id, label, icon: Icon, view, setView }: any) => (
-    <button onClick={() => setView(id)} className={`w-full flex items-center gap-4 px-5 py-3.5 rounded-xl font-bold transition-all group relative overflow-hidden ${view === id ? 'bg-white/10 text-white' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}>
-        {view === id && <div className="absolute left-0 top-0 h-full w-1.5 bg-orange-500 rounded-r-full shadow-[0_0_10px_#f97316]"></div>}
-        <Icon /><span className="text-sm tracking-tight">{label}</span>
+const NavItem = ({ id, label, icon: Icon, view, setView, isCollapsed }: any) => (
+    <button 
+        onClick={() => setView(id)} 
+        title={isCollapsed ? label : ''}
+        className={`w-full flex items-center gap-4 px-5 py-3.5 rounded-xl font-bold transition-all group relative overflow-hidden ${isCollapsed ? 'justify-center px-0' : ''} ${view === id ? 'bg-white/10 text-white' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
+    >
+        {view === id && <div className={`absolute left-0 top-0 h-full bg-orange-500 rounded-r-full shadow-[0_0_10px_#f97316] ${isCollapsed ? 'w-1' : 'w-1.5'}`}></div>}
+        <Icon />
+        {!isCollapsed && <span className="text-sm tracking-tight truncate">{label}</span>}
     </button>
 );
 
