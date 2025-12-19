@@ -16,7 +16,7 @@ import {
     getStoreProfileFromCloud, updateStoreProfileInCloud, updateProductStockInCloud,
     getIngredientsFromCloud, addIngredientToCloud, deleteIngredientFromCloud, updateIngredientStockInCloud
 } from './services/firebase';
-import { checkConnection } from './services/supabaseClient'; 
+import { checkConnection, supabase } from './services/supabaseClient'; 
 
 // Lazy Load Components
 const POSView = React.lazy(() => import('./components/POS'));
@@ -214,6 +214,40 @@ const App: React.FC = () => {
         return summary;
     };
 
+    // MANUAL REFRESH LOGIC
+    const refreshOrdersManual = async () => {
+        if (!isDatabaseReady) return;
+        setIsGlobalLoading(true);
+        try {
+            const { data, error } = await supabase.from('orders').select(`*, order_items (*)`).eq('branch_id', activeBranchId).order('created_at', { ascending: false }).limit(50);
+            if (!error && data) {
+                 setOrders(data.map((dbOrder: any) => ({ 
+                    id: dbOrder.id, 
+                    sequentialId: dbOrder.sequential_id, 
+                    customerName: dbOrder.customer_name, 
+                    items: dbOrder.order_items ? dbOrder.order_items.map((i: any) => ({ id: i.product_id, name: i.product_name, price: i.price, quantity: i.quantity, note: i.note, category: 'Umum' })) : [], 
+                    total: dbOrder.total, 
+                    subtotal: dbOrder.subtotal, 
+                    discount: dbOrder.discount || 0, 
+                    discountType: 'percent', 
+                    discountValue: 0, 
+                    taxAmount: dbOrder.tax || 0, 
+                    serviceChargeAmount: dbOrder.service || 0, 
+                    status: dbOrder.status, 
+                    createdAt: Number(dbOrder.created_at), 
+                    completedAt: dbOrder.completed_at ? Number(dbOrder.completed_at) : undefined, 
+                    isPaid: dbOrder.payment_status === 'paid', 
+                    paymentMethod: dbOrder.payment_method, 
+                    shiftId: dbOrder.shift_id, 
+                    orderType: dbOrder.type, 
+                    branchId: dbOrder.branch_id 
+                })));
+            }
+        } finally {
+            setIsGlobalLoading(false);
+        }
+    };
+
     const addOrderWrapper = (cart: CartItem[], name: string, dVal: number, dType: any, oType: OrderType, payment?: any) => {
         if (!activeShift) { alert("MAAF: Kedai sedang tidak menerima pesanan (Shift Belum Dibuka)."); return null; }
         setIsGlobalLoading(true); 
@@ -275,6 +309,7 @@ const App: React.FC = () => {
         voidOrder: (o) => { if(isDatabaseReady) updateOrderInCloud(o.id, { status: 'cancelled' }); },
         addExpense: (d, a) => { if(activeShift && isDatabaseReady) addExpenseToCloud({ id: Date.now(), shiftId: activeShift.id, description: d, amount: a, date: Date.now() }); },
         deleteExpense: deleteExpenseFromCloud, deleteAndResetShift: () => setActiveShift(null),
+        refreshOrders: refreshOrdersManual,
         requestPassword: (t, c) => { c(); }, 
         printerDevice: null, isPrinting: false, connectToPrinter: async () => {}, disconnectPrinter: async () => {}, previewReceipt: () => {}, printOrderToDevice: async () => {}, printShiftToDevice: async () => {}, printOrderViaBrowser: () => {},
         setTables: () => {}, addTable: () => {}, deleteTable: () => {}, setUsers: () => {}, clockIn: async () => {}, clockOut: async () => {}, splitOrder: () => {}, 

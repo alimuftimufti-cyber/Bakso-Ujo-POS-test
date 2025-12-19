@@ -315,7 +315,8 @@ export interface AppContextType {
     customerSubmitOrder: (cart: CartItem[], customerName: string) => Promise<boolean>;
     closeShift: (cash: number) => ShiftSummary | null;
     deleteAndResetShift: () => void;
-    
+    refreshOrders: () => Promise<void>; // NEW: Manual Refresh
+
     // Expenses
     addExpense: (description: string, amount: number) => void;
     deleteExpense: (id: number) => void;
