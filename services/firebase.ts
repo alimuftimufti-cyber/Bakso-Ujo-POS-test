@@ -134,7 +134,6 @@ export const closeShiftInCloud = async (summary: ShiftSummary) => {
         total_expenses: summary.totalExpenses,
         revenue: summary.revenue,
         cash_revenue: summary.cashRevenue,
-        // FIX: Corrected property name from non_cash_revenue to nonCashRevenue to match ShiftSummary interface
         non_cash_revenue: summary.nonCashRevenue,
         transactions_count: summary.transactions
     }).eq('id', summary.id);
@@ -176,7 +175,7 @@ export const deleteExpenseFromCloud = async (id: number) => {
 };
 
 // ==========================================
-// 3. MENU & INVENTORY (CRITICAL FIX)
+// 3. MENU & INVENTORY
 // ==========================================
 
 export const getMenuFromCloud = async (branchId: string): Promise<MenuItem[]> => {
@@ -207,8 +206,6 @@ export const addProductToCloud = async (item: MenuItem, branchId: string) => {
         branch_id: null 
     };
 
-    // FIX: Gunakan .upsert() agar menangani insert data baru dan update data lama dengan benar
-    // Jika item.id adalah timestamp besar (> 2 Miliar), kita anggap itu data baru dan tidak kirim ID agar DB buat SERIAL.
     if (item.id > 2000000000) {
         const { error } = await supabase.from('products').insert(payload);
         if (error) handleError(error, 'insertProduct');
@@ -258,7 +255,7 @@ export const deleteIngredientFromCloud = async (id: string) => {
 };
 
 // ==========================================
-// 4. ORDERS & REALTIME (CRITICAL FIX)
+// 4. ORDERS & REALTIME
 // ==========================================
 
 export const subscribeToOrders = (branchId: string, onUpdate: (orders: Order[]) => void) => {
@@ -294,7 +291,6 @@ export const subscribeToOrders = (branchId: string, onUpdate: (orders: Order[]) 
 };
 
 export const addOrderToCloud = async (order: Order) => {
-    // Pastikan shift_id valid atau null jika pelanggan
     const validShiftId = (order.shiftId === 'public' || !order.shiftId) ? null : order.shiftId;
 
     const { error: orderError } = await supabase.from('orders').insert({ 
@@ -332,15 +328,16 @@ export const addOrderToCloud = async (order: Order) => {
     if (itemsError) handleError(itemsError, 'addOrderItems');
 };
 
-export const updateOrderInCloud = async (orderId: string, data: Partial<Order>) => {
+export const updateOrderInCloud = async (orderId: string, data: Partial<Order> | any) => {
     const updates: any = {};
     if (data.status) updates.status = data.status;
     if (data.isPaid !== undefined) updates.payment_status = data.isPaid ? 'paid' : 'unpaid';
+    if (data.payment_status) updates.payment_status = data.payment_status; // Handle raw field name
     if (data.paymentMethod) updates.payment_method = data.paymentMethod;
-    if (data.completedAt) {
-        updates.completed_at = data.completedAt;
-        updates.status = 'completed';
-    }
+    if (data.completedAt) updates.completed_at = data.completedAt;
+    if (data.readyAt) updates.ready_at = data.readyAt; // Assuming this column exists or update_at
+    
+    updates.updated_at = new Date().toISOString();
     
     const { error } = await supabase.from('orders').update(updates).eq('id', orderId);
     if (error) handleError(error, 'updateOrder');
@@ -349,12 +346,10 @@ export const updateOrderInCloud = async (orderId: string, data: Partial<Order>) 
 export const getUsersFromCloud = async (branchId: string): Promise<User[]> => {
     const { data, error } = await supabase.from('users').select('*');
     if (error) handleError(error, 'getUsers');
-    // FIX: Map attendance_pin from database to attendancePin property in User object
     return (data || []).map((u: any) => ({ id: u.id, name: u.name, pin: u.pin, attendancePin: u.attendance_pin, role: u.role, branchId: u.branch_id }));
 };
 
 export const addUserToCloud = async (user: User) => {
-    // FIX: Map attendancePin property from User object to attendance_pin for database insertion
     const { error } = await supabase.from('users').upsert({ id: user.id, name: user.name, pin: user.pin, attendance_pin: user.attendancePin, role: user.role, branch_id: user.branchId });
     if (error) handleError(error, 'addUser');
 };
@@ -365,7 +360,6 @@ export const deleteUserFromCloud = async (id: string) => {
 };
 
 export const updateUserInCloud = async (user: User) => {
-    // FIX: Map attendancePin property from User object to attendance_pin for database update
     const { error } = await supabase.from('users').update({ name: user.name, pin: user.pin, attendance_pin: user.attendancePin, role: user.role }).eq('id', user.id);
     if (error) handleError(error, 'updateUser');
 };

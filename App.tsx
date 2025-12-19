@@ -2,10 +2,9 @@
 import React, { useState, useEffect, Suspense } from 'react';
 import { AppContext } from './types'; 
 import type { MenuItem, Order, Shift, CartItem, Category, StoreProfile, AppContextType, ShiftSummary, Expense, OrderType, Ingredient, User, PaymentMethod, OrderStatus, ThemeColor, View, AppMode, Table, Branch, AttendanceRecord } from './types';
-import { initialCategories, defaultStoreProfile, initialBranches } from './data';
+import { initialCategories, defaultStoreProfile, initialBranches, initialMenuData } from './data';
 
 // IMPORT CLOUD SERVICES
-// FIX: Added missing cloud service imports required by contextValue mapping
 import { 
     subscribeToOrders, addOrderToCloud, updateOrderInCloud, 
     getBranchesFromCloud, addBranchToCloud, deleteBranchFromCloud,
@@ -30,7 +29,7 @@ const InventoryView = React.lazy(() => import('./components/InventoryView'));
 const CustomerOrderView = React.lazy(() => import('./components/CustomerOrderView'));
 const OwnerDashboard = React.lazy(() => import('./components/OwnerDashboard'));
 
-// Icons Component for Sidebar
+// Icons
 const SidebarIcons = {
     Pos: () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>,
     Shift: () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>,
@@ -42,98 +41,75 @@ const SidebarIcons = {
     Dashboard: () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 01-2-2h-2a2 2 0 01-2-2v-2z" /></svg>
 };
 
-// FIX: Added ErrorBoundary component
+const ConfigMissingView = () => (
+    <div className="fixed inset-0 bg-white flex items-center justify-center p-6 text-center z-[100]">
+        <div className="max-w-md">
+            <div className="w-20 h-20 bg-orange-100 text-orange-600 rounded-3xl flex items-center justify-center mx-auto mb-6 text-3xl font-black shadow-inner italic">!</div>
+            <h1 className="text-3xl font-black text-gray-900 mb-4 tracking-tight uppercase">Database Belum Siap</h1>
+            <p className="text-gray-600 mb-8 leading-relaxed">
+                Aplikasi butuh dihubungkan ke <strong>Supabase</strong> agar bisa Online. 
+                Anda perlu mengatur <code>SUPABASE_URL</code> dan <code>SUPABASE_ANON_KEY</code> di pengaturan hosting (Vercel/Netlify).
+            </p>
+            <div className="bg-gray-50 p-6 rounded-2xl border-2 border-dashed border-gray-200 text-left mb-8">
+                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3 text-center">Cara Singkat</p>
+                <ol className="text-sm text-gray-600 space-y-2 list-decimal list-inside">
+                    <li>Buat akun di <strong>Supabase.com</strong></li>
+                    <li>Buat Project Baru</li>
+                    <li>Cari <strong>API Settings</strong> di dashboard Supabase</li>
+                    <li>Salin URL & Anon Key ke Environment Variables project Anda</li>
+                </ol>
+            </div>
+            <button onClick={() => window.location.reload()} className="w-full bg-gray-900 text-white font-bold py-4 rounded-2xl shadow-xl hover:bg-black transition-all">Coba Segarkan Halaman</button>
+        </div>
+    </div>
+);
+
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean }> {
-  constructor(props: any) {
-    super(props);
-    this.state = { hasError: false };
-  }
+  constructor(props: any) { super(props); this.state = { hasError: false }; }
   static getDerivedStateFromError() { return { hasError: true }; }
   render() {
     if (this.state.hasError) return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4 text-center">
-        <div>
-          <h1 className="text-2xl font-bold text-red-600 mb-2">Terjadi Kesalahan Sistem</h1>
-          <p className="text-gray-600 mb-4">Aplikasi mengalami kendala teknis.</p>
-          <button onClick={() => window.location.reload()} className="bg-orange-500 text-white px-6 py-2 rounded-xl font-bold">Refresh Halaman</button>
-        </div>
+        <div><h1 className="text-2xl font-bold text-red-600 mb-2">Terjadi Kesalahan Sistem</h1><button onClick={() => window.location.reload()} className="bg-orange-500 text-white px-6 py-2 rounded-xl font-bold">Refresh</button></div>
       </div>
     );
     return this.props.children;
   }
 }
 
-// FIX: Added useLocalStorage hook
 function useLocalStorage<T>(key: string, initialValue: T): [T, (val: T) => void] {
   const [storedValue, setStoredValue] = useState<T>(() => {
-    try {
-      const item = window.localStorage.getItem(key);
-      return item ? JSON.parse(item) : initialValue;
-    } catch (error) {
-      return initialValue;
-    }
+    try { const item = window.localStorage.getItem(key); return item ? JSON.parse(item) : initialValue; } 
+    catch (error) { return initialValue; }
   });
   const setValue = (value: T) => {
-    try {
-      setStoredValue(value);
-      window.localStorage.setItem(key, JSON.stringify(value));
-    } catch (error) {}
+    try { setStoredValue(value); window.localStorage.setItem(key, JSON.stringify(value)); } 
+    catch (error) {}
   };
   return [storedValue, setValue];
 }
 
-// FIX: Added LandingPage component - DESIGNED FOR PUBLIC CUSTOMER
 const LandingPage = ({ onSelectMode, storeName, logo, slogan, theme, isStoreOpen }: any) => (
   <div className="min-h-[100dvh] bg-white flex flex-col items-center justify-center p-6 text-center relative overflow-hidden">
-    {/* HIDDEN ADMIN BUTTON */}
-    <button 
-        onClick={() => onSelectMode('admin')} 
-        className="absolute top-4 right-4 w-12 h-12 flex items-center justify-center text-gray-100 opacity-5 hover:opacity-100 transition-opacity z-50 rounded-full hover:bg-gray-100"
-        title="Admin Login"
-    >
-        <SidebarIcons.Settings />
-    </button>
-
+    <button onClick={() => onSelectMode('admin')} className="absolute top-4 right-4 w-12 h-12 flex items-center justify-center text-gray-100 opacity-5 hover:opacity-100 transition-opacity z-50 rounded-full hover:bg-gray-100"><SidebarIcons.Settings /></button>
     <div className="max-w-md w-full animate-fade-in">
-      {logo ? (
-        <img src={logo} alt="Logo" className="w-32 h-32 mx-auto mb-6 object-contain" />
-      ) : (
-        <div className={`w-24 h-24 bg-${theme}-600 text-white rounded-[2rem] flex items-center justify-center mx-auto mb-6 text-4xl font-black shadow-xl`}>
-          {storeName?.charAt(0) || 'B'}
-        </div>
-      )}
+      {logo ? <img src={logo} alt="Logo" className="w-32 h-32 mx-auto mb-6 object-contain" /> : <div className={`w-24 h-24 bg-${theme}-600 text-white rounded-[2rem] flex items-center justify-center mx-auto mb-6 text-4xl font-black shadow-xl`}>{storeName?.charAt(0) || 'B'}</div>}
       <h1 className="text-4xl font-black text-gray-900 mb-2 tracking-tight uppercase">{storeName}</h1>
       <p className="text-gray-500 mb-12 font-medium text-lg">{slogan}</p>
-      
       <div className="space-y-4">
         {isStoreOpen ? (
-            <button 
-                onClick={() => onSelectMode('customer')} 
-                className={`w-full group relative p-6 bg-${theme}-600 rounded-[2rem] text-center transition-all shadow-xl shadow-${theme}-200 hover:scale-[1.02] active:scale-95`}
-            >
-                <div className="flex flex-col items-center justify-center">
-                    <span className="text-white font-black text-2xl uppercase tracking-wider mb-1">Pesan Sekarang</span>
-                    <span className="text-white/80 text-sm font-bold">Mulai Pilih Menu Lezat Kami</span>
-                </div>
+            <button onClick={() => onSelectMode('customer')} className={`w-full group relative p-6 bg-${theme}-600 rounded-[2rem] text-center transition-all shadow-xl shadow-${theme}-200 hover:scale-[1.02] active:scale-95`}>
+                <div className="flex flex-col items-center justify-center"><span className="text-white font-black text-2xl uppercase tracking-wider mb-1">Pesan Sekarang</span><span className="text-white/80 text-sm font-bold">Mulai Pilih Menu Lezat Kami</span></div>
             </button>
         ) : (
-            <div className="p-8 bg-gray-100 rounded-[2rem] border-2 border-dashed border-gray-300">
-                <p className="font-bold text-gray-400 uppercase tracking-widest mb-1">Maaf, Kedai Sedang Tutup</p>
-                <p className="text-xs text-gray-500">Silakan kembali saat jam operasional kami.</p>
-            </div>
+            <div className="p-8 bg-gray-100 rounded-[2rem] border-2 border-dashed border-gray-300"><p className="font-bold text-gray-400 uppercase tracking-widest mb-1">Maaf, Kedai Sedang Tutup</p><p className="text-xs text-gray-500">Silakan kembali saat jam operasional kami.</p></div>
         )}
       </div>
-      
-      <div className="mt-16 flex items-center justify-center gap-4 text-gray-300">
-          <span className="h-px w-8 bg-gray-200"></span>
-          <p className="text-[10px] font-black uppercase tracking-widest">v6.5.0 Public Edition</p>
-          <span className="h-px w-8 bg-gray-200"></span>
-      </div>
+      <div className="mt-16 flex items-center justify-center gap-4 text-gray-300"><span className="h-px w-8 bg-gray-200"></span><p className="text-[10px] font-black uppercase tracking-widest">v6.5.1 Cloud Native</p><span className="h-px w-8 bg-gray-200"></span></div>
     </div>
   </div>
 );
 
-// --- START APP COMPONENT ---
 const DB_VER = 'v6_cloud_native';
 
 const App: React.FC = () => {
@@ -143,7 +119,6 @@ const App: React.FC = () => {
     const [currentUser, setCurrentUser] = useLocalStorage<User | null>(`pos-currentUser-${DB_VER}`, null);
     const [activeBranchId, setActiveBranchId] = useLocalStorage<string>(`pos-activeBranchId-${DB_VER}`, 'pusat');
 
-    // DATA STATE (Cloud Only)
     const [branches, setBranches] = useState<Branch[]>([]);
     const [menu, setMenu] = useState<MenuItem[]>([]);
     const [categories, setCategories] = useState<Category[]>([]);
@@ -158,45 +133,61 @@ const App: React.FC = () => {
     const [isGlobalLoading, setIsGlobalLoading] = useState(false);
     const [isDatabaseReady, setIsDatabaseReady] = useState<boolean | null>(null);
 
-    // Initial Master Data
+    // Effect 1: Koneksi Utama
     useEffect(() => {
         const loadMaster = async () => {
             const isReady = await checkConnection();
             setIsDatabaseReady(isReady);
-            if (!isReady) return;
+            if (!isReady) {
+                // Fallback lokal sementara untuk demo jika gagal online
+                setBranches(initialBranches);
+                setCategories(initialCategories);
+                return;
+            }
             const b = await getBranchesFromCloud(); setBranches(b.length ? b : initialBranches);
             const c = await getCategoriesFromCloud(); setCategories(c.length ? c : initialCategories);
         };
         loadMaster();
     }, []);
 
-    // Branch Specific Data
+    // Effect 2: Data Cabang - HANYA JALAN JIKA ONLINE
     useEffect(() => {
-        if (isDatabaseReady === false) return;
+        if (isDatabaseReady !== true) return;
+        
         const loadBranchData = async () => {
             setIsShiftLoading(true); 
-            const [p, m, i, u] = await Promise.all([
-                getStoreProfileFromCloud(activeBranchId),
-                getMenuFromCloud(activeBranchId),
-                getIngredientsFromCloud(activeBranchId),
-                getUsersFromCloud(activeBranchId)
-            ]);
-            setStoreProfile(p); setMenu(m); setIngredients(i); setUsers(u);
-            const shift = await getActiveShiftFromCloud(activeBranchId);
-            setActiveShift(shift);
-            if (shift) {
-                const ex = await getExpensesFromCloud(shift.id);
-                setExpenses(ex);
+            try {
+                const [p, m, i, u] = await Promise.all([
+                    getStoreProfileFromCloud(activeBranchId),
+                    getMenuFromCloud(activeBranchId),
+                    getIngredientsFromCloud(activeBranchId),
+                    getUsersFromCloud(activeBranchId)
+                ]);
+                setStoreProfile(p); setMenu(m); setIngredients(i); setUsers(u);
+                const shift = await getActiveShiftFromCloud(activeBranchId);
+                setActiveShift(shift);
+                if (shift) { const ex = await getExpensesFromCloud(shift.id); setExpenses(ex); }
+                const history = await getCompletedShiftsFromCloud(activeBranchId);
+                setCompletedShifts(history);
+            } catch (err) {
+                console.error("Gagal memuat data cabang:", err);
+            } finally {
+                setIsShiftLoading(false); 
             }
-            const history = await getCompletedShiftsFromCloud(activeBranchId);
-            setCompletedShifts(history);
-            setIsShiftLoading(false); 
         };
         loadBranchData();
         const unsubOrders = subscribeToOrders(activeBranchId, setOrders);
         const unsubShifts = subscribeToShifts(activeBranchId, (s) => setActiveShift(s));
         return () => { unsubOrders(); unsubShifts(); };
     }, [activeBranchId, isDatabaseReady]);
+
+    // Fallback Lokal (Jika Offline / Belum Setting)
+    useEffect(() => {
+        if (isDatabaseReady === false) {
+            setMenu(initialMenuData);
+            setIsShiftLoading(false);
+        }
+    }, [isDatabaseReady]);
 
     const loginAction = (pin: string) => {
         const foundUser = users.find(u => u.pin === pin);
@@ -208,9 +199,9 @@ const App: React.FC = () => {
         setIsGlobalLoading(true);
         const sId = Date.now().toString();
         const newS: Shift = { id: sId, start: Date.now(), start_cash: cash, revenue: 0, transactions: 0, cashRevenue: 0, nonCashRevenue: 0, totalDiscount: 0, branchId: activeBranchId, createdBy: currentUser?.id };
-        const result = await startShiftInCloud(newS);
+        if (isDatabaseReady) await startShiftInCloud(newS);
+        setActiveShift(newS);
         setIsGlobalLoading(false);
-        if (result) setActiveShift(result);
     };
 
     const closeShift = (cash: number) => {
@@ -218,67 +209,39 @@ const App: React.FC = () => {
         const totalEx = expenses.reduce((sum, e) => sum + e.amount, 0);
         const expected = activeShift.start_cash + activeShift.cashRevenue - totalEx;
         const summary: ShiftSummary = { ...activeShift, end: Date.now(), closingCash: cash, cashDifference: cash - expected, totalExpenses: totalEx, netRevenue: activeShift.revenue - totalEx, averageKitchenTime: 0, expectedCash: expected };
-        closeShiftInCloud(summary).then(() => setActiveShift(null));
+        if (isDatabaseReady) closeShiftInCloud(summary);
+        setActiveShift(null);
         return summary;
     };
 
     const addOrderWrapper = (cart: CartItem[], name: string, dVal: number, dType: any, oType: OrderType, payment?: any) => {
-        // CEK SHIFT: WAJIB AKTIF UNTUK SEMUA MODE
-        if (!activeShift) { 
-            alert("MAAF: Kedai sedang tidak menerima pesanan (Shift Belum Dibuka)."); 
-            return null; 
-        }
-
+        if (!activeShift) { alert("MAAF: Kedai sedang tidak menerima pesanan (Shift Belum Dibuka)."); return null; }
         setIsGlobalLoading(true); 
         const sub = cart.reduce((s, i) => s + i.price * i.quantity, 0);
         let disc = dType === 'percent' ? (sub * dVal / 100) : dVal;
         const tax = storeProfile.enableTax ? (sub - disc) * (storeProfile.taxRate / 100) : 0;
         const srv = storeProfile.enableServiceCharge ? (sub - disc) * (storeProfile.serviceChargeRate / 100) : 0;
+        const order: Order = { id: Date.now().toString(), sequentialId: orders.length + 1, customerName: name, items: cart, total: Math.round(sub - disc + tax + srv), subtotal: sub, discount: disc, discountType: dType, discountValue: dVal, taxAmount: tax, serviceChargeAmount: srv, status: 'pending', createdAt: Date.now(), isPaid: !!payment, paymentMethod: payment?.method, shiftId: activeShift.id, orderType: oType, branchId: activeBranchId };
         
-        const order: Order = { 
-            id: Date.now().toString(), 
-            sequentialId: orders.length + 1, 
-            customerName: name, 
-            items: cart, 
-            total: Math.round(sub - disc + tax + srv), 
-            subtotal: sub, 
-            discount: disc, 
-            discountType: dType, 
-            discountValue: dVal, 
-            taxAmount: tax, 
-            serviceChargeAmount: srv, 
-            status: 'pending', 
-            createdAt: Date.now(), 
-            isPaid: !!payment, 
-            paymentMethod: payment?.method, 
-            shiftId: activeShift.id, 
-            orderType: oType, 
-            branchId: activeBranchId 
-        };
-
-        addOrderToCloud(order)
-            .then(() => {
+        if (isDatabaseReady) {
+            addOrderToCloud(order).then(() => {
                 if (payment) {
                      const isCash = payment.method === 'Tunai';
-                     const up = { 
-                        revenue: activeShift.revenue + order.total, 
-                        cashRevenue: isCash ? activeShift.cashRevenue + order.total : activeShift.cashRevenue, 
-                        nonCashRevenue: !isCash ? activeShift.nonCashRevenue + order.total : activeShift.nonCashRevenue, 
-                        transactions: activeShift.transactions + 1 
-                     };
+                     const up = { revenue: activeShift.revenue + order.total, cashRevenue: isCash ? activeShift.cashRevenue + order.total : activeShift.cashRevenue, nonCashRevenue: !isCash ? activeShift.nonCashRevenue + order.total : activeShift.nonCashRevenue, transactions: activeShift.transactions + 1 };
                      updateShiftInCloud(activeShift.id, up);
                 }
-            })
-            .finally(() => setIsGlobalLoading(false));
-
+            }).finally(() => setIsGlobalLoading(false));
+        } else {
+            setOrders([order, ...orders]);
+            setIsGlobalLoading(false);
+        }
         return order;
     };
 
     const contextValue: AppContextType = {
         menu, categories, orders, expenses, activeShift, completedShifts, storeProfile, ingredients, tables: [], branches, users, currentUser, attendanceRecords: [], kitchenAlarmTime: 600, kitchenAlarmSound: 'beep',
-        isStoreOpen: !!activeShift,
-        isShiftLoading,
-        setMenu, setCategories, setStoreProfile: (p: any) => { setStoreProfile(p); updateStoreProfileInCloud(p); },
+        isStoreOpen: !!activeShift, isShiftLoading,
+        setMenu, setCategories, setStoreProfile: (p: any) => { setStoreProfile(p); if(isDatabaseReady) updateStoreProfileInCloud(p); },
         setKitchenAlarmTime: () => {}, setKitchenAlarmSound: () => {}, addCategory: addCategoryToCloud, deleteCategory: deleteCategoryFromCloud, setIngredients,
         saveMenuItem: (i) => addProductToCloud(i, activeBranchId), removeMenuItem: deleteProductFromCloud, saveIngredient: (i) => addIngredientToCloud(i, activeBranchId), removeIngredient: deleteIngredientFromCloud,
         addIngredient: (i) => addIngredientToCloud(i, activeBranchId), updateIngredient: (i) => addIngredientToCloud(i, activeBranchId), deleteIngredient: deleteIngredientFromCloud,
@@ -286,26 +249,39 @@ const App: React.FC = () => {
         addBranch: addBranchToCloud, deleteBranch: deleteBranchFromCloud, switchBranch: setActiveBranchId, setView,
         addUser: addUserToCloud, updateUser: updateUserInCloud, deleteUser: deleteUserFromCloud, loginUser: loginAction, logout: () => { setIsLoggedIn(false); setAppMode('landing'); },
         startShift, closeShift, addOrder: addOrderWrapper, 
-        updateOrder: (id, cart, dVal, dType, oType) => updateOrderInCloud(id, { items: cart, orderType: oType }),
-        // FIX: Perbaikan update status agar status 'completed' benar-benar terekam di Cloud
+        updateOrder: (id, cart, dVal, dType, oType) => { if(isDatabaseReady) updateOrderInCloud(id, { items: cart, orderType: oType }); },
+        // CRITICAL FIX: Ensure status update syncs to database
         updateOrderStatus: (id, status) => { 
-            const completedAt = status === 'completed' ? Date.now() : undefined;
-            updateOrderInCloud(id, { status, completedAt }); 
+            const updates: any = { status };
+            if (status === 'completed') updates.completedAt = Date.now();
+            if (status === 'ready') updates.readyAt = Date.now();
+
+            if (isDatabaseReady) {
+                updateOrderInCloud(id, updates);
+            }
+            // Update state lokal untuk respons instan
+            setOrders(prev => prev.map(o => o.id === id ? { ...o, ...updates } : o));
         },
-        payForOrder: (o, m) => { updateOrderInCloud(o.id, { isPaid: true, paymentMethod: m }); return null; },
-        voidOrder: (o) => updateOrderInCloud(o.id, { status: 'cancelled' }),
-        addExpense: (d, a) => { if(activeShift) addExpenseToCloud({ id: Date.now(), shiftId: activeShift.id, description: d, amount: a, date: Date.now() }); },
+        // CRITICAL FIX: Ensure payment syncs to database
+        payForOrder: (o, m) => { 
+            const updates = { isPaid: true, paymentMethod: m, paidAt: Date.now(), payment_status: 'paid' };
+            if (isDatabaseReady) {
+                updateOrderInCloud(o.id, updates);
+            }
+            // Update state lokal
+            setOrders(prev => prev.map(order => order.id === o.id ? { ...order, ...updates, isPaid: true, paymentMethod: m } : order));
+            return { ...o, ...updates, isPaid: true, paymentMethod: m }; 
+        },
+        voidOrder: (o) => { if(isDatabaseReady) updateOrderInCloud(o.id, { status: 'cancelled' }); },
+        addExpense: (d, a) => { if(activeShift && isDatabaseReady) addExpenseToCloud({ id: Date.now(), shiftId: activeShift.id, description: d, amount: a, date: Date.now() }); },
         deleteExpense: deleteExpenseFromCloud, deleteAndResetShift: () => setActiveShift(null),
         requestPassword: (t, c) => { c(); }, 
         printerDevice: null, isPrinting: false, connectToPrinter: async () => {}, disconnectPrinter: async () => {}, previewReceipt: () => {}, printOrderToDevice: async () => {}, printShiftToDevice: async () => {}, printOrderViaBrowser: () => {},
         setTables: () => {}, addTable: () => {}, deleteTable: () => {}, setUsers: () => {}, clockIn: async () => {}, clockOut: async () => {}, splitOrder: () => {}, 
-        customerSubmitOrder: async (cart, name) => { 
-            const res = addOrderWrapper(cart, name, 0, 'percent', 'Dine In'); 
-            return !!res; 
-        },
+        customerSubmitOrder: async (cart, name) => { const res = addOrderWrapper(cart, name, 0, 'percent', 'Dine In'); return !!res; },
     };
 
-    if (isDatabaseReady === false) return <div className="fixed inset-0 bg-red-900 text-white flex items-center justify-center p-10 text-center"><div><h1 className="text-3xl font-bold mb-4">Error Koneksi Database</h1><button onClick={() => window.location.reload()} className="mt-6 bg-white text-red-600 px-6 py-2 rounded-xl font-bold">Refresh</button></div></div>;
+    if (isDatabaseReady === false) return <ConfigMissingView />;
 
     return (
         <ErrorBoundary>
@@ -332,9 +308,7 @@ const App: React.FC = () => {
                     <div className="flex h-[100dvh] overflow-hidden bg-slate-900">
                         <aside className="w-72 bg-[#0f172a] text-white hidden md:flex flex-col border-r border-slate-800 shadow-2xl">
                             <div className="p-8 border-b border-slate-800/50 mb-4">
-                                <h2 className="font-black text-xl uppercase tracking-tighter text-white leading-tight">
-                                    {branches.find(b => b.id === activeBranchId)?.name || 'CABANG PUSAT'}
-                                </h2>
+                                <h2 className="font-black text-xl uppercase tracking-tighter text-white leading-tight">{branches.find(b => b.id === activeBranchId)?.name || 'CABANG PUSAT'}</h2>
                                 <p className="text-[10px] font-bold text-slate-500 mt-1 uppercase tracking-widest bg-slate-800/50 inline-block px-2 py-0.5 rounded">Terminal Kasir</p>
                             </div>
                             <nav className="flex-1 px-4 space-y-1.5 custom-scrollbar overflow-y-auto">
@@ -343,16 +317,13 @@ const App: React.FC = () => {
                                 <NavItem id="kitchen" label="Monitor Dapur" icon={SidebarIcons.Kitchen} view={view} setView={setView} />
                                 <NavItem id="inventory" label="Manajemen Stok" icon={SidebarIcons.Inventory} view={view} setView={setView} />
                                 <NavItem id="report" label="Laporan Penjualan" icon={SidebarIcons.Report} view={view} setView={setView} />
-                                <div className="pt-6 pb-2 px-5">
-                                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Pengaturan</p>
-                                </div>
+                                <div className="pt-6 pb-2 px-5"><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Pengaturan</p></div>
                                 <NavItem id="settings" label="Toko & Menu" icon={SidebarIcons.Settings} view={view} setView={setView} />
                                 {currentUser?.role === 'owner' && <NavItem id="owner_settings" label="Owner Panel" icon={SidebarIcons.Dashboard} view={view} setView={setView} />}
                             </nav>
                             <div className="p-4 border-t border-slate-800">
                                 <button onClick={() => { setIsLoggedIn(false); setAppMode('landing'); }} className="w-full flex items-center gap-4 px-5 py-3.5 rounded-xl font-bold text-red-400 hover:bg-red-500/10 transition-all">
-                                    <SidebarIcons.Logout />
-                                    <span className="text-sm">Keluar (Logout)</span>
+                                    <SidebarIcons.Logout /><span className="text-sm">Keluar (Logout)</span>
                                 </button>
                             </div>
                         </aside>
@@ -376,13 +347,9 @@ const App: React.FC = () => {
 };
 
 const NavItem = ({ id, label, icon: Icon, view, setView }: any) => (
-    <button 
-        onClick={() => setView(id)} 
-        className={`w-full flex items-center gap-4 px-5 py-3.5 rounded-xl font-bold transition-all group relative overflow-hidden ${view === id ? 'bg-white/10 text-white' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
-    >
+    <button onClick={() => setView(id)} className={`w-full flex items-center gap-4 px-5 py-3.5 rounded-xl font-bold transition-all group relative overflow-hidden ${view === id ? 'bg-white/10 text-white' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}>
         {view === id && <div className="absolute left-0 top-0 h-full w-1.5 bg-orange-500 rounded-r-full shadow-[0_0_10px_#f97316]"></div>}
-        <Icon />
-        <span className="text-sm tracking-tight">{label}</span>
+        <Icon /><span className="text-sm tracking-tight">{label}</span>
     </button>
 );
 
