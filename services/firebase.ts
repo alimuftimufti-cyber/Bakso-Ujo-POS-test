@@ -267,8 +267,8 @@ export const subscribeToInventory = (branchId: string, onUpdate: () => void) => 
 // 4. ORDERS & REALTIME
 // ==========================================
 
-export const subscribeToOrders = (branchId: string, onUpdate: (orders: Order[]) => void) => {
-    const fetchOrders = async () => {
+export const subscribeToOrders = (branchId: string, onUpdate: (orders: Order[], isNew: boolean) => void) => {
+    const fetchOrders = async (isNew: boolean = false) => {
         const { data, error } = await supabase
             .from('orders')
             .select(`*, order_items (*)`)
@@ -281,7 +281,14 @@ export const subscribeToOrders = (branchId: string, onUpdate: (orders: Order[]) 
                 id: dbOrder.id, 
                 sequentialId: dbOrder.sequential_id, 
                 customerName: dbOrder.customer_name, 
-                items: dbOrder.order_items ? dbOrder.order_items.map((i: any) => ({ id: i.product_id, name: i.product_name, price: i.price, quantity: i.quantity, note: i.note, category: 'Umum' })) : [], 
+                items: dbOrder.order_items ? dbOrder.order_items.map((i: any) => ({ 
+                    id: i.product_id, 
+                    name: i.product_name, 
+                    price: Number(i.price), 
+                    quantity: Number(i.quantity), 
+                    note: i.note || '', 
+                    category: 'Umum' 
+                })) : [], 
                 total: Number(dbOrder.total), 
                 subtotal: Number(dbOrder.subtotal), 
                 discount: Number(dbOrder.discount || 0), 
@@ -299,11 +306,11 @@ export const subscribeToOrders = (branchId: string, onUpdate: (orders: Order[]) 
                 orderType: dbOrder.type, 
                 branchId: dbOrder.branch_id 
             }));
-            onUpdate(mappedOrders);
+            onUpdate(mappedOrders, isNew);
         }
     };
 
-    fetchOrders(); // Initial load
+    fetchOrders(false); // Initial load
 
     // Listen to changes in both orders and order_items for full reliability
     const channel = supabase.channel(`orders-live-${branchId}`)
@@ -312,9 +319,11 @@ export const subscribeToOrders = (branchId: string, onUpdate: (orders: Order[]) 
             schema: 'public', 
             table: 'orders', 
             filter: `branch_id=eq.${branchId}` 
-        }, () => {
-            console.log("🔔 Change detected in orders, re-fetching...");
-            fetchOrders();
+        }, (payload) => {
+            console.log("🔔 Perubahan Pesanan:", payload.eventType);
+            // DEBOUNCE: Tunggu 500ms agar order_items selesai masuk sebelum fetch
+            const isNew = payload.eventType === 'INSERT';
+            setTimeout(() => fetchOrders(isNew), 600);
         })
         .subscribe();
 
