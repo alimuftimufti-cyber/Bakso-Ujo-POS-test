@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, Suspense } from 'react';
+import React, { useState, useEffect, Suspense, useCallback } from 'react';
 import { AppContext } from './types'; 
 import type { MenuItem, Order, Shift, CartItem, Category, StoreProfile, AppContextType, ShiftSummary, Expense, OrderType, Ingredient, User, PaymentMethod, OrderStatus, ThemeColor, View, AppMode, Table, Branch, AttendanceRecord } from './types';
 import { initialCategories, defaultStoreProfile, initialBranches, initialMenuData } from './data';
@@ -14,7 +14,8 @@ import {
     getActiveShiftFromCloud, startShiftInCloud, closeShiftInCloud, updateShiftInCloud, subscribeToShifts,
     getCompletedShiftsFromCloud, getExpensesFromCloud, addExpenseToCloud, deleteExpenseFromCloud,
     getStoreProfileFromCloud, updateStoreProfileInCloud, updateProductStockInCloud,
-    getIngredientsFromCloud, addIngredientToCloud, deleteIngredientFromCloud, updateIngredientStockInCloud
+    getIngredientsFromCloud, addIngredientToCloud, deleteIngredientFromCloud, updateIngredientStockInCloud,
+    subscribeToInventory
 } from './services/firebase';
 import { checkConnection, supabase } from './services/supabaseClient'; 
 
@@ -50,15 +51,6 @@ const ConfigMissingView = () => (
                 Aplikasi butuh dihubungkan ke <strong>Supabase</strong> agar bisa Online. 
                 Anda perlu mengatur <code>SUPABASE_URL</code> dan <code>SUPABASE_ANON_KEY</code> di pengaturan hosting (Vercel/Netlify).
             </p>
-            <div className="bg-gray-50 p-6 rounded-2xl border-2 border-dashed border-gray-200 text-left mb-8">
-                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3 text-center">Cara Singkat</p>
-                <ol className="text-sm text-gray-600 space-y-2 list-decimal list-inside">
-                    <li>Buat akun di <strong>Supabase.com</strong></li>
-                    <li>Buat Project Baru</li>
-                    <li>Cari <strong>API Settings</strong> di dashboard Supabase</li>
-                    <li>Salin URL & Anon Key ke Environment Variables project Anda</li>
-                </ol>
-            </div>
             <button onClick={() => window.location.reload()} className="w-full bg-gray-900 text-white font-bold py-4 rounded-2xl shadow-xl hover:bg-black transition-all">Coba Segarkan Halaman</button>
         </div>
     </div>
@@ -105,7 +97,6 @@ const LandingPage = ({ onSelectMode, storeName, logo, slogan, theme, isStoreOpen
             <div className="p-8 bg-gray-100 rounded-[2rem] border-2 border-dashed border-gray-300"><p className="font-bold text-gray-400 uppercase tracking-widest mb-1">Maaf, Kedai Sedang Tutup</p><p className="text-xs text-gray-500">Silakan kembali saat jam operasional kami.</p></div>
         )}
       </div>
-      <div className="mt-16 flex items-center justify-center gap-4 text-gray-300"><span className="h-px w-8 bg-gray-200"></span><p className="text-[10px] font-black uppercase tracking-widest">v6.5.1 Cloud Native</p><span className="h-px w-8 bg-gray-200"></span></div>
     </div>
   </div>
 );
@@ -133,61 +124,66 @@ const App: React.FC = () => {
     const [isGlobalLoading, setIsGlobalLoading] = useState(false);
     const [isDatabaseReady, setIsDatabaseReady] = useState<boolean | null>(null);
 
-    // Effect 1: Koneksi Utama
+    // --- REFRESH DATA LOGIC ---
+    const refreshAllData = useCallback(async () => {
+        if (isDatabaseReady !== true) return;
+        try {
+            const [p, m, i, u, cat, br] = await Promise.all([
+                getStoreProfileFromCloud(activeBranchId),
+                getMenuFromCloud(activeBranchId),
+                getIngredientsFromCloud(activeBranchId),
+                getUsersFromCloud(activeBranchId),
+                getCategoriesFromCloud(),
+                getBranchesFromCloud()
+            ]);
+            setStoreProfile(p); setMenu(m); setIngredients(i); setUsers(u); setCategories(cat); setBranches(br);
+            
+            const shift = await getActiveShiftFromCloud(activeBranchId);
+            setActiveShift(shift);
+            if (shift) { const ex = await getExpensesFromCloud(shift.id); setExpenses(ex); }
+            const history = await getCompletedShiftsFromCloud(activeBranchId);
+            setCompletedShifts(history);
+        } catch (err) { console.error("Gagal refresh data:", err); }
+    }, [activeBranchId, isDatabaseReady]);
+
+    // Background Refresh on View Change
     useEffect(() => {
-        const loadMaster = async () => {
+        if (isLoggedIn && view !== 'dashboard') {
+            refreshAllData();
+        }
+    }, [view, isLoggedIn, refreshAllData]);
+
+    // Initial Load & Real-time Subscriptions
+    useEffect(() => {
+        const init = async () => {
             const isReady = await checkConnection();
             setIsDatabaseReady(isReady);
-            if (!isReady) {
-                // Fallback lokal sementara untuk demo jika gagal online
-                setBranches(initialBranches);
-                setCategories(initialCategories);
-                return;
-            }
-            const b = await getBranchesFromCloud(); setBranches(b.length ? b : initialBranches);
-            const c = await getCategoriesFromCloud(); setCategories(c.length ? c : initialCategories);
+            if (!isReady) return;
+            
+            setIsShiftLoading(true);
+            await refreshAllData();
+            setIsShiftLoading(false);
         };
-        loadMaster();
-    }, []);
+        init();
+    }, [activeBranchId]);
 
-    // Effect 2: Data Cabang - HANYA JALAN JIKA ONLINE
+    // Real-time Listeners
     useEffect(() => {
         if (isDatabaseReady !== true) return;
         
-        const loadBranchData = async () => {
-            setIsShiftLoading(true); 
-            try {
-                const [p, m, i, u] = await Promise.all([
-                    getStoreProfileFromCloud(activeBranchId),
-                    getMenuFromCloud(activeBranchId),
-                    getIngredientsFromCloud(activeBranchId),
-                    getUsersFromCloud(activeBranchId)
-                ]);
-                setStoreProfile(p); setMenu(m); setIngredients(i); setUsers(u);
-                const shift = await getActiveShiftFromCloud(activeBranchId);
-                setActiveShift(shift);
-                if (shift) { const ex = await getExpensesFromCloud(shift.id); setExpenses(ex); }
-                const history = await getCompletedShiftsFromCloud(activeBranchId);
-                setCompletedShifts(history);
-            } catch (err) {
-                console.error("Gagal memuat data cabang:", err);
-            } finally {
-                setIsShiftLoading(false); 
-            }
-        };
-        loadBranchData();
-        const unsubOrders = subscribeToOrders(activeBranchId, setOrders);
-        const unsubShifts = subscribeToShifts(activeBranchId, (s) => setActiveShift(s));
-        return () => { unsubOrders(); unsubShifts(); };
-    }, [activeBranchId, isDatabaseReady]);
+        const unsubOrders = subscribeToOrders(activeBranchId, (newOrders) => {
+            setOrders(newOrders);
+        });
+        
+        const unsubInv = subscribeToInventory(activeBranchId, () => {
+            // Background fetch when inventory changes
+            refreshAllData();
+        });
 
-    // Fallback Lokal (Jika Offline / Belum Setting)
-    useEffect(() => {
-        if (isDatabaseReady === false) {
-            setMenu(initialMenuData);
-            setIsShiftLoading(false);
-        }
-    }, [isDatabaseReady]);
+        const unsubShifts = subscribeToShifts(activeBranchId, (s) => setActiveShift(s));
+
+        return () => { unsubOrders(); unsubInv(); unsubShifts(); };
+    }, [activeBranchId, isDatabaseReady, refreshAllData]);
 
     const loginAction = (pin: string) => {
         const foundUser = users.find(u => u.pin === pin);
@@ -212,40 +208,6 @@ const App: React.FC = () => {
         if (isDatabaseReady) closeShiftInCloud(summary);
         setActiveShift(null);
         return summary;
-    };
-
-    // MANUAL REFRESH LOGIC
-    const refreshOrdersManual = async () => {
-        if (!isDatabaseReady) return;
-        setIsGlobalLoading(true);
-        try {
-            const { data, error } = await supabase.from('orders').select(`*, order_items (*)`).eq('branch_id', activeBranchId).order('created_at', { ascending: false }).limit(50);
-            if (!error && data) {
-                 setOrders(data.map((dbOrder: any) => ({ 
-                    id: dbOrder.id, 
-                    sequentialId: dbOrder.sequential_id, 
-                    customerName: dbOrder.customer_name, 
-                    items: dbOrder.order_items ? dbOrder.order_items.map((i: any) => ({ id: i.product_id, name: i.product_name, price: i.price, quantity: i.quantity, note: i.note, category: 'Umum' })) : [], 
-                    total: dbOrder.total, 
-                    subtotal: dbOrder.subtotal, 
-                    discount: dbOrder.discount || 0, 
-                    discountType: 'percent', 
-                    discountValue: 0, 
-                    taxAmount: dbOrder.tax || 0, 
-                    serviceChargeAmount: dbOrder.service || 0, 
-                    status: dbOrder.status, 
-                    createdAt: Number(dbOrder.created_at), 
-                    completedAt: dbOrder.completed_at ? Number(dbOrder.completed_at) : undefined, 
-                    isPaid: dbOrder.payment_status === 'paid', 
-                    paymentMethod: dbOrder.payment_method, 
-                    shiftId: dbOrder.shift_id, 
-                    orderType: dbOrder.type, 
-                    branchId: dbOrder.branch_id 
-                })));
-            }
-        } finally {
-            setIsGlobalLoading(false);
-        }
     };
 
     const addOrderWrapper = (cart: CartItem[], name: string, dVal: number, dType: any, oType: OrderType, payment?: any) => {
@@ -277,39 +239,60 @@ const App: React.FC = () => {
         isStoreOpen: !!activeShift, isShiftLoading,
         setMenu, setCategories, setStoreProfile: (p: any) => { setStoreProfile(p); if(isDatabaseReady) updateStoreProfileInCloud(p); },
         setKitchenAlarmTime: () => {}, setKitchenAlarmSound: () => {}, addCategory: addCategoryToCloud, deleteCategory: deleteCategoryFromCloud, setIngredients,
-        saveMenuItem: (i) => addProductToCloud(i, activeBranchId), removeMenuItem: deleteProductFromCloud, saveIngredient: (i) => addIngredientToCloud(i, activeBranchId), removeIngredient: deleteIngredientFromCloud,
-        addIngredient: (i) => addIngredientToCloud(i, activeBranchId), updateIngredient: (i) => addIngredientToCloud(i, activeBranchId), deleteIngredient: deleteIngredientFromCloud,
-        updateProductStock: updateProductStockInCloud, updateIngredientStock: updateIngredientStockInCloud,
+        saveMenuItem: async (i) => {
+            // Optimistic Update
+            setMenu(prev => {
+                const existing = prev.findIndex(m => m.id === i.id);
+                if (existing > -1) { const n = [...prev]; n[existing] = i; return n; }
+                return [...prev, i];
+            });
+            await addProductToCloud(i, activeBranchId);
+        },
+        removeMenuItem: deleteProductFromCloud,
+        saveIngredient: async (i) => {
+            setIngredients(prev => {
+                const existing = prev.findIndex(ing => ing.id === i.id);
+                if (existing > -1) { const n = [...prev]; n[existing] = i; return n; }
+                return [...prev, i];
+            });
+            await addIngredientToCloud(i, activeBranchId);
+        },
+        removeIngredient: deleteIngredientFromCloud,
+        addIngredient: (i) => addIngredientToCloud(i, activeBranchId),
+        updateIngredient: (i) => addIngredientToCloud(i, activeBranchId),
+        deleteIngredient: deleteIngredientFromCloud,
+        updateProductStock: async (id, stock) => {
+            // Optimistic Update
+            setMenu(prev => prev.map(m => m.id === id ? { ...m, stock } : m));
+            await updateProductStockInCloud(id, stock);
+        },
+        updateIngredientStock: async (id, stock) => {
+            // Optimistic Update
+            setIngredients(prev => prev.map(i => i.id === id ? { ...i, stock } : i));
+            await updateIngredientStockInCloud(id, stock);
+        },
         addBranch: addBranchToCloud, deleteBranch: deleteBranchFromCloud, switchBranch: setActiveBranchId, setView,
         addUser: addUserToCloud, updateUser: updateUserInCloud, deleteUser: deleteUserFromCloud, loginUser: loginAction, logout: () => { setIsLoggedIn(false); setAppMode('landing'); },
         startShift, closeShift, addOrder: addOrderWrapper, 
         updateOrder: (id, cart, dVal, dType, oType) => { if(isDatabaseReady) updateOrderInCloud(id, { items: cart, orderType: oType }); },
-        // CRITICAL FIX: Ensure status update syncs to database
         updateOrderStatus: (id, status) => { 
             const updates: any = { status };
             if (status === 'completed') updates.completedAt = Date.now();
             if (status === 'ready') updates.readyAt = Date.now();
-
-            if (isDatabaseReady) {
-                updateOrderInCloud(id, updates);
-            }
-            // Update state lokal untuk respons instan
+            if (isDatabaseReady) updateOrderInCloud(id, updates);
             setOrders(prev => prev.map(o => o.id === id ? { ...o, ...updates } : o));
         },
-        // CRITICAL FIX: Ensure payment syncs to database
         payForOrder: (o, m) => { 
             const updates = { isPaid: true, paymentMethod: m, paidAt: Date.now(), payment_status: 'paid' };
-            if (isDatabaseReady) {
-                updateOrderInCloud(o.id, updates);
-            }
-            // Update state lokal
-            setOrders(prev => prev.map(order => order.id === o.id ? { ...order, ...updates, isPaid: true, paymentMethod: m } : order));
-            return { ...o, ...updates, isPaid: true, paymentMethod: m }; 
+            if (isDatabaseReady) updateOrderInCloud(o.id, updates);
+            const updated = { ...o, ...updates, isPaid: true, paymentMethod: m };
+            setOrders(prev => prev.map(order => order.id === o.id ? updated : order));
+            return updated; 
         },
         voidOrder: (o) => { if(isDatabaseReady) updateOrderInCloud(o.id, { status: 'cancelled' }); },
         addExpense: (d, a) => { if(activeShift && isDatabaseReady) addExpenseToCloud({ id: Date.now(), shiftId: activeShift.id, description: d, amount: a, date: Date.now() }); },
         deleteExpense: deleteExpenseFromCloud, deleteAndResetShift: () => setActiveShift(null),
-        refreshOrders: refreshOrdersManual,
+        refreshOrders: refreshAllData,
         requestPassword: (t, c) => { c(); }, 
         printerDevice: null, isPrinting: false, connectToPrinter: async () => {}, disconnectPrinter: async () => {}, previewReceipt: () => {}, printOrderToDevice: async () => {}, printShiftToDevice: async () => {}, printOrderViaBrowser: () => {},
         setTables: () => {}, addTable: () => {}, deleteTable: () => {}, setUsers: () => {}, clockIn: async () => {}, clockOut: async () => {}, splitOrder: () => {}, 
