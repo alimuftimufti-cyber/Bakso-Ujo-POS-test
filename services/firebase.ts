@@ -253,7 +253,6 @@ export const deleteIngredientFromCloud = async (id: string) => {
     if (error) handleError(error, 'deleteIngredient');
 };
 
-// NEW: Real-time listener for products and ingredients
 export const subscribeToInventory = (branchId: string, onUpdate: () => void) => {
     const productsChannel = supabase.channel(`inv-products`).on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, () => onUpdate()).subscribe();
     const ingredientsChannel = supabase.channel(`inv-ingredients-${branchId}`).on('postgres_changes', { event: '*', schema: 'public', table: 'ingredients', filter: `branch_id=eq.${branchId}` }, () => onUpdate()).subscribe();
@@ -270,20 +269,26 @@ export const subscribeToInventory = (branchId: string, onUpdate: () => void) => 
 
 export const subscribeToOrders = (branchId: string, onUpdate: (orders: Order[]) => void) => {
     const fetchOrders = async () => {
-        const { data, error } = await supabase.from('orders').select(`*, order_items (*)`).eq('branch_id', branchId).order('created_at', { ascending: false }).limit(50);
+        const { data, error } = await supabase
+            .from('orders')
+            .select(`*, order_items (*)`)
+            .eq('branch_id', branchId)
+            .order('created_at', { ascending: false })
+            .limit(50);
+            
         if (!error && data) {
-            onUpdate(data.map((dbOrder: any) => ({ 
+            const mappedOrders: Order[] = data.map((dbOrder: any) => ({ 
                 id: dbOrder.id, 
                 sequentialId: dbOrder.sequential_id, 
                 customerName: dbOrder.customer_name, 
                 items: dbOrder.order_items ? dbOrder.order_items.map((i: any) => ({ id: i.product_id, name: i.product_name, price: i.price, quantity: i.quantity, note: i.note, category: 'Umum' })) : [], 
-                total: dbOrder.total, 
-                subtotal: dbOrder.subtotal, 
-                discount: dbOrder.discount || 0, 
+                total: Number(dbOrder.total), 
+                subtotal: Number(dbOrder.subtotal), 
+                discount: Number(dbOrder.discount || 0), 
                 discountType: 'percent', 
                 discountValue: 0, 
-                taxAmount: dbOrder.tax || 0, 
-                serviceChargeAmount: dbOrder.service || 0, 
+                taxAmount: Number(dbOrder.tax || 0), 
+                serviceChargeAmount: Number(dbOrder.service || 0), 
                 status: dbOrder.status, 
                 createdAt: Number(dbOrder.created_at), 
                 completedAt: dbOrder.completed_at ? Number(dbOrder.completed_at) : undefined, 
@@ -293,11 +298,26 @@ export const subscribeToOrders = (branchId: string, onUpdate: (orders: Order[]) 
                 shiftId: dbOrder.shift_id, 
                 orderType: dbOrder.type, 
                 branchId: dbOrder.branch_id 
-            })));
+            }));
+            onUpdate(mappedOrders);
         }
     };
-    fetchOrders();
-    const channel = supabase.channel(`orders-${branchId}`).on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `branch_id=eq.${branchId}` }, () => fetchOrders()).subscribe();
+
+    fetchOrders(); // Initial load
+
+    // Listen to changes in both orders and order_items for full reliability
+    const channel = supabase.channel(`orders-live-${branchId}`)
+        .on('postgres_changes', { 
+            event: '*', 
+            schema: 'public', 
+            table: 'orders', 
+            filter: `branch_id=eq.${branchId}` 
+        }, () => {
+            console.log("🔔 Change detected in orders, re-fetching...");
+            fetchOrders();
+        })
+        .subscribe();
+
     return () => { supabase.removeChannel(channel); };
 };
 
@@ -399,6 +419,7 @@ export const subscribeToAttendance = (branchId: string, onUpdate: (data: Attenda
     fetch(); return () => {};
 };
 
+// FIX: Updated record.clock_in to record.clockInTime to match the AttendanceRecord interface definition.
 export const addAttendanceToCloud = async (record: AttendanceRecord) => {
     const { error } = await supabase.from('attendance').insert({ id: record.id, user_id: record.userId, user_name: record.userName, branch_id: record.branchId, date: record.date, clock_in: record.clockInTime, status: record.status, photo_url: record.photoUrl, lat: record.location?.lat, lng: record.location?.lng });
     if (error) handleError(error, 'addAttendance');
