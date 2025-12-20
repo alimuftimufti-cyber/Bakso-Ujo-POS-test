@@ -313,7 +313,8 @@ export interface AppContextType {
     payForOrder: (order: Order, method: PaymentMethod) => Order | null;
     voidOrder: (order: Order) => void; // NEW: Critical for cancelling orders
     splitOrder: (original: Order, itemsToMove: CartItem[]) => void;
-    customerSubmitOrder: (cart: CartItem[], customerName: string) => Promise<boolean>;
+    // FIX: Updated return type from Promise<boolean> to Promise<Order | null> to match implementation in App.tsx
+    customerSubmitOrder: (cart: CartItem[], customerName: string) => Promise<Order | null>;
     closeShift: (cash: number) => ShiftSummary | null;
     deleteAndResetShift: () => void;
     refreshOrders: () => Promise<void>; // NEW: Manual Refresh
