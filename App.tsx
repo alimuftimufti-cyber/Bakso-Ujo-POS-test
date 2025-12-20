@@ -58,7 +58,6 @@ const ConfigMissingView = () => (
     </div>
 );
 
-// FIX: Explicitly extending Component with typed props and state to fix "Property 'state' does not exist" and "Property 'props' does not exist" errors in App.tsx.
 class ErrorBoundary extends Component<{ children: React.ReactNode }, { hasError: boolean }> {
   constructor(props: { children: React.ReactNode }) { 
     super(props); 
@@ -87,30 +86,55 @@ function useLocalStorage<T>(key: string, initialValue: T): [T, (val: T) => void]
   return [storedValue, setValue];
 }
 
-const LandingPage = ({ onSelectMode, storeName, logo, slogan, theme, isStoreOpen, isLoading }: any) => (
-  <div className="min-h-[100dvh] bg-white flex flex-col items-center justify-center p-6 text-center relative overflow-hidden">
-    <button onClick={() => onSelectMode('admin')} className="absolute top-4 right-4 w-12 h-12 flex items-center justify-center text-gray-100 opacity-5 hover:opacity-100 transition-opacity z-50 rounded-full hover:bg-gray-100"><SidebarIcons.Settings /></button>
-    <div className="max-w-md w-full animate-fade-in">
-      {logo ? <img src={logo} alt="Logo" className="w-32 h-32 mx-auto mb-6 object-contain" /> : <div className={`w-24 h-24 bg-${theme}-600 text-white rounded-[2rem] flex items-center justify-center mx-auto mb-6 text-4xl font-black shadow-xl`}>{storeName?.charAt(0) || 'B'}</div>}
-      <h1 className="text-4xl font-black text-gray-900 mb-2 tracking-tight uppercase">{storeName}</h1>
-      <p className="text-gray-500 mb-12 font-medium text-lg">{slogan}</p>
+const LandingPage = ({ onSelectMode, storeName, branchName, logo, slogan, theme, isStoreOpen, isLoading }: any) => (
+  <div className="min-h-[100dvh] bg-orange-50 flex flex-col items-center justify-center p-6 text-center relative overflow-hidden">
+    {/* Background Decorative Elements */}
+    <div className="absolute -top-24 -left-24 w-64 h-64 bg-orange-200/50 rounded-full blur-3xl"></div>
+    <div className="absolute -bottom-24 -right-24 w-64 h-64 bg-orange-300/30 rounded-full blur-3xl"></div>
+    
+    <button onClick={() => onSelectMode('admin')} className="absolute top-4 right-4 w-12 h-12 flex items-center justify-center text-orange-900/10 hover:text-orange-900/50 transition-all z-50 rounded-full hover:bg-orange-100/50"><SidebarIcons.Settings /></button>
+    
+    <div className="max-w-md w-full animate-fade-in relative z-10">
+      {logo ? <img src={logo} alt="Logo" className="w-32 h-32 mx-auto mb-6 object-contain" /> : <div className={`w-28 h-28 bg-orange-600 text-white rounded-[2.5rem] flex items-center justify-center mx-auto mb-6 text-5xl font-black shadow-2xl shadow-orange-200 ring-8 ring-white`}>{storeName?.charAt(0) || 'B'}</div>}
+      
+      <div className="mb-8">
+          <h1 className="text-5xl font-black text-gray-900 mb-1 tracking-tighter uppercase">{storeName}</h1>
+          <div className="bg-orange-600 text-white px-4 py-1.5 rounded-full inline-block text-sm font-black uppercase tracking-widest shadow-md">
+              {branchName || 'Cabang Pusat'}
+          </div>
+      </div>
+      
+      <p className="text-gray-500 mb-12 font-bold text-xl italic leading-tight">"{slogan}"</p>
       
       {isLoading ? (
           <div className="flex flex-col items-center gap-4 animate-pulse">
             <div className="w-12 h-12 border-4 border-orange-200 border-t-orange-600 rounded-full animate-spin"></div>
-            <p className="text-sm font-bold text-gray-400 uppercase tracking-widest">Sinkronisasi Data...</p>
+            <p className="text-xs font-black text-orange-800 uppercase tracking-widest">Sinkronisasi Data...</p>
           </div>
       ) : (
           <div className="space-y-4">
             {isStoreOpen ? (
-                <button onClick={() => onSelectMode('customer')} className={`w-full group relative p-6 bg-${theme}-600 rounded-[2rem] text-center transition-all shadow-xl shadow-${theme}-200 hover:scale-[1.02] active:scale-95`}>
-                    <div className="flex flex-col items-center justify-center"><span className="text-white font-black text-2xl uppercase tracking-wider mb-1">Pesan Sekarang</span><span className="text-white/80 text-sm font-bold">Mulai Pilih Menu Lezat Kami</span></div>
+                <button 
+                  onClick={() => onSelectMode('customer')} 
+                  className={`w-full group relative p-7 bg-orange-600 rounded-[2.5rem] text-center transition-all shadow-2xl shadow-orange-300 hover:scale-[1.03] active:scale-95 border-b-8 border-orange-800`}
+                >
+                    <div className="flex flex-col items-center justify-center">
+                        <span className="text-white font-black text-3xl uppercase tracking-tighter mb-1">PESAN SEKARANG</span>
+                        <span className="text-orange-100/80 text-xs font-bold uppercase tracking-widest">Buka Menu & Cek Stok Terbaru</span>
+                    </div>
                 </button>
             ) : (
-                <div className="p-8 bg-gray-100 rounded-[2rem] border-2 border-dashed border-gray-300"><p className="font-bold text-gray-400 uppercase tracking-widest mb-1">Maaf, Kedai Sedang Tutup</p><p className="text-xs text-gray-500">Silakan kembali saat jam operasional kami.</p></div>
+                <div className="p-10 bg-white/60 backdrop-blur-md rounded-[3rem] border-4 border-dashed border-orange-200">
+                    <p className="font-black text-orange-800 uppercase tracking-widest mb-1 text-lg">Maaf, Kedai Sedang Tutup</p>
+                    <p className="text-sm text-gray-500 font-bold">Silakan kembali saat jam operasional kami.</p>
+                </div>
             )}
           </div>
       )}
+    </div>
+    
+    <div className="absolute bottom-8 left-0 right-0 text-center opacity-30">
+        <p className="text-[10px] font-black uppercase tracking-widest text-orange-900">Bakso Ujo Digital POS v6.0</p>
     </div>
   </div>
 );
@@ -142,7 +166,6 @@ const App: React.FC = () => {
     const [newOrderIncoming, setNewOrderIncoming] = useState(false);
     const [hasUnreadOrders, setHasUnreadOrders] = useState(false);
 
-    // Ref to store appMode to use inside listeners without creating dependencies
     const appModeRef = useRef(appMode);
     useEffect(() => { appModeRef.current = appMode; }, [appMode]);
 
@@ -198,7 +221,6 @@ const App: React.FC = () => {
         
         const unsubOrders = subscribeToOrders(activeBranchId, (newOrders, isNew) => {
             setOrders(newOrders);
-            // CRITICAL: Only play sound and show toast if CURRENT MODE is ADMIN
             if (isNew && appModeRef.current === 'admin') {
                 const audio = new Audio(BEEP_URL);
                 audio.play().catch(() => {});
@@ -214,10 +236,19 @@ const App: React.FC = () => {
         return () => { unsubOrders(); unsubInv(); unsubShifts(); };
     }, [activeBranchId, isDatabaseReady, refreshAllData]);
 
-    // Reset unread mark when going to POS
     useEffect(() => {
         if (view === 'pos') setHasUnreadOrders(false);
     }, [view]);
+
+    // HANDLER FOR MODE SWITCHING WITH STOCK RELOAD
+    const handleSetMode = async (mode: AppMode) => {
+        if (mode === 'customer') {
+            setIsGlobalLoading(true);
+            await refreshAllData(); // RELOAD STOCK BEFORE ENTERING
+            setIsGlobalLoading(false);
+        }
+        setAppMode(mode);
+    };
 
     const loginAction = (pin: string) => {
         const foundUser = users.find(u => u.pin === pin);
@@ -271,14 +302,11 @@ const App: React.FC = () => {
             branchId: activeBranchId 
         };
         
-        // --- LOGIKA PENGURANGAN STOK OTOMATIS ---
         cart.forEach(item => {
             const menuItem = menu.find(m => m.id === item.id);
             if (menuItem && menuItem.stock !== undefined) {
                 const newStock = Math.max(0, menuItem.stock - item.quantity);
-                // Update Lokal State
                 setMenu(prev => prev.map(m => m.id === item.id ? { ...m, stock: newStock } : m));
-                // Update Cloud
                 if (isDatabaseReady) updateProductStockInCloud(item.id, newStock);
             }
         });
@@ -372,12 +400,12 @@ const App: React.FC = () => {
     return (
         <ErrorBoundary>
             <AppContext.Provider value={contextValue}>
-                <div className="h-full w-full relative">
+                <div className="h-full w-full relative bg-orange-50">
                     {isGlobalLoading && (
-                        <div className="fixed inset-0 z-[200] bg-black/70 flex items-center justify-center backdrop-blur-md">
-                            <div className="bg-white p-8 rounded-[2.5rem] flex flex-col items-center shadow-2xl animate-scale-in">
+                        <div className="fixed inset-0 z-[200] bg-orange-950/70 flex items-center justify-center backdrop-blur-md">
+                            <div className="bg-white p-8 rounded-[3rem] flex flex-col items-center shadow-2xl animate-scale-in border-4 border-orange-500">
                                 <div className="animate-spin rounded-full h-14 w-14 border-t-4 border-b-4 border-orange-600 mb-6"></div>
-                                <p className="font-black text-gray-800 text-lg uppercase tracking-widest">SINKRONISASI...</p>
+                                <p className="font-black text-orange-900 text-lg uppercase tracking-widest">SINKRONISASI...</p>
                             </div>
                         </div>
                     )}
@@ -397,12 +425,12 @@ const App: React.FC = () => {
                         </div>
                     )}
                     
-                    {/* ADDING KEYS TO PREVENT insertBefore ERRORS DURING MODE SWITCH */}
                     {appMode === 'landing' && (
                         <div key="mode-landing" className="h-full">
                             <LandingPage 
-                                onSelectMode={setAppMode} 
+                                onSelectMode={handleSetMode} 
                                 storeName={storeProfile.name} 
+                                branchName={branches.find(b => b.id === activeBranchId)?.name}
                                 logo={storeProfile.logo} 
                                 slogan={storeProfile.slogan} 
                                 theme={storeProfile.themeColor} 
@@ -415,11 +443,11 @@ const App: React.FC = () => {
                     {appMode === 'admin' && (
                         <div key="mode-admin" className="h-full">
                             {!isLoggedIn ? (
-                                <div className="fixed inset-0 bg-gray-900 flex items-center justify-center z-50 p-4">
-                                    <div className="bg-white rounded-[2.5rem] shadow-2xl overflow-hidden max-w-sm w-full border-t-8 border-t-orange-500 p-10 text-center animate-scale-in">
-                                        <h2 className="text-2xl font-black mb-6 uppercase tracking-widest">Login Kasir</h2>
-                                        <input type="password" placeholder="••••" className="w-full bg-gray-50 border-2 border-gray-200 rounded-2xl p-4 text-center text-4xl tracking-[0.5em] font-bold focus:border-orange-500 outline-none mb-6" onChange={(e) => { if(e.target.value.length >= 4) loginAction(e.target.value); }} autoFocus />
-                                        <button onClick={() => setAppMode('landing')} className="text-sm font-bold text-gray-400 hover:text-gray-600 uppercase tracking-widest">Kembali</button>
+                                <div className="fixed inset-0 bg-orange-950/90 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+                                    <div className="bg-white rounded-[3rem] shadow-2xl overflow-hidden max-w-sm w-full border-t-8 border-t-orange-600 p-10 text-center animate-scale-in">
+                                        <h2 className="text-2xl font-black mb-6 uppercase tracking-widest text-gray-800">Login Kasir</h2>
+                                        <input type="password" placeholder="••••" className="w-full bg-orange-50 border-2 border-orange-100 rounded-2xl p-4 text-center text-4xl tracking-[0.5em] font-bold focus:border-orange-500 outline-none mb-6" onChange={(e) => { if(e.target.value.length >= 4) loginAction(e.target.value); }} autoFocus />
+                                        <button onClick={() => setAppMode('landing')} className="text-sm font-bold text-gray-400 hover:text-orange-600 uppercase tracking-widest transition-colors">Kembali ke Depan</button>
                                     </div>
                                 </div>
                             ) : (
@@ -450,7 +478,7 @@ const App: React.FC = () => {
                                             {currentUser?.role === 'owner' && <NavItem id="owner_settings" label="Owner Panel" icon={SidebarIcons.Dashboard} view={view} setView={setView} isCollapsed={isSidebarCollapsed} />}
                                         </nav>
                                         <div className="p-4 border-t border-slate-800">
-                                            <button onClick={() => { setIsLoggedIn(false); setAppMode('landing'); }} className={`w-full flex items-center gap-4 px-5 py-3.5 rounded-xl font-bold text-red-400 hover:bg-red-500/10 transition-all ${isSidebarCollapsed ? 'justify-center px-0' : ''}`}>
+                                            <button onClick={() => { setIsLoggedIn(false); handleSetMode('landing'); }} className={`w-full flex items-center gap-4 px-5 py-3.5 rounded-xl font-bold text-red-400 hover:bg-red-500/10 transition-all ${isSidebarCollapsed ? 'justify-center px-0' : ''}`}>
                                                 <SidebarIcons.Logout />{!isSidebarCollapsed && <span className="text-sm">Keluar (Logout)</span>}
                                             </button>
                                         </div>
@@ -472,8 +500,8 @@ const App: React.FC = () => {
                     )}
                     
                     {appMode === 'customer' && (
-                        <div key="mode-customer" className="h-full">
-                            <Suspense fallback={null}><CustomerOrderView onBack={() => setAppMode('landing')} /></Suspense>
+                        <div key="mode-customer" className="h-full bg-orange-50">
+                            <Suspense fallback={null}><CustomerOrderView onBack={() => handleSetMode('landing')} /></Suspense>
                         </div>
                     )}
                 </div>
