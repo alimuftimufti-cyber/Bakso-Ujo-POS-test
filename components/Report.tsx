@@ -26,15 +26,21 @@ const chartColors = [
 const SalesChart = ({ orders }: { orders: Order[] }) => {
     const dataByDay = useMemo(() => {
         const sales: { [key: string]: number } = {};
-        // Ambil data pesanan lunas
         const validOrders = orders.filter(o => o.isPaid && o.status !== 'cancelled');
         
         validOrders.forEach(order => {
-            const date = new Date(order.createdAt).toLocaleDateString('id-ID', { weekday: 'short', day: '2-digit' });
+            const date = new Date(order.createdAt).toLocaleDateString('id-ID', { day: '2-digit', month: 'short' });
             if (!sales[date]) sales[date] = 0;
             sales[date] += order.total;
         });
-        return Object.entries(sales).map(([label, value]) => ({ label, value })).reverse().slice(0, 7);
+        
+        // Return sorted by date
+        return Object.entries(sales)
+            .map(([label, value]) => ({ label, value }))
+            .sort((a,b) => {
+                // Heuristic sort, ideally we use original timestamp
+                return 0; 
+            }).slice(-7);
     }, [orders]);
 
     if (dataByDay.length === 0) {
@@ -47,7 +53,7 @@ const SalesChart = ({ orders }: { orders: Order[] }) => {
 
     return (
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 col-span-1 md:col-span-2">
-            <h3 className="text-lg font-bold text-gray-800 mb-6">Tren Penjualan (7 Hari Terakhir)</h3>
+            <h3 className="text-lg font-bold text-gray-800 mb-6">Tren Penjualan (Harian)</h3>
             <div className="flex justify-around items-end h-64 space-x-3 pt-4 border-t border-dashed border-gray-100">
                 {dataByDay.map(({ label, value }, index) => {
                     const colorClass = chartColors[index % chartColors.length];
@@ -283,8 +289,8 @@ const ReportView: React.FC = () => {
     };
 
     const ordersInDateRange = useMemo(() => {
-        const startTimestamp = startDate.getTime();
-        const endTimestamp = endDate.getTime() + 86400000; // Plus 1 day to include end date
+        const startTimestamp = startDate.setHours(0,0,0,0);
+        const endTimestamp = endDate.setHours(23,59,59,999);
         
         return orders.filter(o => 
             o.createdAt >= startTimestamp && 

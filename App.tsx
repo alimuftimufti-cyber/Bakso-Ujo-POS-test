@@ -15,7 +15,7 @@ import {
     getCompletedShiftsFromCloud, getExpensesFromCloud, addExpenseToCloud, deleteExpenseFromCloud,
     getStoreProfileFromCloud, updateStoreProfileInCloud, updateProductStockInCloud,
     getIngredientsFromCloud, addIngredientToCloud, deleteIngredientFromCloud, updateIngredientStockInCloud,
-    subscribeToInventory
+    subscribeToInventory, subscribeToExpenses
 } from './services/firebase';
 import { checkConnection, supabase } from './services/supabaseClient'; 
 
@@ -198,6 +198,8 @@ const App: React.FC = () => {
 
     useEffect(() => {
         if (isDatabaseReady !== true) return;
+        
+        // Listener Pesanan
         const unsubOrders = subscribeToOrders(activeBranchId, (newOrders, isNew) => {
             setOrders(newOrders);
             if (isNew && appModeRef.current === 'admin') {
@@ -208,10 +210,23 @@ const App: React.FC = () => {
                 setTimeout(() => setNewOrderIncoming(false), 5000);
             }
         });
+
+        // Listener Stok
         const unsubInv = subscribeToInventory(activeBranchId, () => refreshAllData());
+        
+        // Listener Shift
         const unsubShifts = subscribeToShifts(activeBranchId, (s) => setActiveShift(s));
+        
         return () => { unsubOrders(); unsubInv(); unsubShifts(); };
     }, [activeBranchId, isDatabaseReady, refreshAllData]);
+
+    // Listener Biaya (Hanya aktif jika ada shift)
+    useEffect(() => {
+        if (isDatabaseReady === true && activeShift) {
+            const unsubExp = subscribeToExpenses(activeShift.id, (newExp) => setExpenses(newExp));
+            return () => unsubExp();
+        }
+    }, [activeShift, isDatabaseReady]);
 
     useEffect(() => {
         if (view === 'pos') setHasUnreadOrders(false);
@@ -286,7 +301,6 @@ const App: React.FC = () => {
         setMenu, setCategories, setStoreProfile: (p: any) => { setStoreProfile(p); if(isDatabaseReady) updateStoreProfileInCloud(p); },
         setKitchenAlarmTime: () => {}, setKitchenAlarmSound: () => {}, addCategory: addCategoryToCloud, deleteCategory: deleteCategoryFromCloud, setIngredients,
         saveMenuItem: async (i) => {
-            // Langsung update ke cloud, lalu refresh data agar UI akurat
             await addProductToCloud(i, activeBranchId);
             await refreshAllData();
         },
@@ -323,7 +337,14 @@ const App: React.FC = () => {
             return updated; 
         },
         voidOrder: (o) => { if(isDatabaseReady) updateOrderInCloud(o.id, { status: 'cancelled' }); setOrders(prev => prev.map(order => order.id === o.id ? { ...order, status: 'cancelled' } : order)); },
-        addExpense: (d, a) => { if(activeShift && isDatabaseReady) addExpenseToCloud({ id: Date.now(), shiftId: activeShift.id, description: d, amount: a, date: Date.now() }); },
+        addExpense: async (d, a) => { 
+            if(activeShift && isDatabaseReady) {
+                await addExpenseToCloud({ id: Date.now(), shiftId: activeShift.id, description: d, amount: a, date: Date.now() });
+                // Manual refresh after successful add to ensure immediate sync if listener is slow
+                const ex = await getExpensesFromCloud(activeShift.id);
+                setExpenses(ex);
+            }
+        },
         deleteExpense: deleteExpenseFromCloud, deleteAndResetShift: () => setActiveShift(null),
         refreshOrders: () => refreshAllData(),
         requestPassword: (t, c) => { c(); }, 

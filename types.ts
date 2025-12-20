@@ -109,7 +109,6 @@ export interface Branch {
 }
 
 // --- ORDER TYPES ---
-// UPDATED: added 'serving' status
 export type OrderStatus = 'pending' | 'ready' | 'serving' | 'completed' | 'cancelled';
 export type OrderType = 'Dine In' | 'Take Away';
 export type PaymentMethod = 'Tunai' | 'QRIS' | 'Debit';
@@ -167,7 +166,7 @@ export interface Shift {
     cashDifference?: number;
     orderCount?: number;
     branchId?: string;
-    createdBy?: string; // NEW: Track who started the shift
+    createdBy?: string; 
 }
 
 export interface ShiftSummary extends Shift {
@@ -188,31 +187,30 @@ export interface AttendanceRecord {
     photoUrl?: string; // Base64 of selfie
     status: 'Present' | 'Late' | 'Completed';
     branchId: string;
-    location?: { lat: number; lng: number }; // NEW: GPS Coords
+    location?: { lat: number; lng: number }; 
 }
 
 // --- USER & STORE TYPES ---
-// ADDED 'staff' role for general employees
 export type UserRole = 'owner' | 'admin' | 'cashier' | 'kitchen' | 'staff';
 
 export interface User {
     id: string;
     name: string;
-    pin: string; // SYSTEM ACCESS PIN (For Login)
-    attendancePin: string; // NEW: ATTENDANCE ONLY PIN (For Clock In/Out)
+    pin: string; 
+    attendancePin: string; 
     role: UserRole;
-    branchId?: string; // Limit user to branch
+    branchId?: string; 
 }
 
 export interface StoreProfile {
     name: string;
     address: string;
-    phoneNumber?: string; // NEW: WhatsApp Number
+    phoneNumber?: string; 
     logo?: string;
     slogan?: string;
     
     // Multi-Branch
-    branchId: string; // Defines which orders this device listens to
+    branchId: string; 
     
     // Branding & Features
     themeColor: ThemeColor;
@@ -231,7 +229,6 @@ export interface StoreProfile {
 }
 
 // --- CONTEXT INTERFACE ---
-// ADDED 'attendance' to View type
 export type View = 'dashboard' | 'pos' | 'kitchen' | 'settings' | 'owner_settings' | 'shift' | 'report' | 'inventory' | 'attendance';
 
 export interface AppContextType {
@@ -245,21 +242,21 @@ export interface AppContextType {
     storeProfile: StoreProfile;
     ingredients: Ingredient[];
     tables: Table[]; 
-    branches: Branch[]; // NEW
+    branches: Branch[]; 
     users: User[];
     currentUser: User | null;
-    attendanceRecords: AttendanceRecord[]; // NEW
+    attendanceRecords: AttendanceRecord[]; 
     kitchenAlarmTime: number;
     kitchenAlarmSound: string;
     
     // Global Status
-    isStoreOpen: boolean; // NEW: Global store open status synced via Firebase
-    isShiftLoading: boolean; // NEW: To handle initial load state
+    isStoreOpen: boolean; 
+    isShiftLoading: boolean; 
 
     // Setters & Actions
     setMenu: React.Dispatch<React.SetStateAction<MenuItem[]>>;
-    saveMenuItem: (item: MenuItem) => Promise<void>; // CLOUD ADD/UPDATE
-    removeMenuItem: (id: number) => Promise<void>; // CLOUD DELETE
+    saveMenuItem: (item: MenuItem) => Promise<void>; 
+    removeMenuItem: (id: number) => Promise<void>; 
     
     setCategories: React.Dispatch<React.SetStateAction<Category[]>>;
     setStoreProfile: React.Dispatch<React.SetStateAction<StoreProfile>>;
@@ -272,13 +269,13 @@ export interface AppContextType {
 
     // Inventory
     setIngredients: React.Dispatch<React.SetStateAction<Ingredient[]>>;
-    saveIngredient: (ing: Ingredient) => Promise<void>; // CLOUD ADD/UPDATE
-    removeIngredient: (id: string) => Promise<void>; // CLOUD DELETE
-    addIngredient: (ing: Ingredient) => void; // Deprecated local
-    updateIngredient: (ing: Ingredient) => void; // Deprecated local
-    deleteIngredient: (id: string) => void; // Deprecated local
+    saveIngredient: (ing: Ingredient) => Promise<void>; 
+    removeIngredient: (id: string) => Promise<void>; 
+    addIngredient: (ing: Ingredient) => void; 
+    updateIngredient: (ing: Ingredient) => void; 
+    deleteIngredient: (id: string) => void; 
     
-    // NEW: Direct Cloud Updates
+    // Direct Cloud Updates
     updateProductStock: (id: number, stock: number) => Promise<void>;
     updateIngredientStock: (id: string, stock: number) => Promise<void>;
 
@@ -291,7 +288,7 @@ export interface AppContextType {
     addBranch: (branch: Branch) => void;
     deleteBranch: (id: string) => void;
     switchBranch: (branchId: string) => void;
-    setView: (view: View) => void; // Add setView to context for redirection
+    setView: (view: View) => void; 
 
     // Users
     setUsers: React.Dispatch<React.SetStateAction<User[]>>;
@@ -311,16 +308,16 @@ export interface AppContextType {
     updateOrder: (orderId: string, cart: CartItem[], discountValue: number, discountType: 'percent' | 'fixed', orderType: OrderType) => void;
     updateOrderStatus: (id: string, status: OrderStatus) => void;
     payForOrder: (order: Order, method: PaymentMethod) => Order | null;
-    voidOrder: (order: Order) => void; // NEW: Critical for cancelling orders
+    voidOrder: (order: Order) => void; 
     splitOrder: (original: Order, itemsToMove: CartItem[]) => void;
-    // FIX: Updated return type from Promise<boolean> to Promise<Order | null> to match implementation in App.tsx
     customerSubmitOrder: (cart: CartItem[], customerName: string) => Promise<Order | null>;
     closeShift: (cash: number) => ShiftSummary | null;
     deleteAndResetShift: () => void;
-    refreshOrders: () => Promise<void>; // NEW: Manual Refresh
+    refreshOrders: () => Promise<void>; 
 
     // Expenses
-    addExpense: (description: string, amount: number) => void;
+    // UPDATED: Changed to Promise<void> for loading state handling in UI
+    addExpense: (description: string, amount: number) => Promise<void>;
     deleteExpense: (id: number) => void;
     
     // Security

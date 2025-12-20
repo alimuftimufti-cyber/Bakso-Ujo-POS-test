@@ -173,6 +173,22 @@ export const deleteExpenseFromCloud = async (id: number) => {
     if (error) handleError(error, 'deleteExpense');
 };
 
+// NEW: Real-time listener for expenses
+export const subscribeToExpenses = (shiftId: string, onUpdate: (expenses: Expense[]) => void) => {
+    const fetch = async () => {
+        const data = await getExpensesFromCloud(shiftId);
+        onUpdate(data);
+    };
+
+    const channel = supabase
+        .channel(`expenses-realtime-${shiftId}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'expenses', filter: `shift_id=eq.${shiftId}` }, 
+            () => fetch()
+        ).subscribe();
+        
+    return () => { supabase.removeChannel(channel); };
+};
+
 // ==========================================
 // 3. MENU & INVENTORY
 // ==========================================

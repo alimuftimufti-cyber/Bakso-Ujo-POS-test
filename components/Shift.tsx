@@ -85,8 +85,7 @@ const StartShiftForm = ({ onStart, onLogout, theme }: { onStart: (amount: number
 const CloseShiftModal = ({ onConfirm, onCancel, activeShift, expenses, storeProfile, orders }: { onConfirm: (closingCash: number) => void, onCancel: () => void, activeShift: Shift, expenses: number, storeProfile: StoreProfile, orders: Order[] }) => {
     const [closingCash, setClosingCash] = useState('');
     
-    // Hitung berdasarkan data pesanan real-time yang memiliki shift_id ini
-    const shiftOrders = orders.filter(o => o.shiftId === activeShift.id && o.isPaid && o.status !== 'cancelled');
+    const shiftOrders = orders.filter(o => String(o.shiftId) === String(activeShift.id) && o.isPaid && o.status !== 'cancelled');
     const cashRevenue = shiftOrders.filter(o => o.paymentMethod === 'Tunai').reduce((sum, o) => sum + o.total, 0);
     const nonCashRevenue = shiftOrders.filter(o => o.paymentMethod !== 'Tunai').reduce((sum, o) => sum + o.total, 0);
     const totalRevenue = cashRevenue + nonCashRevenue;
@@ -179,7 +178,7 @@ const CloseShiftModal = ({ onConfirm, onCancel, activeShift, expenses, storeProf
 
 const ShiftTransactions = ({ orders, shiftId, theme }: { orders: Order[], shiftId: string, theme: string }) => {
     const shiftOrders = useMemo(() => {
-        return orders.filter(o => o.shiftId === shiftId).sort((a, b) => b.createdAt - a.createdAt);
+        return orders.filter(o => String(o.shiftId) === String(shiftId)).sort((a, b) => b.createdAt - a.createdAt);
     }, [orders, shiftId]);
 
     return (
@@ -242,19 +241,27 @@ const ExpenseManagement = ({ theme }: { theme: string }) => {
     const { expenses, addExpense, deleteExpense, activeShift, requestPassword } = useAppContext();
     const [description, setDescription] = useState('');
     const [amount, setAmount] = useState('');
+    const [isAdding, setIsAdding] = useState(false);
     
     if (!activeShift) return null; 
     
-    const shiftExpenses = expenses.filter(e => e.shiftId === activeShift.id);
+    const shiftExpenses = expenses.filter(e => String(e.shiftId) === String(activeShift.id));
     const totalExpenses = shiftExpenses.reduce((sum, e) => sum + e.amount, 0);
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         const numAmount = parseFloat(amount);
         if(description && !isNaN(numAmount) && numAmount > 0) {
-            addExpense(description, numAmount);
-            setDescription('');
-            setAmount('');
+            setIsAdding(true);
+            try {
+                await addExpense(description, numAmount);
+                setDescription('');
+                setAmount('');
+            } catch (err) {
+                console.error(err);
+            } finally {
+                setIsAdding(false);
+            }
         }
     }
 
@@ -263,43 +270,53 @@ const ExpenseManagement = ({ theme }: { theme: string }) => {
     }
 
     return (
-         <div className="p-8">
+         <div className="p-8 animate-fade-in">
              <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 mb-8">
                 <h2 className="text-lg font-bold mb-4 text-gray-800">Input Pengeluaran Operasional</h2>
                  <form onSubmit={handleSubmit} className="flex flex-col md:flex-row gap-4 items-end">
                      <div className="flex-1 w-full">
                         <label className="text-xs font-bold text-gray-500 uppercase mb-1 block">Keterangan</label>
-                        <input type="text" value={description} onChange={e => setDescription(e.target.value)} placeholder="Contoh: Beli Gas, Es Batu..." className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-gray-200 outline-none" required />
+                        <input type="text" value={description} onChange={e => setDescription(e.target.value)} placeholder="Contoh: Beli Gas, Es Batu..." className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-gray-200 outline-none" required disabled={isAdding} />
                      </div>
                      <div className="w-full md:w-48">
                         <label className="text-xs font-bold text-gray-500 uppercase mb-1 block">Nominal</label>
-                        <input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-gray-200 outline-none font-bold" required />
+                        <input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-gray-200 outline-none font-bold" required disabled={isAdding} />
                      </div>
-                     <button type="submit" className={`w-full md:w-auto bg-${theme}-600 text-white font-bold px-6 py-3 rounded-xl hover:bg-${theme}-700 transition-colors shadow-lg shadow-${theme}-200`}>+ Tambah</button>
+                     <button 
+                        type="submit" 
+                        disabled={isAdding}
+                        className={`w-full md:w-auto bg-${theme}-600 text-white font-bold px-8 py-3 rounded-xl hover:bg-${theme}-700 transition-all shadow-lg shadow-${theme}-200 flex items-center justify-center gap-2 disabled:bg-gray-400`}
+                    >
+                        {isAdding ? (
+                            <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                        ) : '+ Tambah'}
+                    </button>
                  </form>
              </div>
 
              <div className="bg-white shadow-sm rounded-2xl border border-gray-100 overflow-hidden">
                 <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
                     <h3 className="font-bold text-gray-700">Daftar Pengeluaran Shift Ini</h3>
-                    <span className="bg-red-100 text-red-700 px-3 py-1 rounded-full text-xs font-bold">Total: {formatRupiah(totalExpenses)}</span>
+                    <span className="bg-red-100 text-red-700 px-3 py-1 rounded-full text-xs font-bold italic">Total: {formatRupiah(totalExpenses)}</span>
                 </div>
-                <table className="min-w-full">
-                    <tbody className="divide-y divide-gray-100">
-                        {shiftExpenses.length === 0 && <tr><td colSpan={3} className="text-center py-8 text-gray-400 italic">Belum ada pengeluaran tercatat.</td></tr>}
-                        {shiftExpenses.map(expense => (
-                            <tr key={expense.id} className="hover:bg-gray-50 transition-colors">
-                                <td className="px-6 py-4 text-sm font-medium text-gray-900">{expense.description}</td>
-                                <td className="px-6 py-4 text-sm text-gray-500 text-right font-mono">{formatRupiah(expense.amount)}</td>
-                                <td className="px-6 py-4 text-right">
-                                    <button onClick={() => handleDelete(expense.id)} className="text-red-400 hover:text-red-600 hover:bg-red-50 p-2 rounded-lg transition-colors" title="Hapus">
-                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                                    </button>
-                                </td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
+                <div className="overflow-x-auto">
+                    <table className="min-w-full">
+                        <tbody className="divide-y divide-gray-100">
+                            {shiftExpenses.length === 0 && <tr><td colSpan={3} className="text-center py-12 text-gray-400 italic">Belum ada pengeluaran tercatat di shift ini.</td></tr>}
+                            {shiftExpenses.map(expense => (
+                                <tr key={expense.id} className="hover:bg-gray-50 transition-colors">
+                                    <td className="px-6 py-4 text-sm font-bold text-gray-900">{expense.description}</td>
+                                    <td className="px-6 py-4 text-sm text-gray-500 text-right font-mono font-bold">{formatRupiah(expense.amount)}</td>
+                                    <td className="px-6 py-4 text-right">
+                                        <button onClick={() => handleDelete(expense.id)} className="text-red-400 hover:text-red-600 hover:bg-red-50 p-2 rounded-lg transition-colors" title="Hapus">
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                        </button>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
             </div>
          </div>
     );
@@ -343,12 +360,12 @@ const ShiftView: React.FC = () => {
         return <StartShiftForm onStart={startShift} onLogout={logout} theme={theme} />;
     }
 
-    const shiftOrders = orders.filter(o => o.shiftId === activeShift.id && o.isPaid && o.status !== 'cancelled');
+    const shiftOrders = orders.filter(o => String(o.shiftId) === String(activeShift.id) && o.isPaid && o.status !== 'cancelled');
     const cashRevenue = shiftOrders.filter(o => o.paymentMethod === 'Tunai').reduce((sum, o) => sum + o.total, 0);
     const nonCashRevenue = shiftOrders.filter(o => o.paymentMethod !== 'Tunai').reduce((sum, o) => sum + o.total, 0);
     const totalRevenue = cashRevenue + nonCashRevenue;
 
-    const currentExpenses = expenses.filter(e => e.shiftId === activeShift.id);
+    const currentExpenses = expenses.filter(e => String(e.shiftId) === String(activeShift.id));
     const totalExpenses = currentExpenses.reduce((sum, e) => sum + e.amount, 0);
     
     return (
@@ -374,7 +391,7 @@ const ShiftView: React.FC = () => {
                     </div>
                 </header>
 
-                <div className="flex-1 overflow-y-auto">
+                <div className="flex-1 overflow-y-auto custom-scrollbar">
                     {activeTab === 'summary' && (
                         <div className="p-8 max-w-7xl mx-auto">
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
@@ -404,19 +421,19 @@ const ShiftView: React.FC = () => {
 
                             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                                 <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
-                                    <h3 className="font-bold text-gray-800 mb-6">Metode Pembayaran Real-time</h3>
+                                    <h3 className="font-bold text-gray-800 mb-6 uppercase tracking-wider text-sm">Metode Pembayaran Real-time</h3>
                                     <div className="space-y-4">
                                         <div className="flex items-center justify-between p-4 bg-green-50 rounded-2xl border border-green-100">
                                             <div className="flex items-center gap-3">
                                                 <div className="p-2 bg-green-100 rounded-lg text-green-600"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4 4a2 2 0 00-2 2v4a2 2 0 002 2V6h10a2 2 0 00-2-2H4zm2 6a2 2 0 012-2h8a2 2 0 012 2v4a2 2 0 01-2 2H8a2 2 0 01-2-2v-4zm6 4a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" /></svg></div>
-                                                <span className="font-bold text-green-900">Uang Tunai (Cash)</span>
+                                                <span className="font-bold text-green-900 text-sm">Uang Tunai (Cash)</span>
                                             </div>
                                             <span className="font-mono font-bold text-green-700 text-lg">{formatRupiah(cashRevenue)}</span>
                                         </div>
                                         <div className="flex items-center justify-between p-4 bg-blue-50 rounded-2xl border border-blue-100">
                                             <div className="flex items-center gap-3">
                                                 <div className="p-2 bg-blue-100 rounded-lg text-blue-600"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M4 4a2 2 0 00-2 2v1h16V6a2 2 0 00-2-2H4z" /><path fillRule="evenodd" d="M18 9H2v5a2 2 0 002 2h12a2 2 0 002-2V9zM4 13a1 1 0 011-1h1a1 1 0 110 2H5a1 1 0 01-1-1zm5-1a1 1 0 100 2 1 1 0 000-2z" clipRule="evenodd" /></svg></div>
-                                                <span className="font-bold text-blue-900">Digital (QRIS/EDC)</span>
+                                                <span className="font-bold text-blue-900 text-sm">Digital (QRIS/EDC)</span>
                                             </div>
                                             <span className="font-mono font-bold text-blue-700 text-lg">{formatRupiah(nonCashRevenue)}</span>
                                         </div>
@@ -424,15 +441,15 @@ const ShiftView: React.FC = () => {
                                 </div>
                                 
                                 <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
-                                    <h3 className="font-bold text-gray-800 mb-6">Informasi Sesi</h3>
+                                    <h3 className="font-bold text-gray-800 mb-6 uppercase tracking-wider text-sm">Informasi Sesi</h3>
                                     <div className="space-y-4 text-sm font-medium">
                                         <div className="flex justify-between border-b border-gray-50 pb-3">
                                             <span className="text-gray-500">ID Sesi</span>
-                                            <span className="font-mono">{activeShift.id}</span>
+                                            <span className="font-mono text-xs">{activeShift.id}</span>
                                         </div>
                                         <div className="flex justify-between border-b border-gray-50 pb-3">
                                             <span className="text-gray-500">Buka Oleh</span>
-                                            <span>{activeShift.createdBy || 'System'}</span>
+                                            <span className="font-bold">{activeShift.createdBy || 'System'}</span>
                                         </div>
                                         <div className="flex justify-between border-b border-gray-50 pb-3">
                                             <span className="text-gray-500">Modal Kasir Awal</span>
@@ -440,7 +457,7 @@ const ShiftView: React.FC = () => {
                                         </div>
                                         <div className="flex justify-between pt-2">
                                             <span className="text-gray-500">Omzet Bersih (Projected)</span>
-                                            <span className="text-green-600 font-black">{formatRupiah(totalRevenue - totalExpenses)}</span>
+                                            <span className="text-green-600 font-black text-lg">{formatRupiah(totalRevenue - totalExpenses)}</span>
                                         </div>
                                     </div>
                                 </div>
@@ -459,13 +476,13 @@ const ShiftSummaryDisplay = ({ summary }: { summary: ShiftSummary }) => {
     const [showPreview, setShowPreview] = useState(false);
 
     return (
-    <div className="bg-white p-8 rounded-3xl shadow-xl max-w-lg mx-auto border border-gray-100 mt-10">
+    <div className="bg-white p-8 rounded-3xl shadow-xl max-w-lg mx-auto border border-gray-100 mt-10 animate-scale-in">
         <div className="text-center mb-8">
             <div className="inline-flex items-center justify-center w-16 h-16 bg-green-100 text-green-600 rounded-full mb-4">
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
             </div>
             <h2 className="text-3xl font-black text-gray-900">Shift Selesai</h2>
-            <p className="text-gray-500 mt-1">{formatDateTime(summary.start)} — {formatDateTime(summary.end || Date.now())}</p>
+            <p className="text-gray-500 mt-1 font-medium italic">{formatDateTime(summary.start)} — {formatDateTime(summary.end || Date.now())}</p>
         </div>
 
         <div className="space-y-4">
@@ -474,28 +491,28 @@ const ShiftSummaryDisplay = ({ summary }: { summary: ShiftSummary }) => {
                     <span className="text-sm font-bold text-gray-500">Total Omzet</span>
                     <span className="text-xl font-black text-gray-900">{formatRupiah(summary.revenue)}</span>
                  </div>
-                 <div className="flex justify-between items-center text-xs text-gray-500">
+                 <div className="flex justify-between items-center text-xs text-gray-400 font-bold uppercase tracking-widest">
                     <span>{summary.transactions} Transaksi</span>
                  </div>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
                 <div className="bg-green-50 p-4 rounded-2xl border border-green-100">
-                     <span className="text-xs font-bold text-green-600 uppercase block mb-1">Selisih Kas</span>
+                     <span className="text-[10px] font-black text-green-600 uppercase block mb-1 tracking-widest">Selisih Kas</span>
                      <span className={`text-lg font-black ${summary.cashDifference === 0 ? 'text-green-700' : 'text-red-600'}`}>
                         {summary.cashDifference && summary.cashDifference > 0 ? '+' : ''}{formatRupiah(summary.cashDifference || 0)}
                      </span>
                 </div>
                  <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100">
-                     <span className="text-xs font-bold text-blue-600 uppercase block mb-1">Non-Tunai</span>
+                     <span className="text-[10px] font-black text-blue-600 uppercase block mb-1 tracking-widest">Non-Tunai</span>
                      <span className="text-lg font-black text-blue-700">{formatRupiah(summary.nonCashRevenue)}</span>
                 </div>
             </div>
         </div>
 
-        <button onClick={() => setShowPreview(true)} className="mt-8 w-full bg-gray-900 text-white font-bold py-4 rounded-2xl flex justify-center items-center gap-3 hover:bg-black transition-all shadow-lg hover:shadow-xl">
+        <button onClick={() => setShowPreview(true)} className="mt-8 w-full bg-gray-900 text-white font-black py-4 rounded-2xl flex justify-center items-center gap-3 hover:bg-black transition-all shadow-lg hover:shadow-xl active:scale-95">
             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
-            Lihat Bukti / Cetak
+            LIHAT BUKTI / CETAK
         </button>
         {showPreview && <ReceiptPreviewModal shift={summary} variant="shift" onClose={() => setShowPreview(false)} />}
     </div>
