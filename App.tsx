@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, Suspense, useCallback, useRef } from 'react';
+import React, { useState, useEffect, Suspense, useCallback, useRef, Component } from 'react';
 import { AppContext } from './types'; 
 import type { MenuItem, Order, Shift, CartItem, Category, StoreProfile, AppContextType, ShiftSummary, Expense, OrderType, Ingredient, User, PaymentMethod, OrderStatus, ThemeColor, View, AppMode, Table, Branch, AttendanceRecord } from './types';
 import { initialCategories, defaultStoreProfile, initialBranches, initialMenuData } from './data';
@@ -58,8 +58,12 @@ const ConfigMissingView = () => (
     </div>
 );
 
-class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean }> {
-  constructor(props: any) { super(props); this.state = { hasError: false }; }
+// FIX: Explicitly extending Component with typed props and state to fix "Property 'state' does not exist" and "Property 'props' does not exist" errors in App.tsx.
+class ErrorBoundary extends Component<{ children: React.ReactNode }, { hasError: boolean }> {
+  constructor(props: { children: React.ReactNode }) { 
+    super(props); 
+    this.state = { hasError: false }; 
+  }
   static getDerivedStateFromError() { return { hasError: true }; }
   render() {
     if (this.state.hasError) return (
@@ -138,7 +142,7 @@ const App: React.FC = () => {
     const [newOrderIncoming, setNewOrderIncoming] = useState(false);
     const [hasUnreadOrders, setHasUnreadOrders] = useState(false);
 
-    // Ref to store appMode for use in realtime listeners
+    // Ref to store appMode to use inside listeners without creating dependencies
     const appModeRef = useRef(appMode);
     useEffect(() => { appModeRef.current = appMode; }, [appMode]);
 
@@ -188,13 +192,13 @@ const App: React.FC = () => {
         init();
     }, [activeBranchId, refreshAllData]);
 
-    // Real-time Listeners (FIXED: Added mode check for notifications)
+    // Real-time Listeners
     useEffect(() => {
         if (isDatabaseReady !== true) return;
         
         const unsubOrders = subscribeToOrders(activeBranchId, (newOrders, isNew) => {
             setOrders(newOrders);
-            // HANYA BUNYI DAN MUNCUL TOAST JIKA MODE ADMIN
+            // CRITICAL: Only play sound and show toast if CURRENT MODE is ADMIN
             if (isNew && appModeRef.current === 'admin') {
                 const audio = new Audio(BEEP_URL);
                 audio.play().catch(() => {});
@@ -266,6 +270,18 @@ const App: React.FC = () => {
             orderType: oType, 
             branchId: activeBranchId 
         };
+        
+        // --- LOGIKA PENGURANGAN STOK OTOMATIS ---
+        cart.forEach(item => {
+            const menuItem = menu.find(m => m.id === item.id);
+            if (menuItem && menuItem.stock !== undefined) {
+                const newStock = Math.max(0, menuItem.stock - item.quantity);
+                // Update Lokal State
+                setMenu(prev => prev.map(m => m.id === item.id ? { ...m, stock: newStock } : m));
+                // Update Cloud
+                if (isDatabaseReady) updateProductStockInCloud(item.id, newStock);
+            }
+        });
         
         setOrders(prev => [order, ...prev]);
 
