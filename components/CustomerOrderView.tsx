@@ -2,17 +2,21 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useAppContext } from '../types'; 
 import type { MenuItem, CartItem, Order, OrderType } from '../types';
+// @ts-ignore
+import html2canvas from 'html2canvas';
+// @ts-ignore
+import { jsPDF } from 'jspdf';
 
 const formatRupiah = (number: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(number);
 
 const DigitalReceipt = ({ order, onExit, theme }: { order: Order, onExit: () => void, theme: string }) => {
     const receiptRef = useRef<HTMLDivElement>(null);
+    const [isDownloading, setIsDownloading] = useState(false);
     const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${order.id}`;
 
     // Trap back button
     useEffect(() => {
         const handlePopState = (e: PopStateEvent) => {
-            // Push state back so they can't go back
             window.history.pushState(null, '', window.location.href);
             handleCloseAttempt();
         };
@@ -21,19 +25,55 @@ const DigitalReceipt = ({ order, onExit, theme }: { order: Order, onExit: () => 
         return () => window.removeEventListener('popstate', handlePopState);
     }, []);
 
+    const saveAsPDF = async (shouldExit: boolean = false) => {
+        if (!receiptRef.current) return;
+        setIsDownloading(true);
+        try {
+            const canvas = await html2canvas(receiptRef.current, {
+                scale: 2,
+                backgroundColor: "#ffffff",
+                useCORS: true,
+                logging: false
+            });
+            
+            const imgData = canvas.toDataURL('image/png');
+            const pdf = new jsPDF({
+                orientation: 'portrait',
+                unit: 'mm',
+                format: [80, (canvas.height * 80) / canvas.width] // Custom thermal paper style
+            });
+
+            const imgProps = pdf.getImageProperties(imgData);
+            const pdfWidth = pdf.internal.pageSize.getWidth();
+            const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+
+            pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+            pdf.save(`Struk-BaksoUjo-${order.id.slice(-6)}.pdf`);
+            
+            if (shouldExit) onExit();
+        } catch (err) {
+            console.error("Gagal membuat PDF:", err);
+            alert("Maaf, gagal menyimpan file. Silakan screenshot layar saja.");
+            if (shouldExit) onExit();
+        } finally {
+            setIsDownloading(false);
+        }
+    };
+
     const handleCloseAttempt = () => {
-        if (confirm("Yakin ingin keluar dari struk ini? \nPastikan Anda sudah menyimpan/screenshot QR Code pesanan Anda.")) {
-            // "Otomatis" download simulasi via print atau direct screenshot logic
-            // Karena download otomatis murni butuh library eksternal untuk konversi DOM ke Image secara reliable,
-            // kita gunakan browser print trigger yang paling user-friendly untuk "Save as PDF/Image"
-            onExit();
+        if (confirm("Yakin ingin keluar?\nSistem akan otomatis menyimpan struk Anda sebelum kembali ke menu awal.")) {
+            saveAsPDF(true); // Download then exit
         }
     };
 
     return (
-        <div className="fixed inset-0 bg-gray-900 z-[100] flex flex-col items-center overflow-y-auto p-4 md:p-10 font-mono">
-            <div ref={receiptRef} className="bg-white w-full max-w-sm rounded-sm shadow-2xl p-6 text-gray-900 border-t-8 border-orange-600 relative overflow-hidden flex flex-col items-center">
-                {/* Receipt Header */}
+        <div className="fixed inset-0 bg-gray-900 z-[100] flex flex-col items-center overflow-y-auto p-4 md:p-10 font-mono no-scrollbar">
+            {/* Wrapper Receipt - Dibuat h-auto agar bisa memanjang sesuai isi */}
+            <div 
+                ref={receiptRef} 
+                className="bg-white w-full max-w-sm rounded-sm shadow-2xl p-6 text-gray-900 border-t-8 border-orange-600 relative flex flex-col items-center shrink-0 mb-8"
+            >
+                {/* Header Struk */}
                 <div className="text-center mb-6 w-full">
                     <h2 className="text-2xl font-black uppercase tracking-tighter mb-1">BAKSO UJO</h2>
                     <p className="text-[10px] opacity-70">STRUK PESANAN MANDIRI</p>
@@ -48,13 +88,13 @@ const DigitalReceipt = ({ order, onExit, theme }: { order: Order, onExit: () => 
                     </div>
                 </div>
 
-                {/* QR Code Section */}
+                {/* QR Code */}
                 <div className="bg-gray-50 p-4 rounded-xl mb-6 border-2 border-gray-100 flex flex-col items-center">
                     <img src={qrUrl} alt="Order QR" className="w-48 h-48 mb-2 mix-blend-multiply" />
-                    <p className="text-[10px] font-black uppercase text-orange-600 tracking-widest animate-pulse">Tunjukkan ke Kasir</p>
+                    <p className="text-[10px] font-black uppercase text-orange-600 tracking-widest">Tunjukkan ke Kasir</p>
                 </div>
 
-                {/* Order Details */}
+                {/* List Item - Pastikan tidak terpotong (h-auto) */}
                 <div className="w-full text-sm space-y-3 mb-6">
                     <p className="text-xs font-bold text-center bg-gray-900 text-white py-1 rounded uppercase tracking-widest">{order.customerName}</p>
                     {order.items.map((item, idx) => (
@@ -68,7 +108,7 @@ const DigitalReceipt = ({ order, onExit, theme }: { order: Order, onExit: () => 
                     ))}
                 </div>
 
-                {/* Total */}
+                {/* Total Section - Selalu berada di bawah daftar item */}
                 <div className="w-full border-t-2 border-black border-double pt-4">
                     <div className="flex justify-between text-xl font-black">
                         <span>TOTAL</span>
@@ -78,23 +118,35 @@ const DigitalReceipt = ({ order, onExit, theme }: { order: Order, onExit: () => 
 
                 <p className="text-[10px] mt-8 text-center text-gray-400 font-bold italic">Terima kasih atas pesanan Anda!</p>
                 
-                {/* Zigzag bottom effect mockup */}
-                <div className="absolute bottom-0 left-0 right-0 flex overflow-hidden">
+                {/* Efek Gerigi Struk di Bawah */}
+                <div className="absolute bottom-0 left-0 right-0 flex overflow-hidden translate-y-2">
                     {[...Array(20)].map((_, i) => (
-                        <div key={i} className="w-4 h-4 bg-gray-900 -mb-2 rotate-45 shrink-0"></div>
+                        <div key={i} className="w-4 h-4 bg-gray-900 rotate-45 shrink-0"></div>
                     ))}
                 </div>
             </div>
 
-            {/* Receipt Actions (Floating) */}
-            <div className="mt-8 flex gap-3 w-full max-w-sm">
-                <button onClick={() => window.print()} className="flex-1 bg-white/20 hover:bg-white/30 text-white font-black py-4 rounded-2xl border-2 border-white/20 transition-all flex items-center justify-center gap-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                    SIMPAN STRUK
+            {/* Aksi di Bawah Struk */}
+            <div className="flex flex-col gap-3 w-full max-w-sm pb-10">
+                <button 
+                    onClick={() => saveAsPDF(false)} 
+                    disabled={isDownloading}
+                    className="w-full bg-white/10 hover:bg-white/20 text-white font-black py-4 rounded-2xl border-2 border-white/20 transition-all flex items-center justify-center gap-3 disabled:opacity-50"
+                >
+                    {isDownloading ? (
+                        <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                    ) : (
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                    )}
+                    {isDownloading ? 'MENYIMPAN...' : 'SIMPAN STRUK (PDF)'}
                 </button>
-                <button onClick={handleCloseAttempt} className="flex-1 bg-orange-600 hover:bg-orange-700 text-white font-black py-4 rounded-2xl shadow-xl transition-all">
+                <button 
+                    onClick={handleCloseAttempt} 
+                    className="w-full bg-orange-600 hover:bg-orange-700 text-white font-black py-4 rounded-2xl shadow-2xl transition-all active:scale-95 flex items-center justify-center gap-2"
+                >
                     SELESAI / TUTUP
                 </button>
+                <p className="text-[10px] text-gray-500 text-center font-bold uppercase tracking-widest mt-2">© Bakso Ujo POS System</p>
             </div>
         </div>
     );
@@ -160,7 +212,6 @@ const CustomerOrderView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         if (cart.length === 0) return;
         
         setIsSubmitting(true);
-        // FIX: No longer needs 'as Order' because customerSubmitOrder now correctly returns Promise<Order | null>
         const orderResult = await customerSubmitOrder(cart, `${customerName} (Meja ${tableNumber})`);
         setIsSubmitting(false);
         
@@ -172,14 +223,12 @@ const CustomerOrderView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         }
     };
 
-    // TAMPILKAN STRUK DIGITAL SETELAH BERHASIL
     if (submittedOrder) {
         return <DigitalReceipt order={submittedOrder} onExit={onBack} theme="orange" />;
     }
 
     return (
         <div className="flex flex-col h-[100dvh] bg-orange-50 overflow-hidden font-sans">
-            {/* Header */}
             <header className="bg-white border-b px-4 py-4 flex items-center gap-3 sticky top-0 z-20">
                 <button onClick={onBack} className="p-2 -ml-2 text-gray-400"><svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg></button>
                 <div>
@@ -188,7 +237,6 @@ const CustomerOrderView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                 </div>
             </header>
 
-            {/* Filter Kategori */}
             <div className="bg-white px-4 py-2 border-b flex gap-2 overflow-x-auto whitespace-nowrap no-scrollbar shadow-sm">
                 <button onClick={() => setActiveCategory('All')} className={`px-5 py-2 rounded-full text-xs font-black transition-all ${activeCategory === 'All' ? `bg-orange-600 text-white shadow-lg` : 'bg-gray-100 text-gray-500'}`}>SEMUA</button>
                 {categories.map(cat => (
@@ -196,7 +244,6 @@ const CustomerOrderView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                 ))}
             </div>
 
-            {/* Daftar Menu */}
             <main className="flex-1 overflow-y-auto p-4 pb-32">
                 <div className="grid grid-cols-2 gap-4">
                     {filteredMenu.map(item => {
@@ -224,7 +271,6 @@ const CustomerOrderView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                 </div>
             </main>
 
-            {/* Keranjang Mengambang */}
             {cartCount > 0 && !isCartOpen && (
                 <div className="fixed bottom-6 left-6 right-6 z-40 animate-slide-in-up">
                     <button onClick={() => setIsCartOpen(true)} className="w-full bg-orange-600 text-white p-4 rounded-2xl shadow-[0_10px_30px_rgba(234,88,12,0.4)] flex justify-between items-center ring-4 ring-white">
@@ -240,7 +286,6 @@ const CustomerOrderView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                 </div>
             )}
 
-            {/* Overlay Keranjang Detail */}
             {isCartOpen && (
                 <div className="fixed inset-0 bg-black/60 z-[60] flex flex-col justify-end animate-fade-in">
                     <div className="bg-white rounded-t-[2.5rem] max-h-[90vh] flex flex-col overflow-hidden animate-slide-in-up">
@@ -263,7 +308,6 @@ const CustomerOrderView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                                             <button onClick={() => updateQty(item.id, 1)} className="w-8 h-8 flex items-center justify-center font-black text-green-600">+</button>
                                         </div>
                                     </div>
-                                    {/* FIX: INPUT CATATAN PER ITEM */}
                                     <div className="relative">
                                         <input 
                                             value={item.note} 
