@@ -2,9 +2,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useAppContext } from '../types'; 
 import type { MenuItem, CartItem, Order, OrderType } from '../types';
-// @ts-ignore
 import html2canvas from 'html2canvas';
-// @ts-ignore
 import { jsPDF } from 'jspdf';
 
 const formatRupiah = (number: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(number);
@@ -30,26 +28,31 @@ const DigitalReceipt = ({ order, onExit, theme }: { order: Order, onExit: () => 
         setIsDownloading(true);
         
         try {
-            // Berikan sedikit jeda agar UI stabil sebelum di-capture
-            await new Promise(resolve => setTimeout(resolve, 500));
+            // Berikan jeda agar rendering browser selesai sempurna
+            await new Promise(resolve => setTimeout(resolve, 800));
 
-            const canvas = await html2canvas(receiptRef.current, {
-                scale: 2,
+            const element = receiptRef.current;
+            const canvas = await html2canvas(element, {
+                scale: 2, // Kualitas tinggi agar teks tidak pecah
                 backgroundColor: "#ffffff",
-                useCORS: true, // Sangat penting untuk QR Code dari API luar
+                useCORS: true,
                 allowTaint: true,
-                logging: false,
-                // Pastikan seluruh elemen tertangkap meskipun tersembunyi karena scroll
                 scrollY: -window.scrollY,
-                windowWidth: receiptRef.current.scrollWidth,
-                windowHeight: receiptRef.current.scrollHeight
+                windowWidth: element.scrollWidth,
+                windowHeight: element.scrollHeight,
+                onclone: (clonedDoc) => {
+                    // Pastikan elemen kloning terlihat di shadow DOM capture
+                    const clonedEl = clonedDoc.getElementById('receipt-inner-content');
+                    if (clonedEl) clonedEl.style.height = 'auto';
+                }
             });
             
             const imgData = canvas.toDataURL('image/png');
+            // Lebar kertas thermal standar 80mm
             const pdf = new jsPDF({
                 orientation: 'portrait',
                 unit: 'mm',
-                format: [80, Math.max(150, (canvas.height * 80) / canvas.width)] // Kertas thermal fleksibel
+                format: [80, Math.max(120, (canvas.height * 80) / canvas.width)]
             });
 
             const pdfWidth = pdf.internal.pageSize.getWidth();
@@ -57,16 +60,19 @@ const DigitalReceipt = ({ order, onExit, theme }: { order: Order, onExit: () => 
 
             pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
             
-            // Simpan file
-            pdf.save(`Struk-BaksoUjo-${order.id.slice(-6)}.pdf`);
+            // Generate filename yang unik
+            const filename = `Struk-BaksoUjo-${order.id.slice(-6)}.pdf`;
+            
+            // Method save() lebih reliable di browser modern
+            pdf.save(filename);
             
             if (shouldExit) {
-                // Jeda sebentar setelah download trigger sebelum pindah halaman
+                // Jeda 1 detik setelah trigger download sebelum tutup agar proses browser selesai
                 setTimeout(onExit, 1000);
             }
         } catch (err) {
-            console.error("PDF Error:", err);
-            alert("Gagal mengunduh otomatis. Silakan screenshot struk ini untuk jaga-jaga.");
+            console.error("Gagal simpan PDF:", err);
+            alert("Terjadi kendala saat menyimpan. Silakan ambil tangkapan layar (screenshot) sebagai bukti.");
             if (shouldExit) onExit();
         } finally {
             setIsDownloading(false);
@@ -74,22 +80,22 @@ const DigitalReceipt = ({ order, onExit, theme }: { order: Order, onExit: () => 
     };
 
     const handleCloseAttempt = () => {
-        if (confirm("Pastikan Anda sudah menyimpan struk ini.\nTekan OK untuk download struk dan kembali ke menu awal.")) {
+        if (confirm("Pastikan Anda sudah mendownload struk ini.\nTekan OK untuk mendownload struk otomatis dan keluar.")) {
             saveAsPDF(true);
         }
     };
 
     return (
-        <div className="fixed inset-0 bg-gray-900 z-[100] flex flex-col items-center font-mono overflow-hidden">
-            {/* Scrollable Container Wrapper */}
-            <div className="flex-1 w-full overflow-y-auto pt-6 pb-20 px-4 flex flex-col items-center no-scrollbar">
+        <div className="fixed inset-0 bg-slate-900 z-[100] flex flex-col items-center font-mono overflow-hidden">
+            {/* CONTAINER SCROLL UTAMA */}
+            <div className="flex-1 w-full overflow-y-auto scroll-smooth py-10 px-4 flex flex-col items-center custom-scrollbar">
                 
-                {/* Physical Receipt Mockup */}
+                {/* ELEMEN STRUK YANG DI-CAPTURE */}
                 <div 
+                    id="receipt-inner-content"
                     ref={receiptRef} 
-                    className="bg-white w-full max-w-sm rounded-sm shadow-2xl p-6 text-gray-900 border-t-8 border-orange-600 relative flex flex-col items-center mb-10 h-auto"
+                    className="bg-white w-full max-w-sm rounded-sm shadow-2xl p-6 text-gray-900 border-t-8 border-orange-600 relative flex flex-col items-center mb-8 h-auto shrink-0"
                 >
-                    {/* Header */}
                     <div className="text-center mb-6 w-full">
                         <h2 className="text-2xl font-black uppercase tracking-tighter mb-1">BAKSO UJO</h2>
                         <p className="text-[10px] opacity-70">STRUK PESANAN MANDIRI</p>
@@ -104,23 +110,20 @@ const DigitalReceipt = ({ order, onExit, theme }: { order: Order, onExit: () => 
                         </div>
                     </div>
 
-                    {/* QR Code Section */}
                     <div className="bg-gray-50 p-4 rounded-xl mb-6 border-2 border-gray-100 flex flex-col items-center">
                         <img 
                             src={qrUrl} 
                             alt="Order QR" 
                             className="w-48 h-48 mb-2 mix-blend-multiply" 
-                            crossOrigin="anonymous" // Penting untuk html2canvas
+                            crossOrigin="anonymous" 
                         />
                         <p className="text-[10px] font-black uppercase text-orange-600 tracking-widest">Tunjukkan ke Kasir</p>
                     </div>
 
-                    {/* Customer Info */}
                     <div className="w-full mb-4">
-                         <p className="text-xs font-bold text-center bg-gray-900 text-white py-2 rounded uppercase tracking-widest">{order.customerName}</p>
+                         <p className="text-xs font-bold text-center bg-slate-900 text-white py-2 rounded uppercase tracking-widest">{order.customerName}</p>
                     </div>
 
-                    {/* Dynamic Items List */}
                     <div className="w-full text-sm space-y-4 mb-8">
                         {order.items.map((item, idx) => (
                             <div key={idx} className="flex flex-col border-b border-gray-50 pb-2">
@@ -133,7 +136,6 @@ const DigitalReceipt = ({ order, onExit, theme }: { order: Order, onExit: () => 
                         ))}
                     </div>
 
-                    {/* Total Section - Now guaranteed to be at the bottom of the content */}
                     <div className="w-full border-t-2 border-black border-double pt-4 mb-6">
                         <div className="flex justify-between text-xl font-black">
                             <span>TOTAL</span>
@@ -143,16 +145,15 @@ const DigitalReceipt = ({ order, onExit, theme }: { order: Order, onExit: () => 
 
                     <p className="text-[10px] text-center text-gray-400 font-bold italic mb-4">Terima kasih atas pesanan Anda!</p>
                     
-                    {/* Visual Cut Effect */}
                     <div className="absolute -bottom-2 left-0 right-0 flex overflow-hidden">
                         {[...Array(20)].map((_, i) => (
-                            <div key={i} className="w-4 h-4 bg-gray-900 rotate-45 shrink-0"></div>
+                            <div key={i} className="w-4 h-4 bg-slate-900 rotate-45 shrink-0"></div>
                         ))}
                     </div>
                 </div>
 
-                {/* Footer Buttons - Floating relative to scroll content */}
-                <div className="w-full max-w-sm flex flex-col gap-3">
+                {/* TOMBOL AKSI - BERADA DI LUAR ELEMEN CAPTURE AGAR TIDAK MASUK KE PDF */}
+                <div className="w-full max-w-sm flex flex-col gap-3 shrink-0 pb-10">
                     <button 
                         onClick={() => saveAsPDF(false)} 
                         disabled={isDownloading}
@@ -163,15 +164,14 @@ const DigitalReceipt = ({ order, onExit, theme }: { order: Order, onExit: () => 
                         ) : (
                             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
                         )}
-                        {isDownloading ? 'MENGUNDUH...' : 'UNDUH STRUK PDF'}
+                        {isDownloading ? 'MENYIAPKAN FILE...' : 'SIMPAN KE PDF / HP'}
                     </button>
                     <button 
                         onClick={handleCloseAttempt} 
                         className="w-full bg-orange-600 hover:bg-orange-700 text-white font-black py-4 rounded-2xl shadow-2xl transition-all active:scale-95 flex items-center justify-center gap-2"
                     >
-                        SELESAI / KELUAR
+                        SELESAI & KEMBALI
                     </button>
-                    <p className="text-[10px] text-gray-500 text-center font-bold uppercase tracking-widest mt-2">© Bakso Ujo Digital POS</p>
                 </div>
             </div>
         </div>
