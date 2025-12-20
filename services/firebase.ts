@@ -192,7 +192,6 @@ export const getMenuFromCloud = async (branchId: string): Promise<MenuItem[]> =>
 };
 
 export const addProductToCloud = async (item: MenuItem, branchId: string) => {
-    // Cari ID Kategori terlebih dahulu
     const { data: catData } = await supabase.from('categories').select('id').eq('name', item.category).maybeSingle();
     
     const payload = { 
@@ -205,8 +204,6 @@ export const addProductToCloud = async (item: MenuItem, branchId: string) => {
         is_active: true
     };
 
-    // Deteksi apakah ID baru (masih timestamp jutaan) atau ID database asli (serial kecil)
-    // Biasanya ID database serial mulai dari 1. Timestamp mulai dari 1700000000+
     const isNew = item.id > 1000000000;
 
     if (isNew) {
@@ -273,13 +270,12 @@ export const subscribeToInventory = (branchId: string, onUpdate: () => void) => 
 
 export const subscribeToOrders = (branchId: string, onUpdate: (orders: Order[], isNew: boolean) => void) => {
     const fetchOrders = async (isNew: boolean = false) => {
-        console.log(`[Realtime] Syncing orders for branch: ${branchId}`);
         const { data, error } = await supabase
             .from('orders')
             .select(`*, order_items (*)`)
             .eq('branch_id', branchId)
             .order('created_at', { ascending: false })
-            .limit(50);
+            .limit(100);
             
         if (!error && data) {
             const mappedOrders: Order[] = data.map((dbOrder: any) => ({ 
@@ -315,42 +311,27 @@ export const subscribeToOrders = (branchId: string, onUpdate: (orders: Order[], 
         }
     };
 
-    // Beban awal
     fetchOrders(false);
 
-    // FIX: Gunakan nama channel yang unik untuk setiap sesi agar tidak ada tabrakan cache realtime
     const channelId = `orders-push-${branchId}-${Math.random().toString(36).substring(7)}`;
     const channel = supabase.channel(channelId)
         .on('postgres_changes', { 
-            event: 'INSERT', // Pantau khusus penambahan baru untuk notifikasi
+            event: '*', 
             schema: 'public', 
             table: 'orders', 
             filter: `branch_id=eq.${branchId}` 
         }, (payload) => {
-            console.log("🔔 Pesanan Baru Masuk dari Self-Service!");
-            // DEBOUNCE 800ms: Memberikan waktu bagi tabel order_items untuk selesai menyimpan detail menu
-            setTimeout(() => fetchOrders(true), 800);
+            const isInsert = payload.eventType === 'INSERT';
+            setTimeout(() => fetchOrders(isInsert), 800);
         })
-        .on('postgres_changes', { 
-            event: 'UPDATE', // Pantau perubahan status (siap, bayar, dll)
-            schema: 'public', 
-            table: 'orders', 
-            filter: `branch_id=eq.${branchId}` 
-        }, () => {
-            fetchOrders(false);
-        })
-        .subscribe((status) => {
-            console.log(`[Realtime] Subscription Status for ${branchId}:`, status);
-        });
+        .subscribe();
 
     return () => { 
-        console.log(`[Realtime] Unsubscribing from ${channelId}`);
         supabase.removeChannel(channel); 
     };
 };
 
 export const addOrderToCloud = async (order: Order) => {
-    // Validasi Shift: Jika pesanan dari customer dan shift_id kosong, tetap izinkan masuk (Public)
     const validShiftId = (order.shiftId === 'public' || !order.shiftId) ? null : order.shiftId;
 
     const { error: orderError } = await supabase.from('orders').insert({ 
@@ -449,7 +430,6 @@ export const subscribeToAttendance = (branchId: string, onUpdate: (data: Attenda
 };
 
 export const addAttendanceToCloud = async (record: AttendanceRecord) => {
-    // FIX: Using correct property names from AttendanceRecord (clockInTime and photoUrl) to map to database columns (clock_in and photo_url).
     const { error } = await supabase.from('attendance').insert({ id: record.id, user_id: record.userId, user_name: record.userName, branch_id: record.branchId, date: record.date, clock_in: record.clockInTime, status: record.status, photo_url: record.photoUrl, lat: record.location?.lat, lng: record.location?.lng });
     if (error) handleError(error, 'addAttendance');
 };

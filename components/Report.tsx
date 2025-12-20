@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo } from 'react';
 import { useAppContext } from '../types';
 import type { Order, Category, CartItem, ShiftSummary } from '../types';
@@ -25,18 +26,20 @@ const chartColors = [
 const SalesChart = ({ orders }: { orders: Order[] }) => {
     const dataByDay = useMemo(() => {
         const sales: { [key: string]: number } = {};
-        orders.forEach(order => {
-            if (!order.completedAt) return;
-            const date = new Date(order.completedAt).toLocaleDateString('id-ID', { weekday: 'short', day: '2-digit' });
+        // Ambil data pesanan lunas
+        const validOrders = orders.filter(o => o.isPaid && o.status !== 'cancelled');
+        
+        validOrders.forEach(order => {
+            const date = new Date(order.createdAt).toLocaleDateString('id-ID', { weekday: 'short', day: '2-digit' });
             if (!sales[date]) sales[date] = 0;
             sales[date] += order.total;
         });
-        return Object.entries(sales).map(([label, value]) => ({ label, value })).reverse();
+        return Object.entries(sales).map(([label, value]) => ({ label, value })).reverse().slice(0, 7);
     }, [orders]);
 
     if (dataByDay.length === 0) {
        return (<div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 col-span-1 md:col-span-2 flex items-center justify-center h-80">
-            <p className="text-gray-400 font-medium">Belum ada data penjualan.</p>
+            <p className="text-gray-400 font-medium">Belum ada data penjualan pada periode ini.</p>
         </div>)
     }
 
@@ -44,20 +47,19 @@ const SalesChart = ({ orders }: { orders: Order[] }) => {
 
     return (
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 col-span-1 md:col-span-2">
-            <h3 className="text-lg font-bold text-gray-800 mb-6">Tren Omzet Harian</h3>
+            <h3 className="text-lg font-bold text-gray-800 mb-6">Tren Penjualan (7 Hari Terakhir)</h3>
             <div className="flex justify-around items-end h-64 space-x-3 pt-4 border-t border-dashed border-gray-100">
                 {dataByDay.map(({ label, value }, index) => {
                     const colorClass = chartColors[index % chartColors.length];
-                    const heightPercent = Math.max((value / maxValue) * 100, 5); // min 5% height
+                    const heightPercent = Math.max((value / maxValue) * 100, 5);
                     
                     return (
                         <div key={label} className="flex flex-col items-center flex-1 h-full justify-end group cursor-pointer relative">
-                            {/* Tooltip */}
-                            <div className="absolute -top-10 bg-gray-900 text-white text-xs py-1 px-2 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 font-bold">
+                            <div className="absolute -top-10 bg-gray-900 text-white text-[10px] py-1 px-2 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 font-bold">
                                 {formatRupiah(value)}
                             </div>
-                            <div className={`w-full max-w-[40px] rounded-t-lg transition-all duration-300 hover:opacity-80 ${colorClass}`} style={{ height: `${heightPercent}%` }}></div>
-                            <div className="text-xs font-bold text-gray-500 mt-3">{label}</div>
+                            <div className={`w-full max-w-[32px] rounded-t-lg transition-all duration-300 hover:opacity-80 ${colorClass}`} style={{ height: `${heightPercent}%` }}></div>
+                            <div className="text-[10px] font-bold text-gray-400 mt-3 uppercase tracking-tighter">{label}</div>
                         </div>
                     );
                 })}
@@ -73,7 +75,9 @@ const TopProducts = ({ orders, categories }: { orders: Order[], categories: Cate
 
     const sortedTopProducts = useMemo(() => {
         const productSales: { [key: string]: { id: number, name: string, quantity: number, revenue: number, category: string } } = {};
-        orders.forEach(order => {
+        const validOrders = orders.filter(o => o.isPaid && o.status !== 'cancelled');
+
+        validOrders.forEach(order => {
             order.items.forEach(item => {
                 if (selectedCat !== 'All' && item.category !== selectedCat) return;
 
@@ -85,13 +89,13 @@ const TopProducts = ({ orders, categories }: { orders: Order[], categories: Cate
             });
         });
 
-        const sorted = Object.values(productSales).sort((a, b) => {
+        const sorted = Object.values(productSales).sort((a: any, b: any) => {
             if (a[sortKey] < b[sortKey]) return sortDirection === 'asc' ? -1 : 1;
             if (a[sortKey] > b[sortKey]) return sortDirection === 'asc' ? 1 : -1;
             return 0;
         });
 
-        return sorted.slice(0, 50); // Limit list
+        return sorted;
     }, [orders, sortKey, sortDirection, selectedCat]);
 
     const handleSort = (key: SortKey) => {
@@ -106,21 +110,20 @@ const TopProducts = ({ orders, categories }: { orders: Order[], categories: Cate
     const SortableHeader = ({ tkey, label, align='right' }: { tkey: SortKey, label: string, align?: 'left'|'right' }) => {
         const isSorted = sortKey === tkey;
         return (
-             <th onClick={() => handleSort(tkey)} className={`text-${align} text-xs font-bold text-gray-400 uppercase py-3 cursor-pointer hover:text-gray-700 transition-colors`}>
+             <th onClick={() => handleSort(tkey)} className={`text-${align} text-[10px] font-black text-gray-400 uppercase py-4 cursor-pointer hover:text-gray-700 transition-colors tracking-widest`}>
                 {label} {isSorted ? (sortDirection === 'desc' ? '↓' : '↑') : ''}
             </th>
         );
     }
 
-
     return (
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 col-span-1 md:col-span-2">
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-2">
-                <h3 className="text-lg font-bold text-gray-800">Performa Produk</h3>
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 col-span-full">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+                <h3 className="text-lg font-black text-gray-800 uppercase tracking-tight">Performa Produk Terlaris</h3>
                 <select 
                     value={selectedCat} 
                     onChange={e => setSelectedCat(e.target.value)} 
-                    className="border border-gray-200 bg-gray-50 rounded-lg text-sm p-2 outline-none focus:ring-2 focus:ring-gray-200"
+                    className="border-2 border-gray-100 bg-gray-50 rounded-xl text-xs font-bold p-3 outline-none focus:border-black transition-all"
                 >
                     <option value="All">Semua Kategori</option>
                     {categories.map(c => <option key={c} value={c}>{c}</option>)}
@@ -128,26 +131,28 @@ const TopProducts = ({ orders, categories }: { orders: Order[], categories: Cate
             </div>
             
             {sortedTopProducts.length === 0 ? (
-                <div className="text-gray-400 text-center py-10 font-medium bg-gray-50 rounded-xl border border-dashed border-gray-200">Tidak ada data untuk kategori ini.</div>
+                <div className="text-gray-400 text-center py-20 font-bold uppercase tracking-widest bg-gray-50 rounded-2xl border-2 border-dashed border-gray-100">Data Tidak Ditemukan</div>
             ) : (
                 <div className="overflow-x-auto">
                     <table className="min-w-full">
                         <thead className="border-b border-gray-100">
                             <tr>
-                                <SortableHeader tkey="name" label="Nama Produk" align="left" />
-                                <SortableHeader tkey="quantity" label="Terjual" />
-                                <SortableHeader tkey="revenue" label="Omzet" />
+                                <SortableHeader tkey="name" label="Nama Menu" align="left" />
+                                <SortableHeader tkey="quantity" label="Jml Terjual" />
+                                <SortableHeader tkey="revenue" label="Total Omzet" />
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-50">
                             {sortedTopProducts.map(p => (
-                                <tr key={p.id} className="hover:bg-gray-50 transition-colors">
-                                    <td className="py-3 pr-4">
+                                <tr key={p.id} className="hover:bg-gray-50 transition-colors group">
+                                    <td className="py-4 pr-4">
                                         <div className="font-bold text-gray-800 text-sm">{p.name}</div>
-                                        <div className="text-[10px] text-gray-400 font-medium uppercase">{p.category}</div>
+                                        <div className="text-[10px] text-gray-400 font-black uppercase tracking-wider">{p.category}</div>
                                     </td>
-                                    <td className="py-3 text-right text-gray-600 font-mono text-sm">{p.quantity}</td>
-                                    <td className="py-3 text-right text-gray-800 font-bold text-sm">{formatRupiah(p.revenue)}</td>
+                                    <td className="py-4 text-right">
+                                        <span className="bg-gray-100 text-gray-600 px-3 py-1 rounded-full text-xs font-black">{p.quantity}</span>
+                                    </td>
+                                    <td className="py-4 text-right text-gray-900 font-black text-sm">{formatRupiah(p.revenue)}</td>
                                 </tr>
                             ))}
                         </tbody>
@@ -162,36 +167,39 @@ const CategorySales = ({ orders, categories }: { orders: Order[], categories: Ca
     const categorySales = useMemo(() => {
         const sales: { [key: string]: number } = {};
         categories.forEach(cat => sales[cat] = 0);
-        orders.forEach(order => {
+        const validOrders = orders.filter(o => o.isPaid && o.status !== 'cancelled');
+
+        validOrders.forEach(order => {
             order.items.forEach(item => {
-                if (sales[item.category] === undefined) sales[item.category] = 0;
-                sales[item.category] += item.quantity * item.price;
+                const cat = item.category || 'Lainnya';
+                if (!sales[cat]) sales[cat] = 0;
+                sales[cat] += item.quantity * item.price;
             });
         });
         return Object.entries(sales).map(([name, value]) => ({ name, value })).sort((a,b) => b.value - a.value);
     }, [orders, categories]);
     
     const total = categorySales.reduce((sum, cat) => sum + cat.value, 0);
-    if(total === 0) return <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-center h-full"><p className="text-gray-400 font-medium">Data kosong.</p></div>;
+    if(total === 0) return <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-center h-full"><p className="text-gray-400 font-bold uppercase tracking-widest text-xs">Data Kategori Kosong</p></div>;
 
-    const colors = ['#6366f1', '#8b5cf6', '#ec4899', '#f43f5e', '#f97316', '#f59e0b', '#10b981', '#06b6d4'];
+    const colors = ['#f97316', '#3b82f6', '#10b981', '#8b5cf6', '#ef4444', '#f59e0b', '#06b6d4', '#6366f1'];
 
     return (
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-             <h3 className="text-lg font-bold text-gray-800 mb-6">Omzet Kategori</h3>
-             <div className="flex flex-col space-y-4">
+             <h3 className="text-lg font-black text-gray-800 uppercase tracking-tight mb-6">Omzet Per Kategori</h3>
+             <div className="flex flex-col space-y-5">
                 {categorySales.filter(c => c.value > 0).map((c, i) => {
                     const percent = (c.value / total) * 100;
                     return (
-                        <div key={c.name} className="relative group">
-                            <div className="flex justify-between text-sm mb-1">
-                                <span className="font-semibold text-gray-700">{c.name}</span>
-                                <span className="font-bold text-gray-900">{percent.toFixed(1)}%</span>
+                        <div key={c.name} className="group">
+                            <div className="flex justify-between text-xs font-bold mb-2">
+                                <span className="text-gray-600 uppercase tracking-tighter">{c.name}</span>
+                                <span className="text-gray-900">{percent.toFixed(1)}%</span>
                             </div>
-                            <div className="w-full bg-gray-100 rounded-full h-2 overflow-hidden">
-                                <div className="h-2 rounded-full transition-all duration-500" style={{ width: `${percent}%`, backgroundColor: colors[i % colors.length] }}></div>
+                            <div className="w-full bg-gray-50 rounded-full h-2.5 overflow-hidden border border-gray-100">
+                                <div className="h-full rounded-full transition-all duration-700 ease-out" style={{ width: `${percent}%`, backgroundColor: colors[i % colors.length] }}></div>
                             </div>
-                            <div className="text-xs text-gray-400 mt-1">{formatRupiah(c.value)}</div>
+                            <div className="text-[10px] text-gray-400 font-black mt-1 uppercase">{formatRupiah(c.value)}</div>
                         </div>
                     );
                 })}
@@ -204,37 +212,39 @@ const ShiftHistory = ({ shifts }: { shifts: ShiftSummary[] }) => {
     const [selectedShift, setSelectedShift] = useState<ShiftSummary | null>(null);
 
     return (
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 col-span-full">
-            <h3 className="text-lg font-bold text-gray-800 mb-6">Riwayat Tutup Buku (Shift)</h3>
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 col-span-full">
+            <div className="px-6 py-5 border-b border-gray-100">
+                <h3 className="text-lg font-black text-gray-800 uppercase tracking-tight">Riwayat Tutup Buku (Shift)</h3>
+            </div>
             {shifts.length === 0 ? (
-                <p className="text-gray-400 text-center py-8 font-medium bg-gray-50 rounded-xl border border-dashed border-gray-200">Belum ada riwayat shift yang tersimpan.</p>
+                <div className="p-20 text-gray-400 text-center font-bold uppercase tracking-widest italic">Belum Ada Riwayat Shift</div>
             ) : (
                 <div className="overflow-x-auto">
                     <table className="min-w-full text-sm">
-                        <thead className="bg-gray-50 border-b border-gray-100">
+                        <thead className="bg-gray-50 text-[10px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100">
                             <tr>
-                                <th className="px-4 py-3 text-left font-bold text-gray-500">Mulai</th>
-                                <th className="px-4 py-3 text-left font-bold text-gray-500">Selesai</th>
-                                <th className="px-4 py-3 text-right font-bold text-gray-500">Omzet</th>
-                                <th className="px-4 py-3 text-right font-bold text-gray-500">Selisih</th>
-                                <th className="px-4 py-3 text-center font-bold text-gray-500">Bukti</th>
+                                <th className="px-6 py-4 text-left">Waktu Mulai</th>
+                                <th className="px-6 py-4 text-left">Waktu Selesai</th>
+                                <th className="px-6 py-4 text-right">Total Omzet</th>
+                                <th className="px-6 py-4 text-right">Selisih Kas</th>
+                                <th className="px-6 py-4 text-center">Aksi</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-50">
-                            {shifts.slice().reverse().map(shift => (
-                                <tr key={shift.id} className="hover:bg-gray-50 transition-colors">
-                                    <td className="px-4 py-4 font-medium text-gray-700">{formatDateTime(shift.start)}</td>
-                                    <td className="px-4 py-4 font-medium text-gray-700">{formatDateTime(shift.end || 0)}</td>
-                                    <td className="px-4 py-4 text-right font-bold text-gray-900">{formatRupiah(shift.revenue)}</td>
-                                    <td className={`px-4 py-4 text-right font-bold ${shift.cashDifference && shift.cashDifference < 0 ? 'text-red-500' : 'text-green-500'}`}>
-                                        {formatRupiah(shift.cashDifference || 0)}
+                            {shifts.map(shift => (
+                                <tr key={shift.id} className="hover:bg-gray-50 transition-colors group">
+                                    <td className="px-6 py-4 font-bold text-gray-700">{formatDateTime(shift.start)}</td>
+                                    <td className="px-6 py-4 font-bold text-gray-700">{formatDateTime(shift.end || 0)}</td>
+                                    <td className="px-6 py-4 text-right font-black text-gray-900">{formatRupiah(shift.revenue)}</td>
+                                    <td className={`px-6 py-4 text-right font-black ${shift.cashDifference && shift.cashDifference < 0 ? 'text-red-500' : 'text-green-600'}`}>
+                                        {shift.cashDifference && shift.cashDifference > 0 ? '+' : ''}{formatRupiah(shift.cashDifference || 0)}
                                     </td>
-                                    <td className="px-4 py-4 text-center">
+                                    <td className="px-6 py-4 text-center">
                                         <button 
                                             onClick={() => setSelectedShift(shift)}
-                                            className="text-gray-600 hover:text-black font-bold text-xs border border-gray-200 bg-white px-3 py-1.5 rounded-lg shadow-sm hover:shadow transition-all"
+                                            className="text-white bg-gray-900 hover:bg-black font-black text-[10px] uppercase tracking-widest px-4 py-2 rounded-lg transition-all shadow-md active:scale-95"
                                         >
-                                            Lihat Struk
+                                            Buka Struk
                                         </button>
                                     </td>
                                 </tr>
@@ -250,7 +260,7 @@ const ShiftHistory = ({ shifts }: { shifts: ShiftSummary[] }) => {
 
 
 const ReportView: React.FC = () => {
-    const { orders, categories, completedShifts } = useAppContext();
+    const { orders, categories, completedShifts, storeProfile } = useAppContext();
     const [endDate, setEndDate] = useState(new Date());
     const [startDate, setStartDate] = useState(() => {
         const date = new Date();
@@ -259,118 +269,97 @@ const ReportView: React.FC = () => {
     });
     const [activeTab, setActiveTab] = useState<'sales' | 'shifts'>('sales');
 
+    const theme = storeProfile.themeColor || 'orange';
+
     const setDateRange = (type: 'today' | 'week' | 'month') => {
         const end = new Date();
         const start = new Date();
-        if (type === 'today') { /* no op, start is now */ } 
+        if (type === 'today') { start.setHours(0,0,0,0); } 
         else if (type === 'week') start.setDate(start.getDate() - 6);
         else if (type === 'month') start.setMonth(start.getMonth() - 1);
-        
-        if (type === 'today') start.setHours(0,0,0,0);
         
         setStartDate(start);
         setEndDate(end);
     };
 
-    const completedOrdersInDateRange = useMemo(() => {
-        const startOfDay = new Date(startDate);
-        startOfDay.setHours(0, 0, 0, 0);
-        const startTimestamp = startOfDay.getTime();
-
-        const endOfDay = new Date(endDate);
-        endOfDay.setHours(23, 59, 59, 999);
-        const endTimestamp = endOfDay.getTime();
+    const ordersInDateRange = useMemo(() => {
+        const startTimestamp = startDate.getTime();
+        const endTimestamp = endDate.getTime() + 86400000; // Plus 1 day to include end date
         
         return orders.filter(o => 
-            o.status === 'completed' && 
-            o.completedAt && 
-            o.completedAt >= startTimestamp && 
-            o.completedAt <= endTimestamp
+            o.createdAt >= startTimestamp && 
+            o.createdAt <= endTimestamp
         );
     }, [orders, startDate, endDate]);
 
     const reportData = useMemo(() => {
-        return completedOrdersInDateRange.reduce((acc, order) => {
+        const validOrders = ordersInDateRange.filter(o => o.isPaid && o.status !== 'cancelled');
+        return validOrders.reduce((acc, order) => {
             acc.revenue += order.total;
             acc.transactions += 1;
             acc.totalDiscount += order.discount;
             if (order.paymentMethod === 'Tunai') acc.cashRevenue += order.total;
             else acc.nonCashRevenue += order.total;
-            
-            // New Tax & Service Calc
             acc.totalTax += order.taxAmount || 0;
             acc.totalService += order.serviceChargeAmount || 0;
-
             return acc;
         }, { revenue: 0, transactions: 0, cashRevenue: 0, nonCashRevenue: 0, totalDiscount: 0, totalTax: 0, totalService: 0 });
-    }, [completedOrdersInDateRange]);
+    }, [ordersInDateRange]);
 
     return (
-        <div className="flex flex-col h-full bg-gray-50">
-            {/* Header with Filters */}
-            <header className="px-8 py-6 bg-white border-b border-gray-200 sticky top-0 z-10 shadow-sm">
-                <div className="flex flex-col xl:flex-row justify-between xl:items-center gap-4">
+        <div className="flex flex-col h-full bg-gray-50 font-sans">
+            <header className="px-8 py-6 bg-white border-b border-gray-100 sticky top-0 z-10 shadow-sm">
+                <div className="flex flex-col xl:flex-row justify-between xl:items-center gap-6">
                     <div>
-                        <h1 className="text-2xl font-black text-gray-900 tracking-tight">Business Analytics</h1>
-                        <p className="text-sm text-gray-500 font-medium">Pantau performa bisnis Anda secara real-time.</p>
+                        <h1 className="text-2xl font-black text-gray-900 tracking-tight uppercase italic">Analytics Dashboard</h1>
+                        <p className="text-xs text-gray-400 font-bold uppercase tracking-widest mt-1">Laporan Operasional & Penjualan</p>
                     </div>
 
-                    <div className="flex flex-col md:flex-row gap-3 items-start md:items-center">
-                         <div className="bg-gray-100 p-1 rounded-xl flex shrink-0">
-                            <button onClick={() => setActiveTab('sales')} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'sales' ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-900'}`}>Penjualan</button>
-                            <button onClick={() => setActiveTab('shifts')} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'shifts' ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-900'}`}>Riwayat Shift</button>
+                    <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center">
+                         <div className="bg-gray-100 p-1 rounded-2xl flex">
+                            <button onClick={() => setActiveTab('sales')} className={`flex-1 md:flex-none px-6 py-2.5 rounded-xl text-xs font-black transition-all uppercase tracking-widest ${activeTab === 'sales' ? 'bg-white shadow-lg text-gray-900' : 'text-gray-500 hover:text-gray-900'}`}>Penjualan</button>
+                            <button onClick={() => setActiveTab('shifts')} className={`flex-1 md:flex-none px-6 py-2.5 rounded-xl text-xs font-black transition-all uppercase tracking-widest ${activeTab === 'shifts' ? 'bg-white shadow-lg text-gray-900' : 'text-gray-500 hover:text-gray-900'}`}>Data Shift</button>
                         </div>
                         
                         {activeTab === 'sales' && (
-                            <div className="flex items-center gap-2 bg-white border border-gray-200 p-1 rounded-xl shadow-sm">
-                                <div className="flex items-center px-2 gap-2">
-                                     <input type="date" value={startDate.toISOString().split('T')[0]} onChange={e => setStartDate(new Date(e.target.value))} className="text-sm font-bold text-gray-700 bg-transparent outline-none cursor-pointer"/>
-                                     <span className="text-gray-400 font-bold">-</span>
-                                     <input type="date" value={endDate.toISOString().split('T')[0]} onChange={e => setEndDate(new Date(e.target.value))} className="text-sm font-bold text-gray-700 bg-transparent outline-none cursor-pointer"/>
+                            <div className="flex items-center gap-2 bg-white border-2 border-gray-100 p-1 rounded-2xl shadow-sm">
+                                <div className="flex items-center px-3 gap-3">
+                                     <input type="date" value={startDate.toISOString().split('T')[0]} onChange={e => setStartDate(new Date(e.target.value))} className="text-xs font-black text-gray-700 bg-transparent outline-none cursor-pointer uppercase"/>
+                                     <span className="text-gray-300 font-black">TO</span>
+                                     <input type="date" value={endDate.toISOString().split('T')[0]} onChange={e => setEndDate(new Date(e.target.value))} className="text-xs font-black text-gray-700 bg-transparent outline-none cursor-pointer uppercase"/>
                                 </div>
-                                <div className="h-6 w-px bg-gray-200"></div>
-                                <button onClick={() => setDateRange('today')} className="px-3 py-1.5 text-xs font-bold text-gray-600 hover:bg-gray-100 rounded-lg">Hari Ini</button>
-                                <button onClick={() => setDateRange('week')} className="px-3 py-1.5 text-xs font-bold text-gray-600 hover:bg-gray-100 rounded-lg">7 Hari</button>
-                                <button onClick={() => setDateRange('month')} className="px-3 py-1.5 text-xs font-bold text-gray-600 hover:bg-gray-100 rounded-lg">30 Hari</button>
+                                <div className="h-8 w-px bg-gray-100 mx-1"></div>
+                                <button onClick={() => setDateRange('today')} className="px-4 py-2 text-[10px] font-black text-gray-500 hover:bg-gray-50 rounded-xl uppercase tracking-widest">Today</button>
+                                <button onClick={() => setDateRange('week')} className="px-4 py-2 text-[10px] font-black text-gray-500 hover:bg-gray-50 rounded-xl uppercase tracking-widest">Week</button>
                             </div>
                         )}
                     </div>
                 </div>
             </header>
             
-            <div className="flex-1 p-8 overflow-y-auto">
+            <div className="flex-1 p-8 overflow-y-auto no-scrollbar">
                 {activeTab === 'sales' ? (
-                    <div className="max-w-7xl mx-auto space-y-6">
+                    <div className="max-w-7xl mx-auto space-y-8 pb-20">
                         {/* Summary Cards */}
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                            <StatCard title="Total Omzet (Net)" value={formatRupiah(reportData.revenue)} className="border-l-4 border-l-indigo-500" />
-                            <StatCard title="Transaksi" value={reportData.transactions} />
-                            
-                            <div className="grid grid-cols-2 gap-2">
-                                <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-center">
-                                    <h3 className="text-[10px] font-bold text-gray-500 uppercase">Pajak</h3>
-                                    <p className="text-lg font-black text-gray-800">{formatRupiah(reportData.totalTax)}</p>
-                                </div>
-                                <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-center">
-                                    <h3 className="text-[10px] font-bold text-gray-500 uppercase">Service</h3>
-                                    <p className="text-lg font-black text-gray-800">{formatRupiah(reportData.totalService)}</p>
-                                </div>
+                            <StatCard title="Omzet Bersih (Lunas)" value={formatRupiah(reportData.revenue)} className="border-l-8 border-l-blue-600" />
+                            <StatCard title="Total Transaksi" value={reportData.transactions} />
+                            <StatCard title="Rata-rata Struk" value={reportData.transactions > 0 ? formatRupiah(reportData.revenue / reportData.transactions) : formatRupiah(0)} />
+                            <div className="bg-gray-900 text-white p-6 rounded-2xl shadow-xl flex flex-col justify-center">
+                                <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Pajak & Service</h3>
+                                <p className="text-xl font-black text-blue-400">{formatRupiah(reportData.totalTax + reportData.totalService)}</p>
                             </div>
-
-                            <StatCard title="Rata-rata Basket" value={reportData.transactions > 0 ? formatRupiah(reportData.revenue / reportData.transactions) : formatRupiah(0)} />
                         </div>
                         
-                        {/* Charts Area */}
-                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                            <SalesChart orders={completedOrdersInDateRange} />
-                            <CategorySales orders={completedOrdersInDateRange} categories={categories} />
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                            <SalesChart orders={ordersInDateRange} />
+                            <CategorySales orders={ordersInDateRange} categories={categories} />
                         </div>
 
-                        {/* Top Products Table */}
-                        <TopProducts orders={completedOrdersInDateRange} categories={categories} />
+                        <TopProducts orders={ordersInDateRange} categories={categories} />
                     </div>
                 ) : (
-                    <div className="max-w-7xl mx-auto">
+                    <div className="max-w-7xl mx-auto pb-20">
                         <ShiftHistory shifts={completedShifts} />
                     </div>
                 )}

@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { useAppContext } from '../types';
-import type { Shift, ShiftSummary, Expense, StoreProfile } from '../types';
+import type { Shift, ShiftSummary, Expense, StoreProfile, Order } from '../types';
 import ReceiptPreviewModal from './ReceiptPreviewModal';
 import PrintableReceipt from './PrintableReceipt';
 import { printShift } from '../services/printerService';
@@ -31,7 +31,6 @@ const StartShiftForm = ({ onStart, onLogout, theme }: { onStart: (amount: number
             try {
                 await onStart(cash);
             } finally {
-                // If success, component unmounts. If fail, reset button.
                 setIsSubmitting(false);
             }
         } else {
@@ -73,13 +72,7 @@ const StartShiftForm = ({ onStart, onLogout, theme }: { onStart: (amount: number
                         className={`w-full bg-${theme}-600 text-white font-bold py-4 rounded-2xl hover:bg-${theme}-700 transition-all transform hover:scale-[1.02] shadow-xl shadow-${theme}-200 flex items-center justify-center gap-2 disabled:bg-gray-400 disabled:cursor-not-allowed`}
                     >
                         {isSubmitting ? (
-                            <>
-                                <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                </svg>
-                                Menghubungkan Database...
-                            </>
+                            <div className="w-6 h-6 border-4 border-white/30 border-t-white rounded-full animate-spin"></div>
                         ) : 'Buka Operasional'}
                     </button>
                 </form>
@@ -89,26 +82,34 @@ const StartShiftForm = ({ onStart, onLogout, theme }: { onStart: (amount: number
     );
 }
 
-const CloseShiftModal = ({ onConfirm, onCancel, activeShift, expenses, storeProfile, printerDevice }: { onConfirm: (closingCash: number) => void, onCancel: () => void, activeShift: Shift, expenses: number, storeProfile: StoreProfile, printerDevice: any }) => {
+const CloseShiftModal = ({ onConfirm, onCancel, activeShift, expenses, storeProfile, orders }: { onConfirm: (closingCash: number) => void, onCancel: () => void, activeShift: Shift, expenses: number, storeProfile: StoreProfile, orders: Order[] }) => {
     const [closingCash, setClosingCash] = useState('');
     
+    // Hitung berdasarkan data pesanan real-time yang memiliki shift_id ini
+    const shiftOrders = orders.filter(o => o.shiftId === activeShift.id && o.isPaid && o.status !== 'cancelled');
+    const cashRevenue = shiftOrders.filter(o => o.paymentMethod === 'Tunai').reduce((sum, o) => sum + o.total, 0);
+    const nonCashRevenue = shiftOrders.filter(o => o.paymentMethod !== 'Tunai').reduce((sum, o) => sum + o.total, 0);
+    const totalRevenue = cashRevenue + nonCashRevenue;
+
     const startCash = activeShift.start_cash;
-    const cashRevenue = activeShift.cashRevenue;
-    const nonCashRevenue = activeShift.nonCashRevenue;
     const expectedCash = startCash + cashRevenue - expenses;
     const actualCash = parseFloat(closingCash) || 0;
     const difference = actualCash - expectedCash;
 
     const tempSummary: ShiftSummary = useMemo(() => ({
         ...activeShift,
+        revenue: totalRevenue,
+        cashRevenue: cashRevenue,
+        nonCashRevenue: nonCashRevenue,
+        transactions: shiftOrders.length,
         end: Date.now(),
         closingCash: actualCash,
         cashDifference: difference,
         totalExpenses: expenses,
-        netRevenue: activeShift.revenue - expenses,
+        netRevenue: totalRevenue - expenses,
         averageKitchenTime: 0,
         expectedCash: expectedCash
-    }), [activeShift, actualCash, difference, expenses, expectedCash]);
+    }), [activeShift, actualCash, difference, expenses, expectedCash, totalRevenue, cashRevenue, nonCashRevenue, shiftOrders.length]);
 
     const handleSubmit = (e: React.FormEvent) => { e.preventDefault(); onConfirm(actualCash); };
 
@@ -165,8 +166,8 @@ const CloseShiftModal = ({ onConfirm, onCancel, activeShift, expenses, storeProf
                     </div>
                 </form>
 
-                <div className="hidden md:flex w-2/5 bg-gray-100 border-l border-gray-200 p-8 flex-col items-center justify-center">
-                    <div className="bg-white shadow-xl p-4 w-full max-w-[320px] rounded-sm transform rotate-1 border-t-8 border-gray-800">
+                <div className="hidden md:flex w-2/5 bg-gray-100 border-l border-gray-200 p-8 flex-col items-center justify-center overflow-y-auto">
+                    <div className="bg-white shadow-xl p-4 w-full max-w-[320px] rounded-sm transform rotate-1 border-t-8 border-gray-800 shrink-0">
                         <PrintableReceipt shift={tempSummary} profile={storeProfile} variant="shift" />
                     </div>
                     <p className="mt-6 text-gray-400 font-medium text-sm text-center">Preview Struk Laporan</p>
@@ -176,50 +177,64 @@ const CloseShiftModal = ({ onConfirm, onCancel, activeShift, expenses, storeProf
     );
 };
 
-const ShiftSummaryDisplay = ({ summary }: { summary: ShiftSummary }) => {
-    const [showPreview, setShowPreview] = useState(false);
+const ShiftTransactions = ({ orders, shiftId, theme }: { orders: Order[], shiftId: string, theme: string }) => {
+    const shiftOrders = useMemo(() => {
+        return orders.filter(o => o.shiftId === shiftId).sort((a, b) => b.createdAt - a.createdAt);
+    }, [orders, shiftId]);
 
     return (
-    <div className="bg-white p-8 rounded-3xl shadow-xl max-w-lg mx-auto border border-gray-100 mt-10">
-        <div className="text-center mb-8">
-            <div className="inline-flex items-center justify-center w-16 h-16 bg-green-100 text-green-600 rounded-full mb-4">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
-            </div>
-            <h2 className="text-3xl font-black text-gray-900">Shift Selesai</h2>
-            <p className="text-gray-500 mt-1">{formatDateTime(summary.start)} — {formatDateTime(summary.end || Date.now())}</p>
-        </div>
-
-        <div className="space-y-4">
-            <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100">
-                 <div className="flex justify-between items-center mb-1">
-                    <span className="text-sm font-bold text-gray-500">Total Omzet</span>
-                    <span className="text-xl font-black text-gray-900">{formatRupiah(summary.revenue)}</span>
-                 </div>
-                 <div className="flex justify-between items-center text-xs text-gray-500">
-                    <span>{summary.transactions} Transaksi</span>
-                 </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-                <div className="bg-green-50 p-4 rounded-2xl border border-green-100">
-                     <span className="text-xs font-bold text-green-600 uppercase block mb-1">Selisih Kas</span>
-                     <span className={`text-lg font-black ${summary.cashDifference === 0 ? 'text-green-700' : 'text-red-600'}`}>
-                        {summary.cashDifference && summary.cashDifference > 0 ? '+' : ''}{formatRupiah(summary.cashDifference || 0)}
-                     </span>
+        <div className="p-8">
+            <div className="bg-white shadow-sm rounded-2xl border border-gray-100 overflow-hidden">
+                <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+                    <h3 className="font-bold text-gray-700">Daftar Transaksi Shift Ini</h3>
+                    <span className={`bg-${theme}-100 text-${theme}-700 px-3 py-1 rounded-full text-xs font-bold`}>{shiftOrders.length} Pesanan</span>
                 </div>
-                 <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100">
-                     <span className="text-xs font-bold text-blue-600 uppercase block mb-1">Non-Tunai</span>
-                     <span className="text-lg font-black text-blue-700">{formatRupiah(summary.nonCashRevenue)}</span>
+                <div className="overflow-x-auto">
+                    <table className="min-w-full">
+                        <thead className="bg-gray-50 text-xs font-bold text-gray-400 uppercase tracking-wider">
+                            <tr>
+                                <th className="px-6 py-3 text-left">Waktu</th>
+                                <th className="px-6 py-3 text-left">Pelanggan</th>
+                                <th className="px-6 py-3 text-center">Tipe</th>
+                                <th className="px-6 py-3 text-center">Metode</th>
+                                <th className="px-6 py-3 text-right">Total</th>
+                                <th className="px-6 py-3 text-center">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                            {shiftOrders.length === 0 && (
+                                <tr><td colSpan={6} className="text-center py-10 text-gray-400 italic">Belum ada transaksi di shift ini.</td></tr>
+                            )}
+                            {shiftOrders.map(order => (
+                                <tr key={order.id} className="hover:bg-gray-50 transition-colors">
+                                    <td className="px-6 py-4 text-xs font-mono text-gray-500">{new Date(order.createdAt).toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'})}</td>
+                                    <td className="px-6 py-4">
+                                        <div className="text-sm font-bold text-gray-900">{order.customerName}</div>
+                                        <div className="text-[10px] text-gray-400 uppercase font-black tracking-widest">#{order.sequentialId}</div>
+                                    </td>
+                                    <td className="px-6 py-4 text-center">
+                                        <span className="text-[10px] bg-gray-100 px-2 py-0.5 rounded font-bold text-gray-600">{order.orderType}</span>
+                                    </td>
+                                    <td className="px-6 py-4 text-center">
+                                        {order.isPaid ? (
+                                            <span className="text-[10px] font-black text-blue-600">{order.paymentMethod}</span>
+                                        ) : (
+                                            <span className="text-[10px] font-black text-red-400 italic">Unpaid</span>
+                                        )}
+                                    </td>
+                                    <td className="px-6 py-4 text-right font-bold text-gray-900 text-sm">{formatRupiah(order.total)}</td>
+                                    <td className="px-6 py-4 text-center">
+                                        <span className={`text-[10px] font-bold px-2 py-1 rounded uppercase ${order.status === 'completed' ? 'bg-green-100 text-green-700' : (order.status === 'cancelled' ? 'bg-red-100 text-red-600' : 'bg-orange-100 text-orange-700')}`}>
+                                            {order.status}
+                                        </span>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
                 </div>
             </div>
         </div>
-
-        <button onClick={() => setShowPreview(true)} className="mt-8 w-full bg-gray-900 text-white font-bold py-4 rounded-2xl flex justify-center items-center gap-3 hover:bg-black transition-all shadow-lg hover:shadow-xl">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
-            Lihat Bukti / Cetak
-        </button>
-        {showPreview && <ReceiptPreviewModal shift={summary} variant="shift" onClose={() => setShowPreview(false)} />}
-    </div>
     );
 };
 
@@ -291,10 +306,10 @@ const ExpenseManagement = ({ theme }: { theme: string }) => {
 }
 
 const ShiftView: React.FC = () => {
-    const { activeShift, expenses, closeShift, deleteAndResetShift, requestPassword, startShift, logout, storeProfile, printerDevice, isShiftLoading } = useAppContext();
+    const { orders, activeShift, expenses, closeShift, deleteAndResetShift, requestPassword, startShift, logout, storeProfile, printerDevice, isShiftLoading } = useAppContext();
     const [isCloseModalOpen, setCloseModalOpen] = useState(false);
     const [shiftSummary, setShiftSummary] = useState<ShiftSummary | null>(null);
-    const [activeTab, setActiveTab] = useState<'summary' | 'expenses'>('summary');
+    const [activeTab, setActiveTab] = useState<'summary' | 'transactions' | 'expenses'>('summary');
     
     const theme = storeProfile.themeColor || 'orange';
 
@@ -316,7 +331,6 @@ const ShiftView: React.FC = () => {
         );
     }
 
-    // If shift summary exists (just closed), show it
     if (shiftSummary) {
         return (
              <div className="bg-gray-50 h-full overflow-y-auto pb-10">
@@ -325,33 +339,37 @@ const ShiftView: React.FC = () => {
         )
     }
 
-    // If no active shift, show the Start Shift Form
     if (!activeShift) {
         return <StartShiftForm onStart={startShift} onLogout={logout} theme={theme} />;
     }
+
+    const shiftOrders = orders.filter(o => o.shiftId === activeShift.id && o.isPaid && o.status !== 'cancelled');
+    const cashRevenue = shiftOrders.filter(o => o.paymentMethod === 'Tunai').reduce((sum, o) => sum + o.total, 0);
+    const nonCashRevenue = shiftOrders.filter(o => o.paymentMethod !== 'Tunai').reduce((sum, o) => sum + o.total, 0);
+    const totalRevenue = cashRevenue + nonCashRevenue;
 
     const currentExpenses = expenses.filter(e => e.shiftId === activeShift.id);
     const totalExpenses = currentExpenses.reduce((sum, e) => sum + e.amount, 0);
     
     return (
         <>
-            {isCloseModalOpen && <CloseShiftModal onConfirm={handleConfirmCloseShift} onCancel={() => setCloseModalOpen(false)} activeShift={activeShift} expenses={totalExpenses} storeProfile={storeProfile} printerDevice={printerDevice} />}
+            {isCloseModalOpen && <CloseShiftModal onConfirm={handleConfirmCloseShift} onCancel={() => setCloseModalOpen(false)} activeShift={activeShift} expenses={totalExpenses} storeProfile={storeProfile} orders={orders} />}
             <div className="flex flex-col h-full bg-gray-50">
-                {/* Modern Header */}
-                <header className="px-8 py-6 bg-white border-b border-gray-100 flex justify-between items-center sticky top-0 z-10 shadow-sm">
+                <header className="px-8 py-6 bg-white border-b border-gray-100 flex flex-col md:flex-row justify-between items-center sticky top-0 z-10 shadow-sm gap-4">
                     <div>
-                        <h1 className="text-2xl font-black text-gray-900 tracking-tight">Financial Dashboard</h1>
-                        <p className="text-sm text-gray-500 font-medium">Shift Aktif • {formatDateTime(activeShift.start)}</p>
+                        <h1 className="text-2xl font-black text-gray-900 tracking-tight">Shift Operational</h1>
+                        <p className="text-sm text-gray-500 font-medium">Aktif • Sejak {formatDateTime(activeShift.start)}</p>
                     </div>
-                    <div className="flex items-center gap-3">
-                         <div className="bg-gray-100 p-1 rounded-xl flex">
-                            <button onClick={() => setActiveTab('summary')} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'summary' ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-900'}`}>Ringkasan</button>
-                            <button onClick={() => setActiveTab('expenses')} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'expenses' ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-900'}`}>Pengeluaran</button>
+                    <div className="flex items-center gap-3 w-full md:w-auto">
+                         <div className="bg-gray-100 p-1 rounded-xl flex flex-1 md:flex-none">
+                            <button onClick={() => setActiveTab('summary')} className={`flex-1 md:flex-none px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'summary' ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-900'}`}>Ringkasan</button>
+                            <button onClick={() => setActiveTab('transactions')} className={`flex-1 md:flex-none px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'transactions' ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-900'}`}>Transaksi</button>
+                            <button onClick={() => setActiveTab('expenses')} className={`flex-1 md:flex-none px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'expenses' ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-900'}`}>Biaya</button>
                         </div>
-                        <div className="h-8 w-px bg-gray-200 mx-2"></div>
-                        <button onClick={() => setCloseModalOpen(true)} className="bg-gray-900 text-white font-bold px-6 py-3 rounded-xl hover:bg-black transition-all shadow-lg hover:shadow-xl flex items-center gap-2">
+                        <div className="h-8 w-px bg-gray-200 hidden md:block mx-2"></div>
+                        <button onClick={() => setCloseModalOpen(true)} className="bg-gray-900 text-white font-bold px-6 py-3 rounded-xl hover:bg-black transition-all shadow-lg hover:shadow-xl flex items-center gap-2 whitespace-nowrap">
                             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
-                            End Shift
+                            Tutup Shift
                         </button>
                     </div>
                 </header>
@@ -361,83 +379,126 @@ const ShiftView: React.FC = () => {
                         <div className="p-8 max-w-7xl mx-auto">
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
                                 <StatCard 
-                                    title="Omzet Bersih" 
-                                    value={formatRupiah(activeShift.revenue - totalExpenses)} 
+                                    title="Omzet Bruto" 
+                                    value={formatRupiah(totalRevenue)} 
                                     icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
-                                    className="border-l-4 border-l-green-500"
+                                    className="border-l-4 border-l-blue-500"
                                 />
                                 <StatCard 
-                                    title="Total Transaksi" 
-                                    value={activeShift.transactions} 
+                                    title="Daftar Transaksi" 
+                                    value={shiftOrders.length} 
                                     icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>}
                                 />
                                 <StatCard 
-                                    title="Pengeluaran" 
+                                    title="Total Pengeluaran" 
                                     value={formatRupiah(totalExpenses)} 
                                     className="border-l-4 border-l-red-500"
                                     icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6" /></svg>}
                                 />
                                 <StatCard 
-                                    title="Estimasi Kas Laci" 
-                                    value={formatRupiah(activeShift.start_cash + activeShift.cashRevenue - totalExpenses)} 
+                                    title="Ekspektasi Kas Fisik" 
+                                    value={formatRupiah(activeShift.start_cash + cashRevenue - totalExpenses)} 
                                     className="bg-gray-900 text-white border-gray-900"
                                 />
                             </div>
 
                             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                                 <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
-                                    <h3 className="font-bold text-gray-800 mb-6">Rincian Pendapatan</h3>
+                                    <h3 className="font-bold text-gray-800 mb-6">Metode Pembayaran Real-time</h3>
                                     <div className="space-y-4">
                                         <div className="flex items-center justify-between p-4 bg-green-50 rounded-2xl border border-green-100">
                                             <div className="flex items-center gap-3">
                                                 <div className="p-2 bg-green-100 rounded-lg text-green-600"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4 4a2 2 0 00-2 2v4a2 2 0 002 2V6h10a2 2 0 00-2-2H4zm2 6a2 2 0 012-2h8a2 2 0 012 2v4a2 2 0 01-2 2H8a2 2 0 01-2-2v-4zm6 4a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" /></svg></div>
-                                                <span className="font-bold text-green-900">Tunai</span>
+                                                <span className="font-bold text-green-900">Uang Tunai (Cash)</span>
                                             </div>
-                                            <span className="font-mono font-bold text-green-700 text-lg">{formatRupiah(activeShift.cashRevenue)}</span>
+                                            <span className="font-mono font-bold text-green-700 text-lg">{formatRupiah(cashRevenue)}</span>
                                         </div>
                                         <div className="flex items-center justify-between p-4 bg-blue-50 rounded-2xl border border-blue-100">
                                             <div className="flex items-center gap-3">
                                                 <div className="p-2 bg-blue-100 rounded-lg text-blue-600"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M4 4a2 2 0 00-2 2v1h16V6a2 2 0 00-2-2H4z" /><path fillRule="evenodd" d="M18 9H2v5a2 2 0 002 2h12a2 2 0 002-2V9zM4 13a1 1 0 011-1h1a1 1 0 110 2H5a1 1 0 01-1-1zm5-1a1 1 0 100 2 1 1 0 000-2z" clipRule="evenodd" /></svg></div>
-                                                <span className="font-bold text-blue-900">Non-Tunai (QRIS/Debit)</span>
+                                                <span className="font-bold text-blue-900">Digital (QRIS/EDC)</span>
                                             </div>
-                                            <span className="font-mono font-bold text-blue-700 text-lg">{formatRupiah(activeShift.nonCashRevenue)}</span>
+                                            <span className="font-mono font-bold text-blue-700 text-lg">{formatRupiah(nonCashRevenue)}</span>
                                         </div>
                                     </div>
                                 </div>
                                 
                                 <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
-                                    <div className="flex justify-between items-center mb-6">
-                                        <h3 className="font-bold text-gray-800">Detail Shift</h3>
-                                    </div>
+                                    <h3 className="font-bold text-gray-800 mb-6">Informasi Sesi</h3>
                                     <div className="space-y-4 text-sm font-medium">
                                         <div className="flex justify-between border-b border-gray-50 pb-3">
-                                            <span className="text-gray-500">ID Shift</span>
+                                            <span className="text-gray-500">ID Sesi</span>
                                             <span className="font-mono">{activeShift.id}</span>
                                         </div>
                                         <div className="flex justify-between border-b border-gray-50 pb-3">
-                                            <span className="text-gray-500">Waktu Mulai</span>
-                                            <span>{formatDateTime(activeShift.start)}</span>
+                                            <span className="text-gray-500">Buka Oleh</span>
+                                            <span>{activeShift.createdBy || 'System'}</span>
                                         </div>
                                         <div className="flex justify-between border-b border-gray-50 pb-3">
-                                            <span className="text-gray-500">Modal Awal</span>
-                                            <span>{formatRupiah(activeShift.start_cash)}</span>
+                                            <span className="text-gray-500">Modal Kasir Awal</span>
+                                            <span className="font-bold">{formatRupiah(activeShift.start_cash)}</span>
                                         </div>
                                         <div className="flex justify-between pt-2">
-                                            <span className="text-gray-500">Total Diskon Diberikan</span>
-                                            <span className="text-red-500">-{formatRupiah(activeShift.totalDiscount)}</span>
+                                            <span className="text-gray-500">Omzet Bersih (Projected)</span>
+                                            <span className="text-green-600 font-black">{formatRupiah(totalRevenue - totalExpenses)}</span>
                                         </div>
                                     </div>
-                                    <button onClick={() => requestPassword('Hapus Shift Ini? Data akan hilang permanen.', deleteAndResetShift)} className="mt-8 text-xs text-red-400 hover:text-red-600 font-bold uppercase tracking-wider w-full text-center">
-                                        Hapus Data Shift (Reset)
-                                    </button>
                                 </div>
                             </div>
                         </div>
                     )}
+                    {activeTab === 'transactions' && <ShiftTransactions orders={orders} shiftId={activeShift.id} theme={theme} />}
                     {activeTab === 'expenses' && <ExpenseManagement theme={theme} />}
                 </div>
             </div>
         </>
+    );
+};
+
+const ShiftSummaryDisplay = ({ summary }: { summary: ShiftSummary }) => {
+    const [showPreview, setShowPreview] = useState(false);
+
+    return (
+    <div className="bg-white p-8 rounded-3xl shadow-xl max-w-lg mx-auto border border-gray-100 mt-10">
+        <div className="text-center mb-8">
+            <div className="inline-flex items-center justify-center w-16 h-16 bg-green-100 text-green-600 rounded-full mb-4">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
+            </div>
+            <h2 className="text-3xl font-black text-gray-900">Shift Selesai</h2>
+            <p className="text-gray-500 mt-1">{formatDateTime(summary.start)} — {formatDateTime(summary.end || Date.now())}</p>
+        </div>
+
+        <div className="space-y-4">
+            <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100">
+                 <div className="flex justify-between items-center mb-1">
+                    <span className="text-sm font-bold text-gray-500">Total Omzet</span>
+                    <span className="text-xl font-black text-gray-900">{formatRupiah(summary.revenue)}</span>
+                 </div>
+                 <div className="flex justify-between items-center text-xs text-gray-500">
+                    <span>{summary.transactions} Transaksi</span>
+                 </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+                <div className="bg-green-50 p-4 rounded-2xl border border-green-100">
+                     <span className="text-xs font-bold text-green-600 uppercase block mb-1">Selisih Kas</span>
+                     <span className={`text-lg font-black ${summary.cashDifference === 0 ? 'text-green-700' : 'text-red-600'}`}>
+                        {summary.cashDifference && summary.cashDifference > 0 ? '+' : ''}{formatRupiah(summary.cashDifference || 0)}
+                     </span>
+                </div>
+                 <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100">
+                     <span className="text-xs font-bold text-blue-600 uppercase block mb-1">Non-Tunai</span>
+                     <span className="text-lg font-black text-blue-700">{formatRupiah(summary.nonCashRevenue)}</span>
+                </div>
+            </div>
+        </div>
+
+        <button onClick={() => setShowPreview(true)} className="mt-8 w-full bg-gray-900 text-white font-bold py-4 rounded-2xl flex justify-center items-center gap-3 hover:bg-black transition-all shadow-lg hover:shadow-xl">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
+            Lihat Bukti / Cetak
+        </button>
+        {showPreview && <ReceiptPreviewModal shift={summary} variant="shift" onClose={() => setShowPreview(false)} />}
+    </div>
     );
 };
 
