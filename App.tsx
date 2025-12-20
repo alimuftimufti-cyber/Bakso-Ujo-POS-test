@@ -86,7 +86,7 @@ function useLocalStorage<T>(key: string, initialValue: T): [T, (val: T) => void]
   return [storedValue, setValue];
 }
 
-const LandingPage = ({ onSelectMode, storeName, branchName, logo, slogan, theme, isStoreOpen, isLoading }: any) => (
+const LandingPage = ({ onSelectMode, branchName, logo, slogan, isStoreOpen, isLoading }: any) => (
   <div className="min-h-[100dvh] bg-orange-50 flex flex-col items-center justify-center p-6 text-center relative overflow-hidden">
     <div className="absolute -top-24 -left-24 w-64 h-64 bg-orange-200/50 rounded-full blur-3xl"></div>
     <div className="absolute -bottom-24 -right-24 w-64 h-64 bg-orange-300/30 rounded-full blur-3xl"></div>
@@ -94,13 +94,13 @@ const LandingPage = ({ onSelectMode, storeName, branchName, logo, slogan, theme,
     <button onClick={() => onSelectMode('admin')} className="absolute top-4 right-4 w-12 h-12 flex items-center justify-center text-orange-900/10 hover:text-orange-900/50 transition-all z-50 rounded-full hover:bg-orange-100/50"><SidebarIcons.Settings /></button>
     
     <div className="max-w-md w-full animate-fade-in relative z-10">
-      {logo ? <img src={logo} alt="Logo" className="w-32 h-32 mx-auto mb-6 object-contain" /> : <div className={`w-28 h-28 bg-orange-600 text-white rounded-[2.5rem] flex items-center justify-center mx-auto mb-6 text-5xl font-black shadow-2xl shadow-orange-200 ring-8 ring-white`}>{storeName?.charAt(0) || 'B'}</div>}
+      {logo ? <img src={logo} alt="Logo" className="w-32 h-32 mx-auto mb-6 object-contain" /> : <div className={`w-28 h-28 bg-orange-600 text-white rounded-[2.5rem] flex items-center justify-center mx-auto mb-6 text-5xl font-black shadow-2xl shadow-orange-200 ring-8 ring-white`}>U</div>}
       
       <div className="mb-8">
-          {/* FIX: Nama Toko menjadi judul paling besar sesuai permintaan */}
-          <h1 className="text-5xl font-black text-gray-900 mb-1 tracking-tighter uppercase">{storeName}</h1>
-          {/* FIX: Nama Cabang menjadi kapsul subtitle */}
-          <div className="bg-orange-600 text-white px-4 py-1.5 rounded-full inline-block text-sm font-black uppercase tracking-widest shadow-md">
+          {/* FIX: Hardcoded Branding Utama agar tidak tertimpa variabel database */}
+          <h1 className="text-6xl font-black text-gray-900 mb-2 tracking-tighter uppercase italic">Bakso Ujo</h1>
+          {/* Sub judul: Nama Cabang dari Database */}
+          <div className="bg-orange-600 text-white px-6 py-2 rounded-full inline-block text-sm font-black uppercase tracking-widest shadow-xl border-2 border-white">
               {branchName || 'Cabang Pusat'}
           </div>
       </div>
@@ -110,7 +110,7 @@ const LandingPage = ({ onSelectMode, storeName, branchName, logo, slogan, theme,
       {isLoading ? (
           <div className="flex flex-col items-center gap-4 animate-pulse">
             <div className="w-12 h-12 border-4 border-orange-200 border-t-orange-600 rounded-full animate-spin"></div>
-            <p className="text-xs font-black text-orange-800 uppercase tracking-widest">Sinkronisasi Data...</p>
+            <p className="text-xs font-black text-orange-800 uppercase tracking-widest">Sinkronisasi Stok...</p>
           </div>
       ) : (
           <div className="space-y-4">
@@ -222,7 +222,7 @@ const App: React.FC = () => {
     const handleSetMode = async (mode: AppMode) => {
         if (mode === 'customer') {
             setIsGlobalLoading(true);
-            await refreshAllData(); 
+            await refreshAllData(); // FIX: Pastikan data stok terbaru di-fetch tepat sebelum halaman customer terbuka
             setIsGlobalLoading(false);
         }
         setAppMode(mode);
@@ -259,6 +259,7 @@ const App: React.FC = () => {
         const tax = storeProfile.enableTax ? (sub - disc) * (storeProfile.taxRate / 100) : 0;
         const srv = storeProfile.enableServiceCharge ? (sub - disc) * (storeProfile.serviceChargeRate / 100) : 0;
         const order: Order = { id: Date.now().toString(), sequentialId: orders.length + 1, customerName: name, items: cart, total: Math.round(sub - disc + tax + srv), subtotal: sub, discount: disc, discountType: dType, discountValue: dVal, taxAmount: tax, serviceChargeAmount: srv, status: 'pending', createdAt: Date.now(), isPaid: !!payment, paymentMethod: payment?.method, shiftId: activeShift?.id || 'public', orderType: oType, branchId: activeBranchId };
+        
         cart.forEach(item => {
             const menuItem = menu.find(m => m.id === item.id);
             if (menuItem && menuItem.stock !== undefined) {
@@ -267,6 +268,7 @@ const App: React.FC = () => {
                 if (isDatabaseReady) updateProductStockInCloud(item.id, newStock);
             }
         });
+
         setOrders(prev => [order, ...prev]);
         if (isDatabaseReady) {
             addOrderToCloud(order).then(() => {
@@ -342,24 +344,10 @@ const App: React.FC = () => {
                             </div>
                         </div>
                     )}
-                    {newOrderIncoming && appMode === 'admin' && (
-                        <div className="fixed top-6 left-1/2 transform -translate-x-1/2 z-[300] animate-slide-in-up">
-                            <div className="bg-orange-600 text-white px-8 py-4 rounded-2xl shadow-2xl flex items-center gap-4 border-4 border-white">
-                                <div className="bg-white/20 p-2 rounded-full animate-bounce">
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
-                                </div>
-                                <div className="text-center">
-                                    <p className="text-xs font-black uppercase tracking-widest opacity-80">Self-Service</p>
-                                    <p className="text-lg font-black leading-tight">PESANAN BARU MASUK!</p>
-                                </div>
-                            </div>
-                        </div>
-                    )}
                     {appMode === 'landing' && (
                         <div key="mode-landing" className="h-full">
                             <LandingPage 
                                 onSelectMode={handleSetMode} 
-                                storeName={storeProfile.name} 
                                 branchName={branches.find(b => b.id === activeBranchId)?.name}
                                 logo={storeProfile.logo} slogan={storeProfile.slogan} theme={storeProfile.themeColor} isStoreOpen={!!activeShift} isLoading={isShiftLoading}
                             />
