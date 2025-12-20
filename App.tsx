@@ -286,10 +286,14 @@ const App: React.FC = () => {
         setMenu, setCategories, setStoreProfile: (p: any) => { setStoreProfile(p); if(isDatabaseReady) updateStoreProfileInCloud(p); },
         setKitchenAlarmTime: () => {}, setKitchenAlarmSound: () => {}, addCategory: addCategoryToCloud, deleteCategory: deleteCategoryFromCloud, setIngredients,
         saveMenuItem: async (i) => {
-            setMenu(prev => { const existing = prev.findIndex(m => m.id === i.id); if (existing > -1) { const n = [...prev]; n[existing] = i; return n; } return [...prev, i]; });
+            // Langsung update ke cloud, lalu refresh data agar UI akurat
             await addProductToCloud(i, activeBranchId);
+            await refreshAllData();
         },
-        removeMenuItem: deleteProductFromCloud,
+        removeMenuItem: async (id) => {
+            await deleteProductFromCloud(id);
+            await refreshAllData();
+        },
         saveIngredient: async (i) => {
             setIngredients(prev => { const existing = prev.findIndex(ing => ing.id === i.id); if (existing > -1) { const n = [...prev]; n[existing] = i; return n; } return [...prev, i]; });
             await addIngredientToCloud(i, activeBranchId);
@@ -325,7 +329,7 @@ const App: React.FC = () => {
         requestPassword: (t, c) => { c(); }, 
         printerDevice: null, isPrinting: false, connectToPrinter: async () => {}, disconnectPrinter: async () => {}, previewReceipt: () => {}, printOrderToDevice: async () => {}, printShiftToDevice: async () => {}, printOrderViaBrowser: () => {},
         setTables: () => {}, addTable: () => {}, deleteTable: () => {}, setUsers: () => {}, clockIn: async () => {}, clockOut: async () => {}, splitOrder: () => {}, 
-        customerSubmitOrder: async (cart, name) => { const res = addOrderWrapper(cart, name, 0, 'percent', 'Dine In'); return res; }, // FIX: Mengembalikan res (Order)
+        customerSubmitOrder: async (cart, name) => { const res = addOrderWrapper(cart, name, 0, 'percent', 'Dine In'); return res; }, 
     };
 
     if (isDatabaseReady === false) return <ConfigMissingView />;

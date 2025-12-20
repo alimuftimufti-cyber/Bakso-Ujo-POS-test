@@ -1,13 +1,9 @@
 
-// ... (imports remain the same)
 import React, { useState, useRef, useMemo } from 'react';
 import { useAppContext } from '../types'; 
 import type { MenuItem, Ingredient, User, ThemeColor, Table, StoreProfile, Branch } from '../types';
 import { printTest } from '../services/printerService'; 
-import { currentProjectId } from '../services/firebase'; // IMPORT PROJECT ID
-
-// ... (Helper components ModalOverlay, InputField, SelectField, MenuForm, generatePrintLayout remain the same)
-// ... (Keeping them as is, assume they are part of the file content)
+import { currentProjectId } from '../services/firebase'; 
 
 // --- HELPER COMPONENTS ---
 const ModalOverlay = ({ children, onClose }: { children?: React.ReactNode, onClose: () => void }) => (
@@ -42,9 +38,10 @@ const SelectField = ({ label, children, ...props }: any) => (
     </div>
 );
 
-const MenuForm = ({ onClose, onSave, item, theme }: { onClose: () => void, onSave: (i: MenuItem) => void, item: MenuItem | null, theme: string }) => {
+const MenuForm = ({ onClose, onSave, item, theme }: { onClose: () => void, onSave: (i: MenuItem) => Promise<void>, item: MenuItem | null, theme: string }) => {
     const { categories, ingredients } = useAppContext();
     const [form, setForm] = useState<any>(item || { name: '', price: '', category: categories[0], imageUrl: '', recipe: [], stock: '' });
+    const [isSaving, setIsSaving] = useState(false);
 
     const handleRecipe = (ingId: string, amount: number) => {
         let newRecipe = [...(form.recipe || [])];
@@ -54,12 +51,24 @@ const MenuForm = ({ onClose, onSave, item, theme }: { onClose: () => void, onSav
         setForm({ ...form, recipe: newRecipe });
     };
 
-    const handleImage = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if(file) {
-            const reader = new FileReader();
-            reader.onload = () => setForm({...form, imageUrl: reader.result as string});
-            reader.readAsDataURL(file);
+    const handleSave = async () => {
+        if (!form.name || !form.price) {
+            alert("Nama dan Harga wajib diisi.");
+            return;
+        }
+        setIsSaving(true);
+        try {
+            await onSave({ 
+                ...form, 
+                price: parseFloat(form.price), 
+                stock: form.stock ? parseFloat(form.stock) : undefined, 
+                id: form.id || Date.now() 
+            });
+            onClose();
+        } catch (err) {
+            console.error(err);
+        } finally {
+            setIsSaving(false);
         }
     };
 
@@ -79,14 +88,18 @@ const MenuForm = ({ onClose, onSave, item, theme }: { onClose: () => void, onSav
                         </SelectField>
                         
                         <div className="mb-4">
-                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1.5">Gambar Produk</label>
-                            <div className="flex items-center gap-4">
-                                <label className="cursor-pointer bg-gray-100 hover:bg-gray-200 px-4 py-2 rounded-lg text-sm font-bold text-gray-600 transition-colors">
-                                    Pilih File
-                                    <input type="file" onChange={handleImage} className="hidden" accept="image/*" />
-                                </label>
-                                {form.imageUrl && <img src={form.imageUrl} className="h-12 w-12 object-cover rounded-lg border border-gray-200"/>}
-                            </div>
+                             <InputField 
+                                label="Link Gambar Online" 
+                                placeholder="https://contoh.com/gambar.jpg" 
+                                value={form.imageUrl} 
+                                onChange={(e: any) => setForm({ ...form, imageUrl: e.target.value })} 
+                             />
+                             {form.imageUrl && (
+                                <div className="mt-2 p-2 bg-gray-50 border rounded-lg">
+                                    <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Preview:</p>
+                                    <img src={form.imageUrl} className="h-24 w-full object-cover rounded border border-gray-200" onError={(e:any) => e.target.src='https://via.placeholder.com/150?text=Invalid+Link'} />
+                                </div>
+                             )}
                         </div>
                     </div>
                     
@@ -110,8 +123,15 @@ const MenuForm = ({ onClose, onSave, item, theme }: { onClose: () => void, onSav
                     </div>
                 </div>
                 <div className="flex justify-end gap-3 mt-8 pt-6 border-t border-gray-100">
-                    <button onClick={onClose} className="px-6 py-3 bg-white border border-gray-300 rounded-xl font-bold text-gray-700 hover:bg-gray-50 transition-colors">Batal</button>
-                    <button onClick={() => onSave({ ...form, price: parseFloat(form.price), stock: form.stock ? parseFloat(form.stock) : undefined, id: form.id || Date.now() })} className={`px-6 py-3 bg-${theme}-600 text-white rounded-xl font-bold hover:bg-${theme}-700 transition-colors shadow-lg shadow-${theme}-200`}>Simpan Produk</button>
+                    <button onClick={onClose} disabled={isSaving} className="px-6 py-3 bg-white border border-gray-300 rounded-xl font-bold text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50">Batal</button>
+                    <button 
+                        onClick={handleSave} 
+                        disabled={isSaving}
+                        className={`px-6 py-3 bg-${theme}-600 text-white rounded-xl font-bold hover:bg-${theme}-700 transition-colors shadow-lg shadow-${theme}-200 flex items-center gap-2 disabled:bg-gray-400`}
+                    >
+                        {isSaving && <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>}
+                        {isSaving ? 'Menyimpan...' : 'Simpan Produk'}
+                    </button>
                 </div>
             </div>
         </ModalOverlay>
@@ -120,8 +140,6 @@ const MenuForm = ({ onClose, onSave, item, theme }: { onClose: () => void, onSav
 
 const generatePrintLayout = (tables: Table[], profile: StoreProfile) => {
     const baseUrl = window.location.origin;
-    
-    // Robust print window opening
     const win = window.open('', '_blank', 'width=900,height=700');
     if (!win) {
         alert("Browser memblokir pop-up. Izinkan pop-up untuk mencetak QR Code.");
@@ -129,7 +147,6 @@ const generatePrintLayout = (tables: Table[], profile: StoreProfile) => {
     }
 
     const printContent = tables.map(t => {
-        // Ensure URL handles query params correctly
         const deepLinkUrl = `${baseUrl}/?mode=customer&branch=${profile.branchId}&table=${t.number}`;
         const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=${encodeURIComponent(deepLinkUrl)}`;
         return `
@@ -179,11 +196,9 @@ const generatePrintLayout = (tables: Table[], profile: StoreProfile) => {
         <body>
             <div class="qr-grid">${printContent}</div>
             <script>
-                // Wait for all images to load before printing
                 window.onload = function() {
                     setTimeout(function() {
                         window.print();
-                        // Optional: window.close(); // Uncomment to close automatically after print dialog
                     }, 1000);
                 };
             </script>
@@ -193,10 +208,9 @@ const generatePrintLayout = (tables: Table[], profile: StoreProfile) => {
     win.document.close();
 }
 
-// --- MAIN SETTINGS COMPONENT (ADMIN FOCUSED) ---
 const SettingsView = () => {
     const { 
-        menu, setMenu, users, addUser, updateUser, deleteUser, 
+        menu, saveMenuItem, removeMenuItem, users, addUser, updateUser, deleteUser, 
         storeProfile, setStoreProfile, requestPassword, 
         tables, addTable, deleteTable, setTables,
         printerDevice, connectToPrinter, disconnectPrinter, currentUser,
@@ -207,32 +221,24 @@ const SettingsView = () => {
     const [tab, setTab] = useState<'menu' | 'users' | 'profile' | 'kitchen' | 'qr' | 'data'>('menu');
     const [isMenuModalOpen, setMenuModalOpen] = useState(false);
     const [editingMenu, setEditingMenu] = useState<MenuItem | null>(null);
-    const [userForm, setUserForm] = useState<User>({ id: '', name: '', pin: '', attendancePin: '', role: 'cashier' }); // Updated initial state
+    const [userForm, setUserForm] = useState<User>({ id: '', name: '', pin: '', attendancePin: '', role: 'cashier' });
     const [qrSingleTable, setQrSingleTable] = useState('');
     const [qrBatchStart, setQrBatchStart] = useState('');
     const [qrBatchEnd, setQrBatchEnd] = useState('');
     const [newMotivation, setNewMotivation] = useState('');
 
     const availableColors: ThemeColor[] = ['orange', 'red', 'blue', 'green', 'purple', 'slate', 'pink'];
-    const isOwner = currentUser?.role === 'owner'; // Check privilege
+    const isOwner = currentUser?.role === 'owner';
 
-    // ACTIONS
-    const saveMenu = (item: MenuItem) => { 
-        setMenu(prev => { 
-            const idx = prev.findIndex(i => i.id === item.id); 
-            if (idx > -1) { const newMenu = [...prev]; newMenu[idx] = item; return newMenu; } 
-            return [...prev, item]; 
-        }); 
-        setMenuModalOpen(false); 
-        setEditingMenu(null);
+    const handleSaveMenu = async (item: MenuItem) => { 
+        await saveMenuItem(item);
     };
     
-    const deleteMenu = (id: number) => requestPassword("Hapus menu?", () => setMenu(prev => prev.filter(i => i.id !== id)));
+    const deleteMenu = (id: number) => requestPassword("Hapus menu?", () => removeMenuItem(id));
     
     const saveUser = (e: React.FormEvent) => { 
         e.preventDefault(); 
         requestPassword("Simpan User?", () => { 
-            // Ensure attendancePin exists if not provided
             const userData = {
                 ...userForm,
                 id: Date.now().toString(),
@@ -282,7 +288,6 @@ const SettingsView = () => {
         const link = document.createElement('a'); link.href = url; link.download = `backup_pos.json`; document.body.appendChild(link); link.click(); document.body.removeChild(link);
     };
 
-    // Kitchen Actions
     const addMotivation = () => {
         if (newMotivation.trim()) {
             setStoreProfile(prev => ({
@@ -306,7 +311,7 @@ const SettingsView = () => {
 
     return (
         <div className="flex flex-col h-full bg-gray-50">
-            {isMenuModalOpen && <MenuForm onClose={() => { setMenuModalOpen(false); setEditingMenu(null); }} onSave={saveMenu} item={editingMenu} theme={theme} />}
+            {isMenuModalOpen && <MenuForm onClose={() => { setMenuModalOpen(false); setEditingMenu(null); }} onSave={handleSaveMenu} item={editingMenu} theme={theme} />}
             
             <div className="bg-white border-b px-8 py-6 flex flex-col md:flex-row justify-between items-center gap-4 sticky top-0 z-10 shadow-sm">
                 <div>
@@ -336,15 +341,15 @@ const SettingsView = () => {
                             {menu.map(item => (
                                 <div key={item.id} className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm flex gap-4 items-center">
                                     <div className="w-16 h-16 bg-gray-100 rounded-lg overflow-hidden shrink-0">
-                                        {item.imageUrl ? <img src={item.imageUrl} className="w-full h-full object-cover"/> : <div className="w-full h-full flex items-center justify-center text-gray-300 font-bold">?</div>}
+                                        {item.imageUrl ? <img src={item.imageUrl} className="w-full h-full object-cover" onError={(e:any) => e.target.src='https://via.placeholder.com/150?text=Error'}/> : <div className="w-full h-full flex items-center justify-center text-gray-300 font-bold">?</div>}
                                     </div>
                                     <div className="flex-1">
                                         <h4 className="font-bold text-gray-800">{item.name}</h4>
                                         <p className="text-xs text-gray-500">{item.category} • Rp {item.price}</p>
                                     </div>
                                     <div className="flex flex-col gap-2">
-                                        <button onClick={() => { setEditingMenu(item); setMenuModalOpen(true); }} className="text-blue-500 text-xs font-bold hover:underline">Edit</button>
-                                        <button onClick={() => deleteMenu(item.id)} className="text-red-500 text-xs font-bold hover:underline">Hapus</button>
+                                        <button onClick={() => { setEditingMenu(item); setMenuModalOpen(true); }} className="text-blue-500 text-xs font-bold hover:underline text-left">Edit</button>
+                                        <button onClick={() => deleteMenu(item.id)} className="text-red-500 text-xs font-bold hover:underline text-left">Hapus</button>
                                     </div>
                                 </div>
                             ))}
@@ -432,7 +437,6 @@ const SettingsView = () => {
                 {tab === 'profile' && (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                         <div className="space-y-6">
-                            {/* DATABASE STATUS CARD */}
                             <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-4">
                                 <h3 className="font-bold text-lg border-b pb-2">Status Sistem</h3>
                                 <div className="p-4 bg-blue-50 rounded-xl border border-blue-100">
@@ -446,11 +450,8 @@ const SettingsView = () => {
                                         </div>
                                     )}
                                     <div className="text-xs text-blue-700 bg-blue-100 p-2 rounded">
-                                        Hosting: <strong>Gratis (Vercel / Firebase Hosting)</strong>
+                                        Hosting: <strong>Vercel / Supabase</strong>
                                     </div>
-                                    <p className="text-[10px] text-blue-500 mt-2 italic">
-                                        *Jika ID Project tidak sesuai, update di Vercel Settings.
-                                    </p>
                                 </div>
                             </div>
 

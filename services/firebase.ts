@@ -192,6 +192,7 @@ export const getMenuFromCloud = async (branchId: string): Promise<MenuItem[]> =>
 };
 
 export const addProductToCloud = async (item: MenuItem, branchId: string) => {
+    // Cari ID Kategori terlebih dahulu
     const { data: catData } = await supabase.from('categories').select('id').eq('name', item.category).maybeSingle();
     
     const payload = { 
@@ -201,11 +202,14 @@ export const addProductToCloud = async (item: MenuItem, branchId: string) => {
         image_url: item.imageUrl, 
         stock: item.stock === undefined ? null : item.stock, 
         min_stock: item.minStock === undefined ? null : item.minStock, 
-        is_active: true, 
-        branch_id: null 
+        is_active: true
     };
 
-    if (item.id > 2000000000) {
+    // Deteksi apakah ID baru (masih timestamp jutaan) atau ID database asli (serial kecil)
+    // Biasanya ID database serial mulai dari 1. Timestamp mulai dari 1700000000+
+    const isNew = item.id > 1000000000;
+
+    if (isNew) {
         const { error } = await supabase.from('products').insert(payload);
         if (error) handleError(error, 'insertProduct');
     } else {
@@ -445,6 +449,7 @@ export const subscribeToAttendance = (branchId: string, onUpdate: (data: Attenda
 };
 
 export const addAttendanceToCloud = async (record: AttendanceRecord) => {
+    // FIX: Using correct property names from AttendanceRecord (clockInTime and photoUrl) to map to database columns (clock_in and photo_url).
     const { error } = await supabase.from('attendance').insert({ id: record.id, user_id: record.userId, user_name: record.userName, branch_id: record.branchId, date: record.date, clock_in: record.clockInTime, status: record.status, photo_url: record.photoUrl, lat: record.location?.lat, lng: record.location?.lng });
     if (error) handleError(error, 'addAttendance');
 };
