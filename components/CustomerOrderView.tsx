@@ -28,32 +28,45 @@ const DigitalReceipt = ({ order, onExit, theme }: { order: Order, onExit: () => 
     const saveAsPDF = async (shouldExit: boolean = false) => {
         if (!receiptRef.current) return;
         setIsDownloading(true);
+        
         try {
+            // Berikan sedikit jeda agar UI stabil sebelum di-capture
+            await new Promise(resolve => setTimeout(resolve, 500));
+
             const canvas = await html2canvas(receiptRef.current, {
                 scale: 2,
                 backgroundColor: "#ffffff",
-                useCORS: true,
-                logging: false
+                useCORS: true, // Sangat penting untuk QR Code dari API luar
+                allowTaint: true,
+                logging: false,
+                // Pastikan seluruh elemen tertangkap meskipun tersembunyi karena scroll
+                scrollY: -window.scrollY,
+                windowWidth: receiptRef.current.scrollWidth,
+                windowHeight: receiptRef.current.scrollHeight
             });
             
             const imgData = canvas.toDataURL('image/png');
             const pdf = new jsPDF({
                 orientation: 'portrait',
                 unit: 'mm',
-                format: [80, (canvas.height * 80) / canvas.width] // Custom thermal paper style
+                format: [80, Math.max(150, (canvas.height * 80) / canvas.width)] // Kertas thermal fleksibel
             });
 
-            const imgProps = pdf.getImageProperties(imgData);
             const pdfWidth = pdf.internal.pageSize.getWidth();
-            const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+            const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
 
             pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+            
+            // Simpan file
             pdf.save(`Struk-BaksoUjo-${order.id.slice(-6)}.pdf`);
             
-            if (shouldExit) onExit();
+            if (shouldExit) {
+                // Jeda sebentar setelah download trigger sebelum pindah halaman
+                setTimeout(onExit, 1000);
+            }
         } catch (err) {
-            console.error("Gagal membuat PDF:", err);
-            alert("Maaf, gagal menyimpan file. Silakan screenshot layar saja.");
+            console.error("PDF Error:", err);
+            alert("Gagal mengunduh otomatis. Silakan screenshot struk ini untuk jaga-jaga.");
             if (shouldExit) onExit();
         } finally {
             setIsDownloading(false);
@@ -61,92 +74,105 @@ const DigitalReceipt = ({ order, onExit, theme }: { order: Order, onExit: () => 
     };
 
     const handleCloseAttempt = () => {
-        if (confirm("Yakin ingin keluar?\nSistem akan otomatis menyimpan struk Anda sebelum kembali ke menu awal.")) {
-            saveAsPDF(true); // Download then exit
+        if (confirm("Pastikan Anda sudah menyimpan struk ini.\nTekan OK untuk download struk dan kembali ke menu awal.")) {
+            saveAsPDF(true);
         }
     };
 
     return (
-        <div className="fixed inset-0 bg-gray-900 z-[100] flex flex-col items-center overflow-y-auto p-4 md:p-10 font-mono no-scrollbar">
-            {/* Wrapper Receipt - Dibuat h-auto agar bisa memanjang sesuai isi */}
-            <div 
-                ref={receiptRef} 
-                className="bg-white w-full max-w-sm rounded-sm shadow-2xl p-6 text-gray-900 border-t-8 border-orange-600 relative flex flex-col items-center shrink-0 mb-8"
-            >
-                {/* Header Struk */}
-                <div className="text-center mb-6 w-full">
-                    <h2 className="text-2xl font-black uppercase tracking-tighter mb-1">BAKSO UJO</h2>
-                    <p className="text-[10px] opacity-70">STRUK PESANAN MANDIRI</p>
-                    <div className="border-b-2 border-dashed border-gray-300 my-4"></div>
-                    <div className="flex justify-between text-[10px] font-bold">
-                        <span>WAKTU:</span>
-                        <span>{new Date(order.createdAt).toLocaleString('id-ID')}</span>
-                    </div>
-                    <div className="flex justify-between text-[10px] font-bold">
-                        <span>ID:</span>
-                        <span className="truncate ml-4">#{order.id}</span>
-                    </div>
-                </div>
-
-                {/* QR Code */}
-                <div className="bg-gray-50 p-4 rounded-xl mb-6 border-2 border-gray-100 flex flex-col items-center">
-                    <img src={qrUrl} alt="Order QR" className="w-48 h-48 mb-2 mix-blend-multiply" />
-                    <p className="text-[10px] font-black uppercase text-orange-600 tracking-widest">Tunjukkan ke Kasir</p>
-                </div>
-
-                {/* List Item - Pastikan tidak terpotong (h-auto) */}
-                <div className="w-full text-sm space-y-3 mb-6">
-                    <p className="text-xs font-bold text-center bg-gray-900 text-white py-1 rounded uppercase tracking-widest">{order.customerName}</p>
-                    {order.items.map((item, idx) => (
-                        <div key={idx} className="flex flex-col border-b border-gray-100 pb-2">
-                            <div className="flex justify-between font-bold">
-                                <span>{item.quantity}x {item.name}</span>
-                                <span>{formatRupiah(item.price * item.quantity)}</span>
-                            </div>
-                            {item.note && <p className="text-[10px] italic text-red-500 font-bold ml-4 leading-tight">"Catatan: {item.note}"</p>}
-                        </div>
-                    ))}
-                </div>
-
-                {/* Total Section - Selalu berada di bawah daftar item */}
-                <div className="w-full border-t-2 border-black border-double pt-4">
-                    <div className="flex justify-between text-xl font-black">
-                        <span>TOTAL</span>
-                        <span>{formatRupiah(order.total)}</span>
-                    </div>
-                </div>
-
-                <p className="text-[10px] mt-8 text-center text-gray-400 font-bold italic">Terima kasih atas pesanan Anda!</p>
+        <div className="fixed inset-0 bg-gray-900 z-[100] flex flex-col items-center font-mono overflow-hidden">
+            {/* Scrollable Container Wrapper */}
+            <div className="flex-1 w-full overflow-y-auto pt-6 pb-20 px-4 flex flex-col items-center no-scrollbar">
                 
-                {/* Efek Gerigi Struk di Bawah */}
-                <div className="absolute bottom-0 left-0 right-0 flex overflow-hidden translate-y-2">
-                    {[...Array(20)].map((_, i) => (
-                        <div key={i} className="w-4 h-4 bg-gray-900 rotate-45 shrink-0"></div>
-                    ))}
-                </div>
-            </div>
+                {/* Physical Receipt Mockup */}
+                <div 
+                    ref={receiptRef} 
+                    className="bg-white w-full max-w-sm rounded-sm shadow-2xl p-6 text-gray-900 border-t-8 border-orange-600 relative flex flex-col items-center mb-10 h-auto"
+                >
+                    {/* Header */}
+                    <div className="text-center mb-6 w-full">
+                        <h2 className="text-2xl font-black uppercase tracking-tighter mb-1">BAKSO UJO</h2>
+                        <p className="text-[10px] opacity-70">STRUK PESANAN MANDIRI</p>
+                        <div className="border-b-2 border-dashed border-gray-300 my-4"></div>
+                        <div className="flex justify-between text-[10px] font-bold">
+                            <span>WAKTU:</span>
+                            <span>{new Date(order.createdAt).toLocaleString('id-ID')}</span>
+                        </div>
+                        <div className="flex justify-between text-[10px] font-bold">
+                            <span>ID:</span>
+                            <span className="truncate ml-4">#{order.id}</span>
+                        </div>
+                    </div>
 
-            {/* Aksi di Bawah Struk */}
-            <div className="flex flex-col gap-3 w-full max-w-sm pb-10">
-                <button 
-                    onClick={() => saveAsPDF(false)} 
-                    disabled={isDownloading}
-                    className="w-full bg-white/10 hover:bg-white/20 text-white font-black py-4 rounded-2xl border-2 border-white/20 transition-all flex items-center justify-center gap-3 disabled:opacity-50"
-                >
-                    {isDownloading ? (
-                        <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                    ) : (
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                    )}
-                    {isDownloading ? 'MENYIMPAN...' : 'SIMPAN STRUK (PDF)'}
-                </button>
-                <button 
-                    onClick={handleCloseAttempt} 
-                    className="w-full bg-orange-600 hover:bg-orange-700 text-white font-black py-4 rounded-2xl shadow-2xl transition-all active:scale-95 flex items-center justify-center gap-2"
-                >
-                    SELESAI / TUTUP
-                </button>
-                <p className="text-[10px] text-gray-500 text-center font-bold uppercase tracking-widest mt-2">© Bakso Ujo POS System</p>
+                    {/* QR Code Section */}
+                    <div className="bg-gray-50 p-4 rounded-xl mb-6 border-2 border-gray-100 flex flex-col items-center">
+                        <img 
+                            src={qrUrl} 
+                            alt="Order QR" 
+                            className="w-48 h-48 mb-2 mix-blend-multiply" 
+                            crossOrigin="anonymous" // Penting untuk html2canvas
+                        />
+                        <p className="text-[10px] font-black uppercase text-orange-600 tracking-widest">Tunjukkan ke Kasir</p>
+                    </div>
+
+                    {/* Customer Info */}
+                    <div className="w-full mb-4">
+                         <p className="text-xs font-bold text-center bg-gray-900 text-white py-2 rounded uppercase tracking-widest">{order.customerName}</p>
+                    </div>
+
+                    {/* Dynamic Items List */}
+                    <div className="w-full text-sm space-y-4 mb-8">
+                        {order.items.map((item, idx) => (
+                            <div key={idx} className="flex flex-col border-b border-gray-50 pb-2">
+                                <div className="flex justify-between font-bold items-start">
+                                    <span className="flex-1 pr-4">{item.quantity}x {item.name}</span>
+                                    <span className="shrink-0">{formatRupiah(item.price * item.quantity)}</span>
+                                </div>
+                                {item.note && <p className="text-[10px] italic text-red-500 font-bold ml-2 mt-1">Catatan: {item.note}</p>}
+                            </div>
+                        ))}
+                    </div>
+
+                    {/* Total Section - Now guaranteed to be at the bottom of the content */}
+                    <div className="w-full border-t-2 border-black border-double pt-4 mb-6">
+                        <div className="flex justify-between text-xl font-black">
+                            <span>TOTAL</span>
+                            <span>{formatRupiah(order.total)}</span>
+                        </div>
+                    </div>
+
+                    <p className="text-[10px] text-center text-gray-400 font-bold italic mb-4">Terima kasih atas pesanan Anda!</p>
+                    
+                    {/* Visual Cut Effect */}
+                    <div className="absolute -bottom-2 left-0 right-0 flex overflow-hidden">
+                        {[...Array(20)].map((_, i) => (
+                            <div key={i} className="w-4 h-4 bg-gray-900 rotate-45 shrink-0"></div>
+                        ))}
+                    </div>
+                </div>
+
+                {/* Footer Buttons - Floating relative to scroll content */}
+                <div className="w-full max-w-sm flex flex-col gap-3">
+                    <button 
+                        onClick={() => saveAsPDF(false)} 
+                        disabled={isDownloading}
+                        className="w-full bg-white/10 hover:bg-white/20 text-white font-black py-4 rounded-2xl border-2 border-white/20 transition-all flex items-center justify-center gap-3 disabled:opacity-50"
+                    >
+                        {isDownloading ? (
+                            <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                        ) : (
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                        )}
+                        {isDownloading ? 'MENGUNDUH...' : 'UNDUH STRUK PDF'}
+                    </button>
+                    <button 
+                        onClick={handleCloseAttempt} 
+                        className="w-full bg-orange-600 hover:bg-orange-700 text-white font-black py-4 rounded-2xl shadow-2xl transition-all active:scale-95 flex items-center justify-center gap-2"
+                    >
+                        SELESAI / KELUAR
+                    </button>
+                    <p className="text-[10px] text-gray-500 text-center font-bold uppercase tracking-widest mt-2">© Bakso Ujo Digital POS</p>
+                </div>
             </div>
         </div>
     );
