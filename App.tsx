@@ -88,7 +88,6 @@ function useLocalStorage<T>(key: string, initialValue: T): [T, (val: T) => void]
 
 const LandingPage = ({ onSelectMode, storeName, branchName, logo, slogan, theme, isStoreOpen, isLoading }: any) => (
   <div className="min-h-[100dvh] bg-orange-50 flex flex-col items-center justify-center p-6 text-center relative overflow-hidden">
-    {/* Background Decorative Elements */}
     <div className="absolute -top-24 -left-24 w-64 h-64 bg-orange-200/50 rounded-full blur-3xl"></div>
     <div className="absolute -bottom-24 -right-24 w-64 h-64 bg-orange-300/30 rounded-full blur-3xl"></div>
     
@@ -98,7 +97,9 @@ const LandingPage = ({ onSelectMode, storeName, branchName, logo, slogan, theme,
       {logo ? <img src={logo} alt="Logo" className="w-32 h-32 mx-auto mb-6 object-contain" /> : <div className={`w-28 h-28 bg-orange-600 text-white rounded-[2.5rem] flex items-center justify-center mx-auto mb-6 text-5xl font-black shadow-2xl shadow-orange-200 ring-8 ring-white`}>{storeName?.charAt(0) || 'B'}</div>}
       
       <div className="mb-8">
+          {/* FIX: Nama Toko menjadi judul paling besar sesuai permintaan */}
           <h1 className="text-5xl font-black text-gray-900 mb-1 tracking-tighter uppercase">{storeName}</h1>
+          {/* FIX: Nama Cabang menjadi kapsul subtitle */}
           <div className="bg-orange-600 text-white px-4 py-1.5 rounded-full inline-block text-sm font-black uppercase tracking-widest shadow-md">
               {branchName || 'Cabang Pusat'}
           </div>
@@ -131,10 +132,6 @@ const LandingPage = ({ onSelectMode, storeName, branchName, logo, slogan, theme,
             )}
           </div>
       )}
-    </div>
-    
-    <div className="absolute bottom-8 left-0 right-0 text-center opacity-30">
-        <p className="text-[10px] font-black uppercase tracking-widest text-orange-900">Bakso Ujo Digital POS v6.0</p>
     </div>
   </div>
 );
@@ -169,13 +166,10 @@ const App: React.FC = () => {
     const appModeRef = useRef(appMode);
     useEffect(() => { appModeRef.current = appMode; }, [appMode]);
 
-    // --- REFRESH DATA LOGIC ---
     const refreshAllData = useCallback(async (isInitial = false) => {
         if (isDatabaseReady === false) return;
-        
         try {
             if (isInitial) setIsShiftLoading(true);
-            
             const [p, m, i, u, cat, br] = await Promise.all([
                 getStoreProfileFromCloud(activeBranchId),
                 getMenuFromCloud(activeBranchId),
@@ -184,28 +178,17 @@ const App: React.FC = () => {
                 getCategoriesFromCloud(),
                 getBranchesFromCloud()
             ]);
-            
             setStoreProfile(p); setMenu(m); setIngredients(i); setUsers(u); setCategories(cat); setBranches(br);
-            
             const shift = await getActiveShiftFromCloud(activeBranchId);
             setActiveShift(shift);
-            
-            if (shift) { 
-                const ex = await getExpensesFromCloud(shift.id); 
-                setExpenses(ex); 
-            }
-            
+            if (shift) { const ex = await getExpensesFromCloud(shift.id); setExpenses(ex); }
             const history = await getCompletedShiftsFromCloud(activeBranchId);
             setCompletedShifts(history);
-            
-        } catch (err) { 
-            console.error("Gagal refresh data:", err); 
-        } finally {
+        } catch (err) { console.error("Gagal refresh data:", err); } finally {
             if (isInitial) setIsShiftLoading(false);
         }
     }, [activeBranchId, isDatabaseReady]);
 
-    // Initial Load
     useEffect(() => {
         const init = async () => {
             const isReady = await checkConnection();
@@ -215,10 +198,8 @@ const App: React.FC = () => {
         init();
     }, [activeBranchId, refreshAllData]);
 
-    // Real-time Listeners
     useEffect(() => {
         if (isDatabaseReady !== true) return;
-        
         const unsubOrders = subscribeToOrders(activeBranchId, (newOrders, isNew) => {
             setOrders(newOrders);
             if (isNew && appModeRef.current === 'admin') {
@@ -229,10 +210,8 @@ const App: React.FC = () => {
                 setTimeout(() => setNewOrderIncoming(false), 5000);
             }
         });
-        
         const unsubInv = subscribeToInventory(activeBranchId, () => refreshAllData());
         const unsubShifts = subscribeToShifts(activeBranchId, (s) => setActiveShift(s));
-
         return () => { unsubOrders(); unsubInv(); unsubShifts(); };
     }, [activeBranchId, isDatabaseReady, refreshAllData]);
 
@@ -240,11 +219,10 @@ const App: React.FC = () => {
         if (view === 'pos') setHasUnreadOrders(false);
     }, [view]);
 
-    // HANDLER FOR MODE SWITCHING WITH STOCK RELOAD
     const handleSetMode = async (mode: AppMode) => {
         if (mode === 'customer') {
             setIsGlobalLoading(true);
-            await refreshAllData(); // RELOAD STOCK BEFORE ENTERING
+            await refreshAllData(); 
             setIsGlobalLoading(false);
         }
         setAppMode(mode);
@@ -280,28 +258,7 @@ const App: React.FC = () => {
         let disc = dType === 'percent' ? (sub * dVal / 100) : dVal;
         const tax = storeProfile.enableTax ? (sub - disc) * (storeProfile.taxRate / 100) : 0;
         const srv = storeProfile.enableServiceCharge ? (sub - disc) * (storeProfile.serviceChargeRate / 100) : 0;
-        
-        const order: Order = { 
-            id: Date.now().toString(), 
-            sequentialId: orders.length + 1, 
-            customerName: name, 
-            items: cart, 
-            total: Math.round(sub - disc + tax + srv), 
-            subtotal: sub, 
-            discount: disc, 
-            discountType: dType, 
-            discountValue: dVal, 
-            taxAmount: tax, 
-            serviceChargeAmount: srv, 
-            status: 'pending', 
-            createdAt: Date.now(), 
-            isPaid: !!payment, 
-            paymentMethod: payment?.method, 
-            shiftId: activeShift?.id || 'public', 
-            orderType: oType, 
-            branchId: activeBranchId 
-        };
-        
+        const order: Order = { id: Date.now().toString(), sequentialId: orders.length + 1, customerName: name, items: cart, total: Math.round(sub - disc + tax + srv), subtotal: sub, discount: disc, discountType: dType, discountValue: dVal, taxAmount: tax, serviceChargeAmount: srv, status: 'pending', createdAt: Date.now(), isPaid: !!payment, paymentMethod: payment?.method, shiftId: activeShift?.id || 'public', orderType: oType, branchId: activeBranchId };
         cart.forEach(item => {
             const menuItem = menu.find(m => m.id === item.id);
             if (menuItem && menuItem.stock !== undefined) {
@@ -310,9 +267,7 @@ const App: React.FC = () => {
                 if (isDatabaseReady) updateProductStockInCloud(item.id, newStock);
             }
         });
-        
         setOrders(prev => [order, ...prev]);
-
         if (isDatabaseReady) {
             addOrderToCloud(order).then(() => {
                 if (payment && activeShift) {
@@ -321,49 +276,30 @@ const App: React.FC = () => {
                      updateShiftInCloud(activeShift.id, up);
                      setActiveShift(prev => prev ? { ...prev, ...up } : null);
                 }
-            }).catch(() => {
-                setOrders(prev => prev.filter(o => o.id !== order.id));
-                alert("Gagal sinkron cloud.");
-            });
+            }).catch(() => { setOrders(prev => prev.filter(o => o.id !== order.id)); alert("Gagal sinkron cloud."); });
         }
-        
         return order;
     };
 
     const contextValue: AppContextType = {
-        menu, categories, orders, expenses, activeShift, completedShifts, storeProfile, ingredients, tables: [], branches, users, currentUser, attendanceRecords: [], kitchenAlarmTime: 600, kitchenAlarmSound: 'beep',
-        isStoreOpen: !!activeShift, isShiftLoading,
+        menu, categories, orders, expenses, activeShift, completedShifts, storeProfile, ingredients, tables: [], branches, users, currentUser, attendanceRecords: [], kitchenAlarmTime: 600, kitchenAlarmSound: 'beep', isStoreOpen: !!activeShift, isShiftLoading,
         setMenu, setCategories, setStoreProfile: (p: any) => { setStoreProfile(p); if(isDatabaseReady) updateStoreProfileInCloud(p); },
         setKitchenAlarmTime: () => {}, setKitchenAlarmSound: () => {}, addCategory: addCategoryToCloud, deleteCategory: deleteCategoryFromCloud, setIngredients,
         saveMenuItem: async (i) => {
-            setMenu(prev => {
-                const existing = prev.findIndex(m => m.id === i.id);
-                if (existing > -1) { const n = [...prev]; n[existing] = i; return n; }
-                return [...prev, i];
-            });
+            setMenu(prev => { const existing = prev.findIndex(m => m.id === i.id); if (existing > -1) { const n = [...prev]; n[existing] = i; return n; } return [...prev, i]; });
             await addProductToCloud(i, activeBranchId);
         },
         removeMenuItem: deleteProductFromCloud,
         saveIngredient: async (i) => {
-            setIngredients(prev => {
-                const existing = prev.findIndex(ing => ing.id === i.id);
-                if (existing > -1) { const n = [...prev]; n[existing] = i; return n; }
-                return [...prev, i];
-            });
+            setIngredients(prev => { const existing = prev.findIndex(ing => ing.id === i.id); if (existing > -1) { const n = [...prev]; n[existing] = i; return n; } return [...prev, i]; });
             await addIngredientToCloud(i, activeBranchId);
         },
         removeIngredient: deleteIngredientFromCloud,
         addIngredient: (i) => addIngredientToCloud(i, activeBranchId),
         updateIngredient: (i) => addIngredientToCloud(i, activeBranchId),
         deleteIngredient: deleteIngredientFromCloud,
-        updateProductStock: async (id, stock) => {
-            setMenu(prev => prev.map(m => m.id === id ? { ...m, stock } : m));
-            await updateProductStockInCloud(id, stock);
-        },
-        updateIngredientStock: async (id, stock) => {
-            setIngredients(prev => prev.map(i => i.id === id ? { ...i, stock } : i));
-            await updateIngredientStockInCloud(id, stock);
-        },
+        updateProductStock: async (id, stock) => { setMenu(prev => prev.map(m => m.id === id ? { ...m, stock } : m)); await updateProductStockInCloud(id, stock); },
+        updateIngredientStock: async (id, stock) => { setIngredients(prev => prev.map(i => i.id === id ? { ...i, stock } : i)); await updateIngredientStockInCloud(id, stock); },
         addBranch: addBranchToCloud, deleteBranch: deleteBranchFromCloud, switchBranch: setActiveBranchId, setView,
         addUser: addUserToCloud, updateUser: updateUserInCloud, deleteUser: deleteUserFromCloud, loginUser: loginAction, logout: () => { setIsLoggedIn(false); setAppMode('landing'); },
         startShift, closeShift, addOrder: addOrderWrapper, 
@@ -389,10 +325,7 @@ const App: React.FC = () => {
         requestPassword: (t, c) => { c(); }, 
         printerDevice: null, isPrinting: false, connectToPrinter: async () => {}, disconnectPrinter: async () => {}, previewReceipt: () => {}, printOrderToDevice: async () => {}, printShiftToDevice: async () => {}, printOrderViaBrowser: () => {},
         setTables: () => {}, addTable: () => {}, deleteTable: () => {}, setUsers: () => {}, clockIn: async () => {}, clockOut: async () => {}, splitOrder: () => {}, 
-        customerSubmitOrder: async (cart, name) => {
-             const res = addOrderWrapper(cart, name, 0, 'percent', 'Dine In'); 
-             return !!res; 
-        },
+        customerSubmitOrder: async (cart, name) => { const res = addOrderWrapper(cart, name, 0, 'percent', 'Dine In'); return !!res; },
     };
 
     if (isDatabaseReady === false) return <ConfigMissingView />;
@@ -409,8 +342,6 @@ const App: React.FC = () => {
                             </div>
                         </div>
                     )}
-
-                    {/* NEW ORDER NOTIFICATION TOAST (ADMIN ONLY) */}
                     {newOrderIncoming && appMode === 'admin' && (
                         <div className="fixed top-6 left-1/2 transform -translate-x-1/2 z-[300] animate-slide-in-up">
                             <div className="bg-orange-600 text-white px-8 py-4 rounded-2xl shadow-2xl flex items-center gap-4 border-4 border-white">
@@ -424,22 +355,16 @@ const App: React.FC = () => {
                             </div>
                         </div>
                     )}
-                    
                     {appMode === 'landing' && (
                         <div key="mode-landing" className="h-full">
                             <LandingPage 
                                 onSelectMode={handleSetMode} 
                                 storeName={storeProfile.name} 
                                 branchName={branches.find(b => b.id === activeBranchId)?.name}
-                                logo={storeProfile.logo} 
-                                slogan={storeProfile.slogan} 
-                                theme={storeProfile.themeColor} 
-                                isStoreOpen={!!activeShift} 
-                                isLoading={isShiftLoading}
+                                logo={storeProfile.logo} slogan={storeProfile.slogan} theme={storeProfile.themeColor} isStoreOpen={!!activeShift} isLoading={isShiftLoading}
                             />
                         </div>
                     )}
-                    
                     {appMode === 'admin' && (
                         <div key="mode-admin" className="h-full">
                             {!isLoggedIn ? (
@@ -498,7 +423,6 @@ const App: React.FC = () => {
                             )}
                         </div>
                     )}
-                    
                     {appMode === 'customer' && (
                         <div key="mode-customer" className="h-full bg-orange-50">
                             <Suspense fallback={null}><CustomerOrderView onBack={() => handleSetMode('landing')} /></Suspense>

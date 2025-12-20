@@ -25,15 +25,41 @@ const CustomerOrderView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
 
     const addToCart = (item: MenuItem) => {
+        // FIX: Proteksi stok habis (Sold Out)
+        if (item.stock !== undefined && item.stock <= 0) {
+            return; // Jangan lakukan apa-apa jika stok 0
+        }
+
         setCart(prev => {
             const existing = prev.find(i => i.id === item.id);
-            if (existing) return prev.map(i => i.id === item.id ? { ...i, quantity: i.quantity + 1 } : i);
+            if (existing) {
+                // FIX: Jangan biarkan menambah lebih banyak dari stok yang ada
+                if (item.stock !== undefined && existing.quantity >= item.stock) {
+                    alert(`Maaf, stok ${item.name} hanya tersisa ${item.stock} porsi.`);
+                    return prev;
+                }
+                return prev.map(i => i.id === item.id ? { ...i, quantity: i.quantity + 1 } : i);
+            }
             return [...prev, { ...item, quantity: 1, note: '' }];
         });
     };
 
     const updateQty = (id: number, delta: number) => {
-        setCart(prev => prev.map(i => i.id === id ? { ...i, quantity: Math.max(0, i.quantity + delta) } : i).filter(i => i.quantity > 0));
+        setCart(prev => prev.map(i => {
+            if (i.id === id) {
+                const menuItem = menu.find(m => m.id === id);
+                const newQty = i.quantity + delta;
+                
+                // Proteksi stok saat update kuantitas di keranjang
+                if (delta > 0 && menuItem?.stock !== undefined && newQty > menuItem.stock) {
+                    alert(`Stok tidak mencukupi.`);
+                    return i;
+                }
+                
+                return { ...i, quantity: Math.max(0, newQty) };
+            }
+            return i;
+        }).filter(i => i.quantity > 0));
     };
 
     const handleSubmit = async () => {
@@ -87,17 +113,39 @@ const CustomerOrderView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
             {/* Menu Grid */}
             <main className="flex-1 overflow-y-auto p-4 pb-32">
                 <div className="grid grid-cols-2 gap-4">
-                    {filteredMenu.map(item => (
-                        <div key={item.id} onClick={() => addToCart(item)} className="bg-white rounded-[1.5rem] shadow-sm border border-gray-100 overflow-hidden active:scale-95 transition-transform flex flex-col">
-                            <div className="h-32 bg-gray-200">
-                                {item.imageUrl ? <img src={item.imageUrl} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-gray-300 font-black text-2xl">?</div>}
+                    {filteredMenu.map(item => {
+                        // FIX: Deteksi stok habis
+                        const isSoldOut = item.stock !== undefined && item.stock <= 0;
+                        
+                        return (
+                            <div 
+                                key={item.id} 
+                                onClick={() => !isSoldOut && addToCart(item)} 
+                                className={`bg-white rounded-[1.5rem] shadow-sm border border-gray-100 overflow-hidden active:scale-95 transition-all flex flex-col relative
+                                    ${isSoldOut ? 'opacity-60 grayscale' : 'hover:shadow-md cursor-pointer'}`}
+                            >
+                                {/* SOLD OUT LABEL OVERLAY */}
+                                {isSoldOut && (
+                                    <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
+                                        <span className="bg-red-600 text-white font-black text-xs px-3 py-1.5 rounded-full shadow-xl transform -rotate-12 uppercase tracking-widest border-2 border-white">SOLD OUT</span>
+                                    </div>
+                                )}
+
+                                <div className="h-32 bg-gray-200">
+                                    {item.imageUrl ? <img src={item.imageUrl} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-gray-300 font-black text-2xl">?</div>}
+                                </div>
+                                <div className="p-3 flex flex-col flex-1">
+                                    <h3 className="font-bold text-gray-800 text-sm leading-tight mb-1 line-clamp-2">{item.name}</h3>
+                                    <div className="flex justify-between items-end mt-auto">
+                                        <p className={`text-${theme}-600 font-black text-sm`}>{formatRupiah(item.price)}</p>
+                                        {!isSoldOut && item.stock !== undefined && item.stock < 10 && (
+                                            <span className="text-[9px] text-red-500 font-bold bg-red-50 px-1 rounded">Sisa {item.stock}</span>
+                                        )}
+                                    </div>
+                                </div>
                             </div>
-                            <div className="p-3 flex flex-col flex-1">
-                                <h3 className="font-bold text-gray-800 text-sm leading-tight mb-1 line-clamp-2">{item.name}</h3>
-                                <p className={`text-${theme}-600 font-black text-sm mt-auto`}>{formatRupiah(item.price)}</p>
-                            </div>
-                        </div>
-                    ))}
+                        );
+                    })}
                 </div>
             </main>
 
