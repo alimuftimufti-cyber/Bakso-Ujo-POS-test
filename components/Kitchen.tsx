@@ -15,7 +15,7 @@ const OrderCard: React.FC<{ order: Order, elapsed: number, isOverdue: boolean, t
     const headerStyle = type === 'food' ? 'bg-amber-500/10 border-amber-400' : 'bg-sky-500/10 border-sky-400';
 
     return (
-        <div className={`bg-gray-800 rounded-2xl shadow-xl w-80 flex-shrink-0 text-gray-300 flex flex-col overflow-hidden border border-gray-700 ${isOverdue ? 'animate-pulse-red' : ''}`}>
+        <div className={`bg-gray-800 rounded-2xl shadow-xl w-full lg:w-80 flex-shrink-0 text-gray-300 flex flex-col overflow-hidden border border-gray-700 ${isOverdue ? 'animate-pulse-red' : ''}`}>
             <div className={`p-4 border-b-2 flex justify-between items-center ${headerStyle}`}>
                 <div className="font-black text-xl text-white">
                     #{order.sequentialId || '...'} <span className="text-sm font-normal opacity-70">/ {order.customerName}</span>
@@ -61,7 +61,6 @@ const KitchenView: React.FC = () => {
         return () => clearInterval(timer);
     }, []);
 
-    // FILTER PESANAN AKTIF (Hanya yang pending atau ready, serving sudah hilang dari dapur)
     const activeOrders = useMemo(() => {
         return orders.filter(o => o.status === 'pending' || o.status === 'ready')
                      .sort((a, b) => a.createdAt - b.createdAt);
@@ -74,23 +73,24 @@ const KitchenView: React.FC = () => {
 
     return (
         <div className="bg-[#0f172a] text-white h-full flex flex-col font-sans">
-            <header className="p-6 bg-slate-800 shadow-2xl flex justify-between items-center border-b border-slate-700">
-                <div className="flex items-center gap-6">
-                    <h1 className="text-3xl font-black tracking-tighter uppercase italic">Monitor Dapur</h1>
+            <header className="p-4 lg:p-6 bg-slate-800 shadow-2xl flex flex-col sm:flex-row justify-between items-center border-b border-slate-700 gap-4">
+                <div className="flex items-center gap-6 w-full sm:w-auto">
+                    <h1 className="text-2xl lg:text-3xl font-black tracking-tighter uppercase italic">Monitor Dapur</h1>
                     <div className="flex bg-black/30 p-1 rounded-2xl">
-                        <button onClick={() => setActiveTab('active')} className={`px-6 py-2 rounded-xl text-sm font-black transition-all ${activeTab === 'active' ? 'bg-orange-600 text-white' : 'text-gray-500'}`}>ANTRIAN ({activeOrders.length})</button>
-                        <button onClick={() => setActiveTab('history')} className={`px-6 py-2 rounded-xl text-sm font-black transition-all ${activeTab === 'history' ? 'bg-orange-600 text-white' : 'text-gray-500'}`}>RIWAYAT</button>
+                        <button onClick={() => setActiveTab('active')} className={`px-4 lg:px-6 py-2 rounded-xl text-xs lg:text-sm font-black transition-all ${activeTab === 'active' ? 'bg-orange-600 text-white' : 'text-gray-500'}`}>ANTRIAN ({activeOrders.length})</button>
+                        <button onClick={() => setActiveTab('history')} className={`px-4 lg:px-6 py-2 rounded-xl text-xs lg:text-sm font-black transition-all ${activeTab === 'history' ? 'bg-orange-600 text-white' : 'text-gray-500'}`}>RIWAYAT</button>
                     </div>
                 </div>
             </header>
 
-            <main className="flex-1 overflow-x-auto p-6">
+            {/* Kontainer Utama: overflow-y di HP, overflow-x di Desktop */}
+            <main className="flex-1 overflow-y-auto lg:overflow-x-auto p-4 lg:p-6 custom-scrollbar">
                 {activeTab === 'active' ? (
-                    <div className="flex items-start gap-6 h-full">
+                    <div className="flex flex-col lg:flex-row lg:items-start gap-6">
                         {activeOrders.length === 0 ? (
-                            <div className="w-full h-full flex flex-col items-center justify-center text-slate-500">
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-24 w-24 mb-4 opacity-20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
-                                <p className="text-2xl font-black uppercase tracking-widest">Belum ada pesanan</p>
+                            <div className="w-full h-full min-h-[50vh] flex flex-col items-center justify-center text-slate-500">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-20 w-20 mb-4 opacity-20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                                <p className="text-xl font-black uppercase tracking-widest text-center">Belum ada pesanan aktif</p>
                             </div>
                         ) : (
                             activeOrders.map(order => (
