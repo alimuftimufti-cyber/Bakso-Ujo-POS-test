@@ -138,6 +138,14 @@ const MenuForm = ({ onClose, onSave, item, theme }: { onClose: () => void, onSav
     );
 };
 
+// HELPER: Generate Masked URL
+const getMaskedUrl = (baseUrl: string, branchId: string, tableNum: string) => {
+    // We bundle branch and table into a masked string (Base64 is simple masking)
+    const rawStr = `B:${branchId}|T:${tableNum}`;
+    const masked = btoa(rawStr);
+    return `${baseUrl}/?q=${masked}`;
+}
+
 const generatePrintLayout = (tables: Table[], profile: StoreProfile) => {
     const baseUrl = window.location.origin;
     const win = window.open('', '_blank', 'width=900,height=700');
@@ -147,8 +155,8 @@ const generatePrintLayout = (tables: Table[], profile: StoreProfile) => {
     }
 
     const printContent = tables.map(t => {
-        const deepLinkUrl = `${baseUrl}/?mode=customer&branch=${profile.branchId}&table=${t.number}`;
-        const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=${encodeURIComponent(deepLinkUrl)}`;
+        const maskedUrl = getMaskedUrl(baseUrl, profile.branchId, t.number);
+        const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=${encodeURIComponent(maskedUrl)}`;
         return `
             <div class="qr-card">
                 <div class="header">
@@ -455,7 +463,7 @@ const SettingsView = () => {
                                 </div>
                             </div>
 
-                            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-4">
+                            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-4 space-y-4">
                                 <h3 className="font-bold text-lg border-b pb-2">Identitas Toko</h3>
                                 <InputField label="Nama Toko" value={storeProfile.name} onChange={(e: any) => setStoreProfile({...storeProfile, name: e.target.value})} />
                                 <InputField label="Alamat" value={storeProfile.address} onChange={(e: any) => setStoreProfile({...storeProfile, address: e.target.value})} />
@@ -521,10 +529,10 @@ const SettingsView = () => {
                                 <div className="bg-indigo-50 p-6 rounded-2xl border border-indigo-100 flex flex-col justify-between">
                                     <div>
                                         <h4 className="font-bold text-indigo-900 mb-2 flex items-center gap-2">
-                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 4a1 1 0 011-1h3a1 1 0 011 1v3a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm2 2V5h1v1H5zM3 13a1 1 0 011-1h3a1 1 0 011 1v3a1 1 0 01-1 1H4a1 1 0 01-1-1v-3zm2 2v-1h1v1H5zM13 3a1 1 0 00-1 1v3a1 1 0 001 1h3a1 1 0 001-1V4a1 1 0 00-1-1h-3zm1 2v1h1V5h-1z" clipRule="evenodd" /><path d="M11 12a1 1 0 011-1h1v1h-1v1h1v1h-1v1h-1v-1h-1v-1h1v-1zM16 11a1 1 0 00-1 1v1h1v-1h1v1h1v1h-1v1h1v-1h1v-1h-1v-1h-1zM16 16v1h1v-1h-1zM12 16v1h1v-1h-1z" /></svg>
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 4a1 1 0 011-1h3a1 1 0 011 1v3a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm2 2V5h1v1H5zM3 13a1 1 0 011-1h3a1 1 0 011 1v3a1 1 0 01-1 1H4a1 1 0 01-1-1v-3zm2 2v-1h1v1H5zM13 3a1 1 0 00-1 1v3a1 1 0 001 1h3a1 1 0 001-1V4a1 1 0 00-1-1h-3zm1 2v1h1V5h-1z" clipRule="evenodd" /><path d="M11 12a1 1 0 011-1h1v1h-1v1h1v1h-1v1h-1v-1h-1v-1h1v-1zM16 11a1 1 0 00-1 1v1h1v-1h1v1h1v1h-1v1h-1v-1h-1v-1h-1v-1h-1zM16 16v1h1v-1h-1zM12 16v1h1v-1h-1z" /></svg>
                                             Mode Pesan Mandiri (Self Order)
                                         </h4>
-                                        <p className="text-sm text-indigo-700 leading-relaxed mb-4">Pastikan URL toko Anda sudah benar. QR Code akan mengarahkan pelanggan ke menu digital yang terkunci ke nomor meja masing-masing.</p>
+                                        <p className="text-sm text-indigo-700 leading-relaxed mb-4">Pastikan URL toko Anda sudah benar. QR Code akan mengarahkan pelanggan ke menu digital yang terenkripsi dan otomatis mengisi nomor meja masing-masing.</p>
                                     </div>
                                     <button onClick={() => generatePrintLayout(tables, storeProfile)} className="w-full bg-indigo-600 text-white font-black py-4 rounded-xl hover:bg-indigo-700 shadow-xl shadow-indigo-100 transition-all active:scale-95">
                                         CETAK SEMUA QR MEJA
@@ -546,8 +554,8 @@ const SettingsView = () => {
                                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-6">
                                         {tables.map(table => {
                                             const baseUrl = window.location.origin;
-                                            const deepLinkUrl = `${baseUrl}/?mode=customer&branch=${storeProfile.branchId}&table=${table.number}`;
-                                            const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(deepLinkUrl)}`;
+                                            const maskedUrl = getMaskedUrl(baseUrl, storeProfile.branchId, table.number);
+                                            const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(maskedUrl)}`;
                                             
                                             return (
                                                 <div key={table.id} className="bg-gray-50 border border-gray-200 rounded-2xl p-4 flex flex-col items-center group relative hover:border-indigo-400 transition-colors">

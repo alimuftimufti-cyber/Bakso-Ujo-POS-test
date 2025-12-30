@@ -175,13 +175,34 @@ const App: React.FC = () => {
     const appModeRef = useRef(appMode);
     useEffect(() => { appModeRef.current = appMode; }, [appMode]);
 
-    // NEW: Handle Deep Linking for Table QR
+    // NEW: Handle Masked URL (Masking logic)
+    const decodeMaskedParams = (q: string) => {
+        try {
+            const decoded = atob(q); // Base64 decode
+            const parts = decoded.split('|');
+            const data: any = {};
+            parts.forEach(p => {
+                const [k, v] = p.split(':');
+                if (k === 'B') data.branch = v;
+                if (k === 'T') data.table = v;
+            });
+            return data;
+        } catch (e) { return null; }
+    };
+
     useEffect(() => {
         const params = new URLSearchParams(window.location.search);
-        const tableFromUrl = params.get('table');
+        const q = params.get('q');
         const modeFromUrl = params.get('mode');
         
-        if (modeFromUrl === 'customer' || tableFromUrl) {
+        if (q) {
+            const data = decodeMaskedParams(q);
+            if (data?.branch) {
+                setActiveBranchId(data.branch);
+                // Force into customer mode if valid q exists
+                setAppMode('customer');
+            }
+        } else if (modeFromUrl === 'customer') {
             setAppMode('customer');
         }
     }, []);

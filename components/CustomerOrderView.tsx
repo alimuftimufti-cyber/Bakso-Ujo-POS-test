@@ -179,7 +179,7 @@ const DigitalReceipt = ({ order, onExit, theme }: { order: Order, onExit: () => 
 };
 
 const CustomerOrderView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
-    const { menu, categories, customerSubmitOrder, storeProfile } = useAppContext();
+    const { menu, categories, customerSubmitOrder, storeProfile, isStoreOpen } = useAppContext();
     const [cart, setCart] = useState<CartItem[]>([]);
     const [customerName, setCustomerName] = useState('');
     const [tableNumber, setTableNumber] = useState('');
@@ -188,11 +188,23 @@ const CustomerOrderView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     const [submittedOrder, setSubmittedOrder] = useState<Order | null>(null);
     const [activeCategory, setActiveCategory] = useState('All');
 
-    // NEW: Autofill table from URL
+    // NEW: Autofill table from masked q parameter
     useEffect(() => {
         const params = new URLSearchParams(window.location.search);
-        const table = params.get('table');
-        if (table) setTableNumber(table);
+        const q = params.get('q');
+        if (q) {
+            try {
+                const decoded = atob(q);
+                const parts = decoded.split('|');
+                parts.forEach(p => {
+                    const [k, v] = p.split(':');
+                    if (k === 'T') setTableNumber(v);
+                });
+            } catch (e) {}
+        } else {
+            const table = params.get('table');
+            if (table) setTableNumber(table);
+        }
     }, []);
 
     const filteredMenu = useMemo(() => {
@@ -255,6 +267,20 @@ const CustomerOrderView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
             alert("Gagal mengirim pesanan. Pastikan koneksi internet aktif.");
         }
     };
+
+    // PROTEKSI SHIFT TUTUP
+    if (!isStoreOpen) {
+        return (
+            <div className="min-h-[100dvh] bg-orange-50 flex flex-col items-center justify-center p-8 text-center font-sans">
+                <div className="w-24 h-24 bg-orange-100 text-orange-600 rounded-full flex items-center justify-center mb-6 shadow-inner ring-4 ring-white animate-bounce-slow">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+                </div>
+                <h2 className="text-3xl font-black text-gray-900 mb-2 uppercase tracking-tighter italic">KEDAI SEDANG TUTUP</h2>
+                <p className="text-gray-500 font-bold mb-8 leading-relaxed">Maaf, layanan pesan mandiri sedang tidak aktif. <br/>Silakan mampir lagi saat jam operasional kami!</p>
+                <button onClick={onBack} className="bg-gray-900 text-white px-8 py-3 rounded-2xl font-black shadow-xl uppercase tracking-widest text-sm">Kembali</button>
+            </div>
+        );
+    }
 
     if (submittedOrder) {
         return <DigitalReceipt order={submittedOrder} onExit={onBack} theme="orange" />;
