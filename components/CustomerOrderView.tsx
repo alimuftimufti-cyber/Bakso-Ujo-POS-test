@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useAppContext } from '../types'; 
 import type { MenuItem, CartItem, Order, OrderType } from '../types';
 import html2canvas from 'html2canvas';
-import { jsPDF } from 'jspdf';
+import { jsPDF } from 'jsPDF';
 
 const formatRupiah = (number: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(number);
 
@@ -187,6 +187,13 @@ const CustomerOrderView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [submittedOrder, setSubmittedOrder] = useState<Order | null>(null);
     const [activeCategory, setActiveCategory] = useState('All');
+
+    // NEW: Autofill table from URL
+    useEffect(() => {
+        const params = new URLSearchParams(window.location.search);
+        const table = params.get('table');
+        if (table) setTableNumber(table);
+    }, []);
 
     const filteredMenu = useMemo(() => {
         return menu.filter(item => (activeCategory === 'All' || item.category === activeCategory));

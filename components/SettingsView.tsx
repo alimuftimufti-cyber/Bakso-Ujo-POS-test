@@ -266,7 +266,7 @@ const SettingsView = () => {
             const newTables: Table[] = [];
             for(let i=start; i<=end; i++) {
                 const numStr = i.toString();
-                if(!tables.find(t => t.number === numStr)) newTables.push({ id: Date.now().toString() + i, number: numStr, qrCodeData: `{"table":"${numStr}"}` });
+                if(!tables.find(t => t.number === numStr)) newTables.push({ id: Date.now().toString() + i, number: numStr, qrCodeData: numStr });
             }
             if (newTables.length > 0) { setTables(prev => [...prev, ...newTables]); alert(`Berhasil membuat ${newTables.length} meja baru.`); }
         }
@@ -496,30 +496,78 @@ const SettingsView = () => {
 
                 {/* TAB: QR */}
                 {tab === 'qr' && (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div className="space-y-8 animate-fade-in">
                         <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-                            <h3 className="font-bold text-lg mb-4">Generator Meja</h3>
-                            <div className="flex gap-2 mb-6">
-                                <input value={qrSingleTable} onChange={e => setQrSingleTable(e.target.value)} placeholder="Nomor Meja" className="border p-2 rounded-lg flex-1 outline-none" />
-                                <button onClick={() => { addTable(qrSingleTable); setQrSingleTable(''); }} className="bg-black text-white px-4 rounded-lg font-bold">Tambah</button>
-                            </div>
-                            <div className="bg-gray-50 p-4 rounded-xl">
-                                <p className="text-xs font-bold text-gray-500 mb-2 uppercase">Batch Generator</p>
-                                <div className="flex gap-2">
-                                    <input type="number" value={qrBatchStart} onChange={e => setQrBatchStart(e.target.value)} placeholder="Mulai" className="border p-2 rounded-lg w-20" />
-                                    <input type="number" value={qrBatchEnd} onChange={e => setQrBatchEnd(e.target.value)} placeholder="Sampai" className="border p-2 rounded-lg w-20" />
-                                    <button onClick={handleBatchAddTable} className="bg-blue-600 text-white px-4 rounded-lg font-bold text-xs flex-1">Buat Banyak</button>
+                            <h3 className="font-bold text-lg mb-4 text-gray-800">Manajemen Meja (QR Order)</h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                <div className="space-y-6">
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-400 uppercase mb-2">Tambah Meja Tunggal</label>
+                                        <div className="flex gap-2">
+                                            <input value={qrSingleTable} onChange={e => setQrSingleTable(e.target.value)} placeholder="Nomor Meja" className="border-2 border-gray-100 px-4 py-2.5 rounded-xl flex-1 outline-none focus:border-black font-bold" />
+                                            <button onClick={() => { if(qrSingleTable) { addTable(qrSingleTable); setQrSingleTable(''); } }} className="bg-black text-white px-6 rounded-xl font-bold shadow-lg hover:bg-gray-800">Tambah</button>
+                                        </div>
+                                    </div>
+                                    <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100">
+                                        <p className="text-[10px] font-black text-gray-500 mb-3 uppercase tracking-widest">Generator Massal</p>
+                                        <div className="flex items-center gap-2">
+                                            <input type="number" value={qrBatchStart} onChange={e => setQrBatchStart(e.target.value)} placeholder="Awal" className="border-2 border-gray-200 px-3 py-2 rounded-xl w-24 text-center font-bold" />
+                                            <span className="text-gray-400 font-bold">s/d</span>
+                                            <input type="number" value={qrBatchEnd} onChange={e => setQrBatchEnd(e.target.value)} placeholder="Akhir" className="border-2 border-gray-200 px-3 py-2 rounded-xl w-24 text-center font-bold" />
+                                            <button onClick={handleBatchAddTable} className="bg-blue-600 text-white px-4 py-2.5 rounded-xl font-bold text-xs flex-1 shadow-md hover:bg-blue-700">Buat Sekaligus</button>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="bg-indigo-50 p-6 rounded-2xl border border-indigo-100 flex flex-col justify-between">
+                                    <div>
+                                        <h4 className="font-bold text-indigo-900 mb-2 flex items-center gap-2">
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 4a1 1 0 011-1h3a1 1 0 011 1v3a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm2 2V5h1v1H5zM3 13a1 1 0 011-1h3a1 1 0 011 1v3a1 1 0 01-1 1H4a1 1 0 01-1-1v-3zm2 2v-1h1v1H5zM13 3a1 1 0 00-1 1v3a1 1 0 001 1h3a1 1 0 001-1V4a1 1 0 00-1-1h-3zm1 2v1h1V5h-1z" clipRule="evenodd" /><path d="M11 12a1 1 0 011-1h1v1h-1v1h1v1h-1v1h-1v-1h-1v-1h1v-1zM16 11a1 1 0 00-1 1v1h1v-1h1v1h1v1h-1v1h1v-1h1v-1h-1v-1h-1zM16 16v1h1v-1h-1zM12 16v1h1v-1h-1z" /></svg>
+                                            Mode Pesan Mandiri (Self Order)
+                                        </h4>
+                                        <p className="text-sm text-indigo-700 leading-relaxed mb-4">Pastikan URL toko Anda sudah benar. QR Code akan mengarahkan pelanggan ke menu digital yang terkunci ke nomor meja masing-masing.</p>
+                                    </div>
+                                    <button onClick={() => generatePrintLayout(tables, storeProfile)} className="w-full bg-indigo-600 text-white font-black py-4 rounded-xl hover:bg-indigo-700 shadow-xl shadow-indigo-100 transition-all active:scale-95">
+                                        CETAK SEMUA QR MEJA
+                                    </button>
                                 </div>
                             </div>
                         </div>
-                        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col justify-between">
-                            <div>
-                                <h3 className="font-bold text-lg mb-2">Cetak QR Code</h3>
-                                <p className="text-gray-500 text-sm mb-4">Total Meja Terdaftar: {tables.length}</p>
+
+                        {/* LIST MEJA & QR PREVIEW */}
+                        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                            <div className="px-6 py-4 bg-gray-50 border-b flex justify-between items-center">
+                                <h3 className="font-bold text-gray-700">Daftar Meja & QR Kunci</h3>
+                                <span className="bg-indigo-100 text-indigo-700 px-3 py-1 rounded-full text-xs font-black">{tables.length} MEJA</span>
                             </div>
-                            <button onClick={() => generatePrintLayout(tables, storeProfile)} className="w-full bg-indigo-600 text-white font-bold py-4 rounded-xl hover:bg-indigo-700 shadow-lg">
-                                Print Semua QR Meja
-                            </button>
+                            <div className="p-6">
+                                {tables.length === 0 ? (
+                                    <div className="text-center py-20 text-gray-400 italic font-medium">Belum ada meja yang terdaftar. Gunakan input di atas untuk membuat meja.</div>
+                                ) : (
+                                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-6">
+                                        {tables.map(table => {
+                                            const baseUrl = window.location.origin;
+                                            const deepLinkUrl = `${baseUrl}/?mode=customer&branch=${storeProfile.branchId}&table=${table.number}`;
+                                            const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(deepLinkUrl)}`;
+                                            
+                                            return (
+                                                <div key={table.id} className="bg-gray-50 border border-gray-200 rounded-2xl p-4 flex flex-col items-center group relative hover:border-indigo-400 transition-colors">
+                                                    <button 
+                                                        onClick={() => deleteTable(table.id)}
+                                                        className="absolute -top-2 -right-2 bg-red-500 text-white w-6 h-6 rounded-full flex items-center justify-center shadow-lg opacity-0 group-hover:opacity-100 transition-opacity z-10 font-bold"
+                                                    >
+                                                        &times;
+                                                    </button>
+                                                    <div className="bg-white p-2 rounded-lg shadow-inner mb-3 w-full aspect-square flex items-center justify-center">
+                                                        <img src={qrUrl} alt={`Meja ${table.number}`} className="w-full h-full mix-blend-multiply" loading="lazy" />
+                                                    </div>
+                                                    <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">MEJA</span>
+                                                    <span className="text-2xl font-black text-gray-900">{table.number}</span>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     </div>
                 )}

@@ -58,7 +58,8 @@ const ConfigMissingView = () => (
     </div>
 );
 
-class ErrorBoundary extends Component<{ children: React.ReactNode }, { hasError: boolean }> {
+// FIX: Explicitly inheriting from React.Component and providing proper generics for Props and State to fix TS error.
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean }> {
   constructor(props: { children: React.ReactNode }) { 
     super(props); 
     this.state = { hasError: false }; 
@@ -74,13 +75,20 @@ class ErrorBoundary extends Component<{ children: React.ReactNode }, { hasError:
   }
 }
 
-function useLocalStorage<T>(key: string, initialValue: T): [T, (val: T) => void] {
+// FIX: Enhanced hook to handle functional updates (prev => next) allowing table state to be updated correctly.
+function useLocalStorage<T>(key: string, initialValue: T): [T, (val: T | ((prev: T) => T)) => void] {
   const [storedValue, setStoredValue] = useState<T>(() => {
     try { const item = window.localStorage.getItem(key); return item ? JSON.parse(item) : initialValue; } 
     catch (error) { return initialValue; }
   });
-  const setValue = (value: T) => {
-    try { setStoredValue(value); window.localStorage.setItem(key, JSON.stringify(value)); } 
+  const setValue = (value: T | ((prev: T) => T)) => {
+    try { 
+      setStoredValue(prev => {
+        const newValue = value instanceof Function ? value(prev) : value;
+        window.localStorage.setItem(key, JSON.stringify(newValue));
+        return newValue;
+      });
+    } 
     catch (error) {}
   };
   return [storedValue, setValue];
@@ -155,6 +163,9 @@ const App: React.FC = () => {
     const [completedShifts, setCompletedShifts] = useState<ShiftSummary[]>([]);
     const [storeProfile, setStoreProfile] = useState<StoreProfile>({ ...defaultStoreProfile, branchId: activeBranchId });
     
+    // QR / Deep Link Support
+    const [tables, setTables] = useLocalStorage<Table[]>(`pos-tables-${activeBranchId}-${DB_VER}`, []);
+
     const [isShiftLoading, setIsShiftLoading] = useState(true);
     const [isGlobalLoading, setIsGlobalLoading] = useState(false);
     const [isDatabaseReady, setIsDatabaseReady] = useState<boolean | null>(null);
@@ -163,6 +174,17 @@ const App: React.FC = () => {
 
     const appModeRef = useRef(appMode);
     useEffect(() => { appModeRef.current = appMode; }, [appMode]);
+
+    // NEW: Handle Deep Linking for Table QR
+    useEffect(() => {
+        const params = new URLSearchParams(window.location.search);
+        const tableFromUrl = params.get('table');
+        const modeFromUrl = params.get('mode');
+        
+        if (modeFromUrl === 'customer' || tableFromUrl) {
+            setAppMode('customer');
+        }
+    }, []);
 
     const refreshAllData = useCallback(async (isInitial = false) => {
         if (isDatabaseReady === false) return;
@@ -297,7 +319,7 @@ const App: React.FC = () => {
     };
 
     const contextValue: AppContextType = {
-        menu, categories, orders, expenses, activeShift, completedShifts, storeProfile, ingredients, tables: [], branches, users, currentUser, attendanceRecords: [], kitchenAlarmTime: 600, kitchenAlarmSound: 'beep', isStoreOpen: !!activeShift, isShiftLoading,
+        menu, categories, orders, expenses, activeShift, completedShifts, storeProfile, ingredients, tables, branches, users, currentUser, attendanceRecords: [], kitchenAlarmTime: 600, kitchenAlarmSound: 'beep', isStoreOpen: !!activeShift, isShiftLoading,
         setMenu, setCategories, setStoreProfile: (p: any) => { setStoreProfile(p); if(isDatabaseReady) updateStoreProfileInCloud(p); },
         setKitchenAlarmTime: () => {}, setKitchenAlarmSound: () => {}, addCategory: addCategoryToCloud, deleteCategory: deleteCategoryFromCloud, setIngredients,
         saveMenuItem: async (i) => {
@@ -349,7 +371,7 @@ const App: React.FC = () => {
         refreshOrders: () => refreshAllData(),
         requestPassword: (t, c) => { c(); }, 
         printerDevice: null, isPrinting: false, connectToPrinter: async () => {}, disconnectPrinter: async () => {}, previewReceipt: () => {}, printOrderToDevice: async () => {}, printShiftToDevice: async () => {}, printOrderViaBrowser: () => {},
-        setTables: () => {}, addTable: () => {}, deleteTable: () => {}, setUsers: () => {}, clockIn: async () => {}, clockOut: async () => {}, splitOrder: () => {}, 
+        setTables, addTable: (n) => setTables(prev => [...prev, { id: Date.now().toString(), number: n, qrCodeData: n }]), deleteTable: (id) => setTables(prev => prev.filter(t => t.id !== id)), setUsers: () => {}, clockIn: async () => {}, clockOut: async () => {}, splitOrder: () => {}, 
         customerSubmitOrder: async (cart, name) => { const res = addOrderWrapper(cart, name, 0, 'percent', 'Dine In'); return res; }, 
     };
 
