@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useAppContext } from '../types'; 
 import type { MenuItem, CartItem, Order, OrderType } from '../types';
 import html2canvas from 'html2canvas';
-import { jsPDF } from 'jsPDF';
+import { jsPDF } from 'jspdf';
 
 const formatRupiah = (number: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(number);
 
@@ -43,7 +43,7 @@ const DigitalReceipt = ({ order, onExit, theme }: { order: Order, onExit: () => 
                 onclone: (clonedDoc) => {
                     // Pastikan elemen kloning terlihat di shadow DOM capture
                     const clonedEl = clonedDoc.getElementById('receipt-inner-content');
-                    if (clonedEl) clonedEl.style.height = 'auto';
+                    if (clonedEl) (clonedEl as HTMLElement).style.height = 'auto';
                 }
             });
             
