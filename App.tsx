@@ -44,10 +44,10 @@ const LandingPage = ({ onSelectMode, branchName, slogan, isStoreOpen }: any) => 
   <div className="min-h-screen bg-orange-50 flex flex-col items-center justify-center p-6 text-center relative overflow-hidden">
     <div className="absolute -top-24 -left-24 w-64 h-64 bg-orange-200/50 rounded-full blur-3xl"></div>
     
-    {/* TOMBOL ADMIN TERSEMBUNYI DI POJOK KANAN ATAS */}
+    {/* TOMBOL ADMIN TERSEMBUNYI DI POJOK KANAN ATAS - SEKARANG LEBIH AMAN */}
     <button 
         onClick={() => onSelectMode('admin')} 
-        className="absolute top-4 right-4 w-12 h-12 flex items-center justify-center text-orange-900/10 hover:text-orange-900/30 transition-all z-50 rounded-full hover:bg-orange-100/50"
+        className="absolute top-4 right-4 w-12 h-12 flex items-center justify-center text-orange-900/5 hover:text-orange-900/20 transition-all z-50 rounded-full"
         title="Admin Panel"
     >
         <SidebarIcons.Settings />
@@ -67,7 +67,7 @@ const LandingPage = ({ onSelectMode, branchName, slogan, isStoreOpen }: any) => 
       </div>
     </div>
     
-    <div className="mt-12 text-[10px] font-bold text-orange-200 uppercase tracking-[0.3em]">Smart POS v2.0</div>
+    <div className="mt-12 text-[10px] font-bold text-orange-200 uppercase tracking-[0.3em]">Smart POS v2.1</div>
   </div>
 );
 
@@ -78,7 +78,7 @@ const DatabaseErrorView = () => (
             <h2 className="text-2xl font-black text-gray-900 mb-4 uppercase">Database Belum Siap</h2>
             <p className="text-gray-600 mb-8 leading-relaxed">
                 Aplikasi mendeteksi bahwa <strong>tabel database belum dibuat</strong> di akun Supabase Anda (Error 404). <br/><br/>
-                Silakan buka <strong>Supabase Dashboard > SQL Editor</strong> dan jalankan kode SQL Schema yang telah disediakan untuk membuat tabel <code>menu</code>, <code>users</code>, dan lainnya.
+                Silakan buka <strong>Supabase Dashboard &gt; SQL Editor</strong> dan jalankan kode SQL Schema yang telah disediakan untuk membuat tabel <code>menu</code>, <code>users</code>, dan lainnya.
             </p>
             <button onClick={() => window.location.reload()} className="bg-gray-900 text-white px-8 py-3 rounded-xl font-bold">Segarkan Halaman</button>
         </div>
@@ -124,7 +124,6 @@ const App: React.FC = () => {
             setDbError(false);
         } catch (err: any) { 
             console.error("Refresh error:", err);
-            // Jika error mengandung kode 404 atau tabel tidak ditemukan
             if (err.message?.includes('404') || err.message?.includes('not find the table')) {
                 setDbError(true);
             }
@@ -151,11 +150,11 @@ const App: React.FC = () => {
 
     const handleLogin = (pin: string) => {
         if (users.length === 0) {
-            alert("Data user belum dimuat atau database kosong. Periksa koneksi database.");
+            alert("Data user tidak ditemukan. Pastikan tabel 'users' di Supabase sudah terisi.");
             return false;
         }
 
-        // PERBAIKAN: Pastikan perbandingan PIN menggunakan string untuk keamanan
+        // PERBAIKAN PIN: Cast ke String agar PIN dengan angka nol di depan (0123) tidak error
         const user = users.find(u => String(u.pin) === String(pin));
         
         if (user) {
@@ -165,7 +164,7 @@ const App: React.FC = () => {
             else setView('pos');
             return true;
         }
-        alert("PIN Salah! Coba lagi.");
+        alert("PIN Salah! Silakan hubungi Owner.");
         return false;
     };
 
