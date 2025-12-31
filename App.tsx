@@ -30,7 +30,7 @@ const ReportView = React.lazy(() => import('./components/Report'));
 const InventoryView = React.lazy(() => import('./components/InventoryView'));
 const CustomerOrderView = React.lazy(() => import('./components/CustomerOrderView'));
 
-// Icons - Fixed SVG paths to prevent "Expected arc flag" errors
+// Icons
 const SidebarIcons = {
     Pos: () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>,
     Shift: () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>,
@@ -108,7 +108,7 @@ const App: React.FC = () => {
 
     const refreshAllData = useCallback(async () => {
         try {
-            await ensureDefaultBranch(); // Penting: Pastikan 'pusat' ada dulu
+            await ensureDefaultBranch();
             
             const [profileData, menuData, categoriesData, usersData, tablesData] = await Promise.all([
                 getStoreProfileFromCloud(activeBranchId).catch(() => null),
@@ -135,7 +135,7 @@ const App: React.FC = () => {
         } catch (err: any) { 
             console.error("Refresh error:", err);
             if (err.message?.includes('not find the table') || err.message?.includes('404')) {
-                setDbErrorMessage(`Tabel '${err.details || 'tidak dikenal'}' tidak ditemukan. Pastikan skema SQL sudah dijalankan.`);
+                setDbErrorMessage(`Tabel '${err.details || 'tidak dikenal'}' tidak ditemukan.`);
             }
         }
         finally { setIsGlobalLoading(false); }
@@ -146,6 +146,11 @@ const App: React.FC = () => {
             const ok = await checkConnection();
             setIsDatabaseReady(ok);
             if (ok) {
+                // DETEKSI ROUTING DARI QR CODE
+                const params = new URLSearchParams(window.location.search);
+                if (params.has('q') || params.has('table')) {
+                    setAppMode('customer');
+                }
                 await refreshAllData();
             } else {
                 setIsGlobalLoading(false);
@@ -177,7 +182,7 @@ const App: React.FC = () => {
 
     const handleLogin = (pin: string) => {
         if (users.length === 0) {
-            alert("Tidak ada data user. Pastikan tabel 'users' sudah berisi data admin.");
+            alert("Tidak ada data user.");
             return false;
         }
         const user = users.find(u => String(u.pin) === String(pin));
@@ -188,7 +193,7 @@ const App: React.FC = () => {
             else setView('pos');
             return true;
         }
-        alert("PIN Salah! Default Admin adalah 1234.");
+        alert("PIN Salah!");
         return false;
     };
 
@@ -260,7 +265,7 @@ const App: React.FC = () => {
                             <div className="fixed inset-0 bg-gray-900/95 flex items-center justify-center z-50 p-4 backdrop-blur-md">
                                 <div className="bg-white p-10 rounded-[3rem] shadow-2xl max-w-sm w-full text-center border-t-8 border-orange-600 animate-scale-in">
                                     <h2 className="text-2xl font-black mb-2 uppercase tracking-widest text-gray-800">Login Kasir</h2>
-                                    <p className="text-gray-400 text-xs font-bold mb-8">Gunakan PIN Admin (Default: 1234)</p>
+                                    <p className="text-gray-400 text-xs font-bold mb-8">Gunakan PIN Admin</p>
                                     <input 
                                         type="password" 
                                         placeholder="••••" 
