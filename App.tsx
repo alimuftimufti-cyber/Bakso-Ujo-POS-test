@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, Suspense, useCallback, useRef, Component } from 'react';
 import { AppContext } from './types'; 
-import type { MenuItem, Order, Shift, CartItem, Category, StoreProfile, AppContextType, ShiftSummary, Expense, OrderType, Ingredient, User, PaymentMethod, OrderStatus, ThemeColor, View, AppMode, Table, Branch, AttendanceRecord } from './types';
+import type { MenuItem, Order, Shift, CartItem, Category, StoreProfile, AppContextType, ShiftSummary, Expense, OrderType, Ingredient, User, PaymentMethod, OrderStatus, ThemeColor, View, AppMode, Table, Branch, AttendanceRecord, UserRole } from './types';
 import { initialCategories, defaultStoreProfile, initialBranches, initialMenuData } from './data';
 
 // IMPORT CLOUD SERVICES
@@ -58,7 +58,6 @@ const ConfigMissingView = () => (
     </div>
 );
 
-// FIX: Explicitly inheriting from React.Component and providing proper generics for Props and State to fix TS error.
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean }> {
   constructor(props: { children: React.ReactNode }) { 
     super(props); 
@@ -75,7 +74,6 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { has
   }
 }
 
-// FIX: Enhanced hook to handle functional updates (prev => next) allowing table state to be updated correctly.
 function useLocalStorage<T>(key: string, initialValue: T): [T, (val: T | ((prev: T) => T)) => void] {
   const [storedValue, setStoredValue] = useState<T>(() => {
     try { const item = window.localStorage.getItem(key); return item ? JSON.parse(item) : initialValue; } 
@@ -199,7 +197,6 @@ const App: React.FC = () => {
             const data = decodeMaskedParams(q);
             if (data?.branch) {
                 setActiveBranchId(data.branch);
-                // Force into customer mode if valid q exists
                 setAppMode('customer');
             }
         } else if (modeFromUrl === 'customer') {
@@ -274,6 +271,15 @@ const App: React.FC = () => {
     useEffect(() => {
         if (view === 'pos') setHasUnreadOrders(false);
     }, [view]);
+
+    // Role-based logic to set initial view
+    useEffect(() => {
+        if (isLoggedIn && currentUser) {
+            if (currentUser.role === 'kitchen') setView('kitchen');
+            else if (currentUser.role === 'cashier') setView('pos');
+            else if (currentUser.role === 'owner') setView('dashboard');
+        }
+    }, [isLoggedIn]);
 
     const handleSetMode = async (mode: AppMode) => {
         if (mode === 'customer') {
@@ -362,7 +368,20 @@ const App: React.FC = () => {
         updateProductStock: async (id, stock) => { setMenu(prev => prev.map(m => m.id === id ? { ...m, stock } : m)); await updateProductStockInCloud(id, stock); },
         updateIngredientStock: async (id, stock) => { setIngredients(prev => prev.map(i => i.id === id ? { ...i, stock } : i)); await updateIngredientStockInCloud(id, stock); },
         addBranch: addBranchToCloud, deleteBranch: deleteBranchFromCloud, switchBranch: setActiveBranchId, setView,
-        addUser: addUserToCloud, updateUser: updateUserInCloud, deleteUser: deleteUserFromCloud, loginUser: loginAction, logout: () => { setIsLoggedIn(false); setAppMode('landing'); },
+        addUser: async (u) => { 
+            const userWithBranch = { ...u, branchId: activeBranchId };
+            await addUserToCloud(userWithBranch);
+            setUsers(prev => [...prev, userWithBranch]);
+        },
+        updateUser: async (u) => {
+            await updateUserInCloud(u);
+            setUsers(prev => prev.map(usr => usr.id === u.id ? u : usr));
+        }, 
+        deleteUser: async (id) => {
+            await deleteUserFromCloud(id);
+            setUsers(prev => prev.filter(u => u.id !== id));
+        }, 
+        loginUser: loginAction, logout: () => { setIsLoggedIn(false); setAppMode('landing'); },
         startShift, closeShift, addOrder: addOrderWrapper, 
         updateOrder: (id, cart, dVal, dType, oType) => { if(isDatabaseReady) updateOrderInCloud(id, { items: cart, orderType: oType }); },
         updateOrderStatus: (id, status) => { 
@@ -383,7 +402,6 @@ const App: React.FC = () => {
         addExpense: async (d, a) => { 
             if(activeShift && isDatabaseReady) {
                 await addExpenseToCloud({ id: Date.now(), shiftId: activeShift.id, description: d, amount: a, date: Date.now() });
-                // Manual refresh after successful add to ensure immediate sync if listener is slow
                 const ex = await getExpensesFromCloud(activeShift.id);
                 setExpenses(ex);
             }
@@ -392,11 +410,18 @@ const App: React.FC = () => {
         refreshOrders: () => refreshAllData(),
         requestPassword: (t, c) => { c(); }, 
         printerDevice: null, isPrinting: false, connectToPrinter: async () => {}, disconnectPrinter: async () => {}, previewReceipt: () => {}, printOrderToDevice: async () => {}, printShiftToDevice: async () => {}, printOrderViaBrowser: () => {},
-        setTables, addTable: (n) => setTables(prev => [...prev, { id: Date.now().toString(), number: n, qrCodeData: n }]), deleteTable: (id) => setTables(prev => prev.filter(t => t.id !== id)), setUsers: () => {}, clockIn: async () => {}, clockOut: async () => {}, splitOrder: () => {}, 
+        setTables, addTable: (n) => setTables(prev => [...prev, { id: Date.now().toString(), number: n, qrCodeData: n }]), deleteTable: (id) => setTables(prev => prev.filter(t => t.id !== id)), setUsers: (u) => setUsers(u as any), clockIn: async () => {}, clockOut: async () => {}, splitOrder: () => {}, 
         customerSubmitOrder: async (cart, name) => { const res = addOrderWrapper(cart, name, 0, 'percent', 'Dine In'); return res; }, 
     };
 
     if (isDatabaseReady === false) return <ConfigMissingView />;
+
+    // Helper to check role access
+    const hasAccess = (requiredRoles: UserRole[]) => {
+        if (!currentUser) return false;
+        if (currentUser.role === 'owner') return true;
+        return requiredRoles.includes(currentUser.role);
+    };
 
     return (
         <ErrorBoundary>
@@ -439,22 +464,41 @@ const App: React.FC = () => {
                                             {!isSidebarCollapsed ? (
                                                 <>
                                                     <h2 className="font-black text-xl uppercase tracking-tighter text-white leading-tight truncate">{branches.find(b => b.id === activeBranchId)?.name || 'CABANG PUSAT'}</h2>
-                                                    <p className="text-[10px] font-bold text-slate-500 mt-1 uppercase tracking-widest bg-slate-800/50 inline-block px-2 py-0.5 rounded">Terminal Kasir</p>
+                                                    <p className="text-[10px] font-bold text-slate-500 mt-1 uppercase tracking-widest bg-slate-800/50 inline-block px-2 py-0.5 rounded">Terminal {currentUser?.role}</p>
                                                 </>
                                             ) : (
                                                 <div className="w-12 h-12 bg-orange-600 rounded-2xl flex items-center justify-center font-black text-white text-xl shadow-lg mx-auto">{(branches.find(b => b.id === activeBranchId)?.name || 'B').charAt(0)}</div>
                                             )}
                                         </div>
                                         <nav className="flex-1 px-4 space-y-1.5 custom-scrollbar overflow-y-auto">
-                                            <NavItem id="pos" label="Kasir (POS)" icon={SidebarIcons.Pos} view={view} setView={setView} isCollapsed={isSidebarCollapsed} hasBadge={hasUnreadOrders} />
-                                            <NavItem id="shift" label="Keuangan & Biaya" icon={SidebarIcons.Shift} view={view} setView={setView} isCollapsed={isSidebarCollapsed} />
-                                            <NavItem id="kitchen" label="Monitor Dapur" icon={SidebarIcons.Kitchen} view={view} setView={setView} isCollapsed={isSidebarCollapsed} />
-                                            <NavItem id="inventory" label="Manajemen Stok" icon={SidebarIcons.Inventory} view={view} setView={setView} isCollapsed={isSidebarCollapsed} />
-                                            <NavItem id="report" label="Laporan Penjualan" icon={SidebarIcons.Report} view={view} setView={setView} isCollapsed={isSidebarCollapsed} />
-                                            {!isSidebarCollapsed && <div className="pt-6 pb-2 px-5"><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Pengaturan</p></div>}
-                                            {isSidebarCollapsed && <div className="h-px bg-slate-800 my-4"></div>}
-                                            <NavItem id="settings" label="Toko & Menu" icon={SidebarIcons.Settings} view={view} setView={setView} isCollapsed={isSidebarCollapsed} />
-                                            {currentUser?.role === 'owner' && <NavItem id="owner_settings" label="Owner Panel" icon={SidebarIcons.Dashboard} view={view} setView={setView} isCollapsed={isSidebarCollapsed} />}
+                                            {/* ROLE BASED ACCESS CONTROL */}
+                                            {hasAccess(['admin', 'cashier']) && (
+                                                <>
+                                                    <NavItem id="pos" label="Kasir (POS)" icon={SidebarIcons.Pos} view={view} setView={setView} isCollapsed={isSidebarCollapsed} hasBadge={hasUnreadOrders} />
+                                                    <NavItem id="shift" label="Keuangan & Biaya" icon={SidebarIcons.Shift} view={view} setView={setView} isCollapsed={isSidebarCollapsed} />
+                                                </>
+                                            )}
+                                            
+                                            {hasAccess(['admin', 'kitchen']) && (
+                                                <NavItem id="kitchen" label="Monitor Dapur" icon={SidebarIcons.Kitchen} view={view} setView={setView} isCollapsed={isSidebarCollapsed} />
+                                            )}
+                                            
+                                            {hasAccess(['admin']) && (
+                                                <>
+                                                    <NavItem id="inventory" label="Manajemen Stok" icon={SidebarIcons.Inventory} view={view} setView={setView} isCollapsed={isSidebarCollapsed} />
+                                                    <NavItem id="report" label="Laporan Penjualan" icon={SidebarIcons.Report} view={view} setView={setView} isCollapsed={isSidebarCollapsed} />
+                                                    {!isSidebarCollapsed && <div className="pt-6 pb-2 px-5"><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Pengaturan</p></div>}
+                                                    {isSidebarCollapsed && <div className="h-px bg-slate-800 my-4"></div>}
+                                                    <NavItem id="settings" label="Toko & Menu" icon={SidebarIcons.Settings} view={view} setView={setView} isCollapsed={isSidebarCollapsed} />
+                                                </>
+                                            )}
+
+                                            {currentUser?.role === 'owner' && (
+                                                <>
+                                                    <div className="h-px bg-slate-800 my-4"></div>
+                                                    <NavItem id="owner_settings" label="Owner Panel" icon={SidebarIcons.Dashboard} view={view} setView={setView} isCollapsed={isSidebarCollapsed} />
+                                                </>
+                                            )}
                                         </nav>
                                         <div className="p-4 border-t border-slate-800">
                                             <button onClick={() => { setIsLoggedIn(false); handleSetMode('landing'); }} className={`w-full flex items-center gap-4 px-5 py-3.5 rounded-xl font-bold text-red-400 hover:bg-red-500/10 transition-all ${isSidebarCollapsed ? 'justify-center px-0' : ''}`}>
@@ -464,13 +508,13 @@ const App: React.FC = () => {
                                     </aside>
                                     <main className="flex-1 relative overflow-hidden bg-white">
                                         <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-500"></div></div>}>
-                                            {view === 'pos' && <POSView />}
-                                            {view === 'shift' && <ShiftView />}
-                                            {view === 'kitchen' && <KitchenView />}
-                                            {view === 'inventory' && <InventoryView />}
-                                            {view === 'report' && <ReportView />}
-                                            {view === 'settings' && <SettingsView />}
-                                            {view === 'owner_settings' && <OwnerSettingsView />}
+                                            {view === 'pos' && hasAccess(['admin', 'cashier']) && <POSView />}
+                                            {view === 'shift' && hasAccess(['admin', 'cashier']) && <ShiftView />}
+                                            {view === 'kitchen' && hasAccess(['admin', 'kitchen']) && <KitchenView />}
+                                            {view === 'inventory' && hasAccess(['admin']) && <InventoryView />}
+                                            {view === 'report' && hasAccess(['admin']) && <ReportView />}
+                                            {view === 'settings' && hasAccess(['admin']) && <SettingsView />}
+                                            {view === 'owner_settings' && currentUser?.role === 'owner' && <OwnerSettingsView />}
                                         </Suspense>
                                     </main>
                                 </div>

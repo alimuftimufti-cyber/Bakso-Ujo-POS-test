@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useMemo } from 'react';
 import { useAppContext } from '../types'; 
-import type { MenuItem, Ingredient, User, ThemeColor, Table, StoreProfile, Branch } from '../types';
+import type { MenuItem, Ingredient, User, ThemeColor, Table, StoreProfile, Branch, UserRole } from '../types';
 import { printTest } from '../services/printerService'; 
 import { currentProjectId } from '../services/firebase'; 
 
@@ -140,7 +140,6 @@ const MenuForm = ({ onClose, onSave, item, theme }: { onClose: () => void, onSav
 
 // HELPER: Generate Masked URL
 const getMaskedUrl = (baseUrl: string, branchId: string, tableNum: string) => {
-    // We bundle branch and table into a masked string (Base64 is simple masking)
     const rawStr = `B:${branchId}|T:${tableNum}`;
     const masked = btoa(rawStr);
     return `${baseUrl}/?q=${masked}`;
@@ -216,6 +215,14 @@ const generatePrintLayout = (tables: Table[], profile: StoreProfile) => {
     win.document.close();
 }
 
+const roleBadgeColors: Record<UserRole, string> = {
+    owner: 'bg-red-600 text-white',
+    admin: 'bg-purple-600 text-white',
+    cashier: 'bg-blue-600 text-white',
+    kitchen: 'bg-orange-500 text-white',
+    staff: 'bg-gray-500 text-white'
+};
+
 const SettingsView = () => {
     const { 
         menu, saveMenuItem, removeMenuItem, users, addUser, updateUser, deleteUser, 
@@ -249,10 +256,11 @@ const SettingsView = () => {
         requestPassword("Simpan User?", () => { 
             const userData = {
                 ...userForm,
-                id: Date.now().toString(),
+                id: userForm.id || Date.now().toString(),
                 attendancePin: userForm.attendancePin || Math.floor(1000 + Math.random() * 9000).toString()
             };
-            addUser(userData); 
+            if (userForm.id) updateUser(userData);
+            else addUser(userData); 
             setUserForm({ id: '', name: '', pin: '', attendancePin: '', role: 'cashier' }); 
         }, true); 
     };
@@ -326,9 +334,9 @@ const SettingsView = () => {
                     <h1 className="text-2xl font-black text-gray-900 tracking-tight">Pengaturan Operasional</h1>
                     <p className="text-sm text-gray-500 font-medium">{storeProfile.name} ({storeProfile.branchId})</p>
                 </div>
-                <div className="flex bg-gray-100 p-1.5 rounded-2xl gap-1 overflow-x-auto max-w-full">
+                <div className="flex bg-gray-100 p-1.5 rounded-2xl gap-1 overflow-x-auto max-w-full no-scrollbar">
                     <TabButton id="menu" label="Produk & Menu" />
-                    {isOwner && <TabButton id="users" label="Manajemen Staff" />}
+                    <TabButton id="users" label="Manajemen Staff" />
                     <TabButton id="kitchen" label="Dapur" />
                     <TabButton id="profile" label="Profil & Koneksi" />
                     <TabButton id="qr" label="QR Meja" />
@@ -336,7 +344,7 @@ const SettingsView = () => {
                 </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-8 max-w-6xl mx-auto w-full">
+            <div className="flex-1 overflow-y-auto p-8 max-w-6xl mx-auto w-full custom-scrollbar">
                 
                 {/* TAB: MENU */}
                 {tab === 'menu' && (
@@ -347,7 +355,7 @@ const SettingsView = () => {
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                             {menu.map(item => (
-                                <div key={item.id} className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm flex gap-4 items-center">
+                                <div key={item.id} className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm flex gap-4 items-center group">
                                     <div className="w-16 h-16 bg-gray-100 rounded-lg overflow-hidden shrink-0">
                                         {item.imageUrl ? <img src={item.imageUrl} className="w-full h-full object-cover" onError={(e:any) => e.target.src='https://via.placeholder.com/150?text=Error'}/> : <div className="w-full h-full flex items-center justify-center text-gray-300 font-bold">?</div>}
                                     </div>
@@ -355,7 +363,7 @@ const SettingsView = () => {
                                         <h4 className="font-bold text-gray-800">{item.name}</h4>
                                         <p className="text-xs text-gray-500">{item.category} • Rp {item.price}</p>
                                     </div>
-                                    <div className="flex flex-col gap-2">
+                                    <div className="flex flex-col gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                                         <button onClick={() => { setEditingMenu(item); setMenuModalOpen(true); }} className="text-blue-500 text-xs font-bold hover:underline text-left">Edit</button>
                                         <button onClick={() => deleteMenu(item.id)} className="text-red-500 text-xs font-bold hover:underline text-left">Hapus</button>
                                     </div>
@@ -365,37 +373,109 @@ const SettingsView = () => {
                     </div>
                 )}
 
-                {/* TAB: USERS (OWNER ONLY) */}
-                {tab === 'users' && isOwner && (
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                        <div className="md:col-span-1 bg-white p-6 rounded-2xl shadow-sm border border-gray-100 h-fit">
-                            <h3 className="font-bold text-lg mb-4">Tambah Pegawai</h3>
-                            <form onSubmit={saveUser} className="space-y-4">
-                                <input required value={userForm.name} onChange={e => setUserForm({...userForm, name: e.target.value})} placeholder="Nama Pegawai" className="w-full border p-3 rounded-xl outline-none focus:border-black" />
-                                <input required type="number" value={userForm.pin} onChange={e => setUserForm({...userForm, pin: e.target.value})} placeholder="PIN Login Sistem" className="w-full border p-3 rounded-xl outline-none focus:border-black" />
-                                <input type="number" value={userForm.attendancePin || ''} onChange={e => setUserForm({...userForm, attendancePin: e.target.value})} placeholder="PIN Absen (Opsional)" className="w-full border p-3 rounded-xl outline-none focus:border-black" />
-                                <select value={userForm.role} onChange={e => setUserForm({...userForm, role: e.target.value as any})} className="w-full border p-3 rounded-xl outline-none bg-white">
-                                    <option value="cashier">Kasir</option>
-                                    <option value="kitchen">Dapur</option>
-                                    <option value="admin">Admin Cabang</option>
-                                    <option value="staff">Staff Umum</option>
-                                </select>
-                                <button type="submit" className="w-full bg-black text-white font-bold py-3 rounded-xl hover:bg-gray-800">Simpan Pegawai</button>
-                            </form>
-                        </div>
-                        <div className="md:col-span-2 space-y-3">
-                            {users.map(u => (
-                                <div key={u.id} className="bg-white p-4 rounded-xl border border-gray-100 flex justify-between items-center">
+                {/* TAB: USERS (Enhanced) */}
+                {tab === 'users' && (
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                        <div className="lg:col-span-4 space-y-6">
+                            <div className="bg-white p-6 rounded-2xl shadow-xl border border-orange-100 h-fit sticky top-6">
+                                <h3 className="font-black text-lg mb-6 uppercase tracking-wider text-gray-800 flex items-center gap-2">
+                                    <span className="w-2 h-6 bg-orange-500 rounded-full"></span>
+                                    {userForm.id ? 'Edit Staff' : 'Tambah Staff'}
+                                </h3>
+                                <form onSubmit={saveUser} className="space-y-4">
                                     <div>
-                                        <h4 className="font-bold text-gray-900">{u.name}</h4>
-                                        <span className="text-xs uppercase font-bold text-gray-400 bg-gray-100 px-2 py-1 rounded">{u.role}</span>
-                                        <span className="text-xs text-gray-400 ml-2">Login: {u.pin || '-'} | Absen: {u.attendancePin || '-'}</span>
+                                        <label className="block text-[10px] font-black text-gray-400 uppercase mb-1 ml-1 tracking-widest">Nama Lengkap</label>
+                                        <input required value={userForm.name} onChange={e => setUserForm({...userForm, name: e.target.value})} placeholder="Contoh: Budi Santoso" className="w-full border-2 border-gray-100 p-3 rounded-xl outline-none focus:border-orange-500 transition-all font-bold" />
                                     </div>
-                                    {u.role !== 'owner' && (
-                                        <button onClick={() => deleteUserAction(u.id)} className="bg-red-50 text-red-600 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-red-100">Hapus</button>
-                                    )}
-                                </div>
-                            ))}
+                                    
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <label className="block text-[10px] font-black text-gray-400 uppercase mb-1 ml-1 tracking-widest">PIN Login</label>
+                                            <input required type="number" value={userForm.pin} onChange={e => setUserForm({...userForm, pin: e.target.value})} placeholder="4 Digit" className="w-full border-2 border-gray-100 p-3 rounded-xl outline-none focus:border-orange-500 transition-all font-mono font-bold text-center" maxLength={4} />
+                                        </div>
+                                        <div>
+                                            <label className="block text-[10px] font-black text-gray-400 uppercase mb-1 ml-1 tracking-widest">PIN Absen</label>
+                                            <input required type="number" value={userForm.attendancePin} onChange={e => setUserForm({...userForm, attendancePin: e.target.value})} placeholder="4 Digit" className="w-full border-2 border-gray-100 p-3 rounded-xl outline-none focus:border-orange-500 transition-all font-mono font-bold text-center" maxLength={4} />
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-[10px] font-black text-gray-400 uppercase mb-1 ml-1 tracking-widest">Jabatan / Role</label>
+                                        <select value={userForm.role} onChange={e => setUserForm({...userForm, role: e.target.value as any})} className="w-full border-2 border-gray-100 p-3 rounded-xl outline-none bg-white font-bold appearance-none">
+                                            <option value="cashier">Kasir (Bisa POS & Keuangan)</option>
+                                            <option value="kitchen">Dapur (Hanya Monitor Dapur)</option>
+                                            <option value="admin">Admin (Laporan & Stok)</option>
+                                            <option value="staff">Staff Umum (Hanya Absen)</option>
+                                        </select>
+                                    </div>
+
+                                    <div className="pt-2">
+                                        <button type="submit" className="w-full bg-orange-600 text-white font-black py-4 rounded-xl hover:bg-orange-700 shadow-lg shadow-orange-100 transition-all active:scale-95 uppercase tracking-widest text-sm">
+                                            {userForm.id ? 'Perbarui Data' : 'Daftarkan Staff'}
+                                        </button>
+                                        {userForm.id && (
+                                            <button type="button" onClick={() => setUserForm({ id: '', name: '', pin: '', attendancePin: '', role: 'cashier' })} className="w-full mt-2 text-gray-400 font-bold text-xs hover:text-gray-600">Batal Edit</button>
+                                        )}
+                                    </div>
+                                </form>
+                            </div>
+
+                            <div className="bg-indigo-50 p-6 rounded-2xl border border-indigo-100">
+                                <h4 className="font-bold text-indigo-900 text-sm mb-3 flex items-center gap-2">
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                    Panduan Hak Akses
+                                </h4>
+                                <ul className="space-y-2">
+                                    <li className="text-[10px] text-indigo-700 leading-relaxed"><strong>Admin:</strong> Akses penuh kecuali Owner Panel.</li>
+                                    <li className="text-[10px] text-indigo-700 leading-relaxed"><strong>Kasir:</strong> Hanya menu Kasir & Keuangan.</li>
+                                    <li className="text-[10px] text-indigo-700 leading-relaxed"><strong>Dapur:</strong> Hanya menu Monitor Dapur.</li>
+                                    <li className="text-[10px] text-indigo-700 leading-relaxed"><strong>Staff:</strong> Tidak ada akses menu operasional.</li>
+                                </ul>
+                            </div>
+                        </div>
+
+                        <div className="lg:col-span-8 space-y-4">
+                            <div className="flex justify-between items-center mb-2 px-2">
+                                <h3 className="font-black text-gray-500 uppercase tracking-widest text-xs">Daftar Tim Bakso Ujo</h3>
+                                <span className="bg-white px-3 py-1 rounded-full text-[10px] font-black text-gray-400 border border-gray-100">{users.length} STAFF</span>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {users.map(u => (
+                                    <div key={u.id} className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow relative group">
+                                        <div className="flex items-center gap-4 mb-4">
+                                            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-black text-xl shadow-inner ${roleBadgeColors[u.role] || 'bg-gray-100'}`}>
+                                                {u.name.charAt(0)}
+                                            </div>
+                                            <div>
+                                                <h4 className="font-black text-gray-900 leading-tight">{u.name}</h4>
+                                                <span className={`text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-tighter ${roleBadgeColors[u.role] || 'bg-gray-100 text-gray-600'}`}>{u.role}</span>
+                                            </div>
+                                        </div>
+                                        
+                                        <div className="grid grid-cols-2 gap-2 border-t border-gray-50 pt-4 mt-2">
+                                            <div className="bg-gray-50 p-2 rounded-xl text-center">
+                                                <p className="text-[8px] font-black text-gray-400 uppercase tracking-widest mb-1">PIN Login</p>
+                                                <p className="font-mono font-black text-gray-700 text-xs tracking-widest">{u.pin || '---'}</p>
+                                            </div>
+                                            <div className="bg-gray-50 p-2 rounded-xl text-center">
+                                                <p className="text-[8px] font-black text-gray-400 uppercase tracking-widest mb-1">PIN Absen</p>
+                                                <p className="font-mono font-black text-orange-600 text-xs tracking-widest">{u.attendancePin || '---'}</p>
+                                            </div>
+                                        </div>
+
+                                        <div className="absolute top-4 right-4 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <button onClick={() => setUserForm(u)} className="p-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors" title="Edit">
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                                            </button>
+                                            {u.role !== 'owner' && (
+                                                <button onClick={() => deleteUserAction(u.id)} className="p-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors" title="Hapus">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
                         </div>
                     </div>
                 )}
@@ -463,7 +543,7 @@ const SettingsView = () => {
                                 </div>
                             </div>
 
-                            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-4 space-y-4">
+                            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-4">
                                 <h3 className="font-bold text-lg border-b pb-2">Identitas Toko</h3>
                                 <InputField label="Nama Toko" value={storeProfile.name} onChange={(e: any) => setStoreProfile({...storeProfile, name: e.target.value})} />
                                 <InputField label="Alamat" value={storeProfile.address} onChange={(e: any) => setStoreProfile({...storeProfile, address: e.target.value})} />
@@ -529,7 +609,7 @@ const SettingsView = () => {
                                 <div className="bg-indigo-50 p-6 rounded-2xl border border-indigo-100 flex flex-col justify-between">
                                     <div>
                                         <h4 className="font-bold text-indigo-900 mb-2 flex items-center gap-2">
-                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 4a1 1 0 011-1h3a1 1 0 011 1v3a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm2 2V5h1v1H5zM3 13a1 1 0 011-1h3a1 1 0 011 1v3a1 1 0 01-1 1H4a1 1 0 01-1-1v-3zm2 2v-1h1v1H5zM13 3a1 1 0 00-1 1v3a1 1 0 001 1h3a1 1 0 001-1V4a1 1 0 00-1-1h-3zm1 2v1h1V5h-1z" clipRule="evenodd" /><path d="M11 12a1 1 0 011-1h1v1h-1v1h1v1h-1v1h-1v-1h-1v-1h1v-1zM16 11a1 1 0 00-1 1v1h1v-1h1v1h1v1h-1v1h-1v-1h-1v-1h-1v-1h-1zM16 16v1h1v-1h-1zM12 16v1h1v-1h-1z" /></svg>
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 4a1 1 0 011-1h3a1 1 0 011 1v3a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm2 2V5h1v1H5zM3 13a1 1 0 011-1h3a1 1 0 011 1v3a1 1 0 01-1 1H4a1 1 0 01-1-1v-3zm2 2v-1h1v1H5zM13 3a1 1 0 00-1 1v3a1 1 0 001 1h3a1 1 0 001-1V4a1 1 0 00-1-1h-3zm1 2v1h1V5h-1z" clipRule="evenodd" /><path d="M11 12a1 1 0 011-1h1v1h-1v1h1v1h-1v1h-1v-1h-1v-1h1v-1zM16 11a1 1 0 00-1 1v1h1v-1h1v1h-1v1h-1v-1h1v-1h-1v-1h-1zM16 16v1h1v-1h-1zM12 16v1h1v-1h-1z" /></svg>
                                             Mode Pesan Mandiri (Self Order)
                                         </h4>
                                         <p className="text-sm text-indigo-700 leading-relaxed mb-4">Pastikan URL toko Anda sudah benar. QR Code akan mengarahkan pelanggan ke menu digital yang terenkripsi dan otomatis mengisi nomor meja masing-masing.</p>
