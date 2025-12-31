@@ -104,20 +104,21 @@ export const updateStoreProfileInCloud = async (profile: StoreProfile) => {
     if (error) handleError(error, 'updateStoreProfile');
 };
 
-// --- MENU & CATEGORIES ---
+// --- PRODUCT (MENU) & CATEGORIES ---
 export const getMenuFromCloud = async (branchId: string) => {
-    // Kita tambahkan filter is_active agar sesuai dengan kolom di database Anda
+    // MENGGUNAKAN TABEL 'product' sesuai database Anda
     const { data, error } = await supabase
-        .from('menu')
+        .from('product') 
         .select('*')
         .eq('branch_id', branchId)
-        .eq('is_active', true) // Hanya ambil yang aktif sesuai screenshot
+        .eq('is_active', true) 
         .order('id', { ascending: true });
     
     if (error) {
-        console.warn("⚠️ Query menu gagal, mencoba tanpa filter is_active...");
-        const { data: altData } = await supabase.from('menu').select('*').eq('branch_id', branchId);
-        return (altData || []).map(mapMenu);
+        console.warn("⚠️ Gagal mengambil dari tabel 'product', mencoba fallback...");
+        // Fallback jika is_active tidak ada
+        const { data: fallbackData } = await supabase.from('product').select('*').eq('branch_id', branchId);
+        return (fallbackData || []).map(mapMenu);
     }
     
     return (data || []).map(mapMenu);
@@ -137,25 +138,25 @@ export const addProductToCloud = async (item: MenuItem, branchId: string) => {
         category: catValue,
         image_url: item.imageUrl,
         stock: item.stock,
-        is_active: true // Pastikan produk baru langsung aktif
+        is_active: true 
     };
 
     if (item.minStock !== undefined) {
         payload.min_stock = item.minStock;
     }
 
-    const { error } = await supabase.from('menu').upsert(payload);
+    const { error } = await supabase.from('product').upsert(payload);
     if (error) handleError(error, 'addProduct');
 };
 
 export const deleteProductFromCloud = async (id: number) => {
-    const { error } = await supabase.from('menu').update({ is_active: false }).eq('id', id);
+    // Soft delete menggunakan is_active
+    const { error } = await supabase.from('product').update({ is_active: false }).eq('id', id);
     if (error) handleError(error, 'deleteProduct');
 };
 
 export const getCategoriesFromCloud = async () => {
     const { data } = await supabase.from('categories').select('name').order('name', { ascending: true });
-    // Jika tabel kategori kosong, gunakan default agar UI tidak kosong
     if (!data || data.length === 0) return ['Bakso', 'Mie Ayam', 'Tambahan', 'Makanan', 'Kriuk', 'Minuman'];
     return data.map(c => c.name);
 };
@@ -324,7 +325,8 @@ export const deleteIngredientFromCloud = async (id: string) => {
 };
 
 export const updateProductStockInCloud = async (id: number, stock: number) => {
-    const { error } = await supabase.from('menu').update({ stock }).eq('id', id);
+    // Update ke tabel 'product'
+    const { error } = await supabase.from('product').update({ stock }).eq('id', id);
     if (error) handleError(error, 'updateProductStock');
 };
 
@@ -382,7 +384,9 @@ export const subscribeToShifts = (branchId: string, onUpdate: (shift: Shift | nu
 };
 
 export const subscribeToInventory = (branchId: string, onUpdate: () => void) => {
-    const channel = supabase.channel(`inventory-${branchId}`).on('postgres_changes', { event: '*', schema: 'public', table: 'menu' }, () => onUpdate())
+    // Berlangganan ke tabel 'product'
+    const channel = supabase.channel(`inventory-${branchId}`)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'product' }, () => onUpdate())
     .on('postgres_changes', { event: '*', schema: 'public', table: 'ingredients' }, () => onUpdate())
     .subscribe();
     return () => supabase.removeChannel(channel);
