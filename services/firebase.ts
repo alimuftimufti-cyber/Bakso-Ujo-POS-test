@@ -17,9 +17,8 @@ export const ensureDefaultBranch = async () => {
 
 // --- MAPPING HELPERS ---
 const mapMenu = (item: any): MenuItem => {
-    // Mapping angka kategori sesuai screenshot Anda (tabel products): 
-    // 1=Bakso, 2=Mie Ayam, 3=Nasi Putih (Tambahan), 5=Kerupuk (Kriuk), 6=Minuman
-    const catId = String(item.category || "1"); 
+    // Mapping angka kategori sesuai database products Anda
+    const catId = String(item.category_id || item.category || "1"); 
     let categoryName = 'Bakso';
 
     switch (catId) {
@@ -29,7 +28,7 @@ const mapMenu = (item: any): MenuItem => {
         case "4": categoryName = "Makanan"; break;
         case "5": categoryName = "Kriuk"; break;
         case "6": categoryName = "Minuman"; break;
-        default: categoryName = item.category_name || item.category || 'Bakso';
+        default: categoryName = item.category_name || 'Bakso';
     }
 
     return {
@@ -37,7 +36,7 @@ const mapMenu = (item: any): MenuItem => {
         name: item.name || 'Produk Tanpa Nama',
         price: parseFloat(item.price || 0),
         category: categoryName,
-        imageUrl: item.image_url || '',
+        imageUrl: item.image_url || item.imageurl || '',
         stock: item.stock !== undefined && item.stock !== null ? Number(item.stock) : undefined,
         minStock: (item.min_stock !== undefined && item.min_stock !== null) ? Number(item.min_stock) : 5
     };
@@ -66,21 +65,21 @@ const mapOrder = (o: any): Order => ({
     branchId: o.branch_id,
     shiftId: o.shift_id,
     customerName: o.customer_name || 'Pelanggan',
-    items: Array.isArray(o.items) ? o.items : [],
+    items: Array.isArray(o.items) ? o.items : [], // Asumsi kolom items JSONB tetap ada untuk snapshot
     total: parseFloat(o.total || 0),
+    subtotal: parseFloat(o.subtotal || 0),
     discount: parseFloat(o.discount || 0),
     status: o.status || 'pending',
-    isPaid: !!o.is_paid,
+    isPaid: o.payment_status === 'paid', // Mapping dari string ke boolean
     paymentMethod: o.payment_method,
-    orderType: o.order_type || 'Dine In',
+    orderType: o.type || 'Dine In', // Mapping dari 'type' ke 'orderType'
     createdAt: Number(o.created_at),
     paidAt: o.paid_at ? Number(o.paid_at) : undefined,
     sequentialId: o.sequential_id,
-    subtotal: 0,
     discountType: 'fixed',
     discountValue: 0,
-    taxAmount: 0,
-    serviceChargeAmount: 0
+    taxAmount: parseFloat(o.tax || 0),
+    serviceChargeAmount: parseFloat(o.service || 0)
 });
 
 // --- STORE PROFILE ---
@@ -109,7 +108,6 @@ export const updateStoreProfileInCloud = async (profile: StoreProfile) => {
 
 // --- PRODUCTS & CATEGORIES ---
 export const getMenuFromCloud = async (branchId: string) => {
-    // MENGGUNAKAN TABEL 'products' (plural) sesuai screenshot Anda
     const { data, error } = await supabase
         .from('products') 
         .select('*')
@@ -119,7 +117,6 @@ export const getMenuFromCloud = async (branchId: string) => {
     
     if (error) {
         handleError(error, 'getMenu');
-        // Fallback jika terjadi error pada is_active filter
         const { data: fallbackData } = await supabase.from('products').select('*').eq('branch_id', branchId);
         return (fallbackData || []).map(mapMenu);
     }
@@ -129,31 +126,26 @@ export const getMenuFromCloud = async (branchId: string) => {
 
 export const addProductToCloud = async (item: MenuItem, branchId: string) => {
     await ensureDefaultBranch();
-    
     const catMap: Record<string, number> = { "Bakso": 1, "Mie Ayam": 2, "Tambahan": 3, "Makanan": 4, "Kriuk": 5, "Minuman": 6 };
     const catValue = catMap[item.category] || 1;
 
     const payload: any = {
-        id: item.id && item.id > 1000 ? item.id : Date.now(),
         branch_id: branchId,
         name: item.name,
         price: item.price,
-        category: catValue,
+        category_id: catValue,
         image_url: item.imageUrl,
         stock: item.stock,
         is_active: true 
     };
-
-    if (item.minStock !== undefined) {
-        payload.min_stock = item.minStock;
-    }
+    if (item.id && item.id > 10000) payload.id = item.id;
+    if (item.minStock !== undefined) payload.min_stock = item.minStock;
 
     const { error } = await supabase.from('products').upsert(payload);
     if (error) handleError(error, 'addProduct');
 };
 
 export const deleteProductFromCloud = async (id: number) => {
-    // Soft delete menggunakan is_active pada tabel 'products'
     const { error } = await supabase.from('products').update({ is_active: false }).eq('id', id);
     if (error) handleError(error, 'deleteProduct');
 };
@@ -215,7 +207,8 @@ export const getActiveShiftFromCloud = async (branchId: string) => {
         start: Number(data.start_time),
         end: data.end_time ? Number(data.end_time) : null,
         revenue: parseFloat(data.revenue || 0),
-        start_cash: parseFloat(data.start_cash || 0)
+        start_cash: parseFloat(data.start_cash || 0),
+        transactions: data.transactions_count || 0
     } : null;
 };
 
@@ -227,13 +220,18 @@ export const startShiftInCloud = async (shift: Shift) => {
         start_time: shift.start,
         start_cash: shift.start_cash,
         revenue: 0,
-        transactions: 0
+        transactions_count: 0
     });
     if (error) handleError(error, 'startShift');
 };
 
 export const updateShiftInCloud = async (id: string, updates: any) => {
-    const { error } = await supabase.from('shifts').update(updates).eq('id', id);
+    const dbUpdates = { ...updates };
+    if (updates.transactions !== undefined) {
+        dbUpdates.transactions_count = updates.transactions;
+        delete dbUpdates.transactions;
+    }
+    const { error } = await supabase.from('shifts').update(dbUpdates).eq('id', id);
     if (error) handleError(error, 'updateShift');
 };
 
@@ -244,8 +242,8 @@ export const closeShiftInCloud = async (summary: ShiftSummary) => {
         revenue: summary.revenue,
         cash_revenue: summary.cashRevenue,
         non_cash_revenue: summary.nonCashRevenue,
-        total_discount: summary.totalDiscount,
-        transactions: summary.transactions
+        total_expenses: summary.totalExpenses,
+        transactions_count: summary.transactions
     }).eq('id', summary.id);
     if (error) handleError(error, 'closeShift');
 };
@@ -257,12 +255,15 @@ export const addOrderToCloud = async (order: Order) => {
         branch_id: order.branchId,
         shift_id: order.shiftId,
         customer_name: order.customerName,
-        items: order.items,
+        items: order.items, // Kolom items (JSONB) harus ada di Supabase
+        subtotal: order.subtotal || order.total,
         total: order.total,
         discount: order.discount,
+        tax: order.taxAmount,
+        service: order.serviceChargeAmount,
         status: order.status,
-        is_paid: order.isPaid,
-        order_type: order.orderType,
+        payment_status: order.isPaid ? 'paid' : 'unpaid',
+        type: order.orderType,
         created_at: order.createdAt
     });
     if (error) handleError(error, 'addOrder');
@@ -271,8 +272,12 @@ export const addOrderToCloud = async (order: Order) => {
 export const updateOrderInCloud = async (id: string, updates: any) => {
     const dbUpdates: any = { ...updates };
     if (updates.customerName) { dbUpdates.customer_name = updates.customerName; delete dbUpdates.customerName; }
-    if (updates.isPaid !== undefined) { dbUpdates.is_paid = updates.isPaid; delete dbUpdates.isPaid; }
+    if (updates.isPaid !== undefined) { 
+        dbUpdates.payment_status = updates.isPaid ? 'paid' : 'unpaid'; 
+        delete dbUpdates.isPaid; 
+    }
     if (updates.paymentMethod) { dbUpdates.payment_method = updates.paymentMethod; delete dbUpdates.paymentMethod; }
+    if (updates.orderType) { dbUpdates.type = updates.orderType; delete dbUpdates.orderType; }
     
     const { error } = await supabase.from('orders').update(dbUpdates).eq('id', id);
     if (error) handleError(error, 'updateOrder');
@@ -287,7 +292,6 @@ export const getTablesFromCloud = async (branchId: string): Promise<Table[]> => 
 
 export const addTableToCloud = async (table: Table, branchId: string) => {
     await ensureDefaultBranch();
-    // FIX: Table type uses qrCodeData property, while the database column is qr_payload. Corrected table.qr_payload to table.qrCodeData.
     await supabase.from('tables').insert({ id: table.id, branch_id: branchId, table_number: table.number, qr_payload: table.qrCodeData });
 };
 
@@ -329,7 +333,6 @@ export const deleteIngredientFromCloud = async (id: string) => {
 };
 
 export const updateProductStockInCloud = async (id: number, stock: number) => {
-    // Update ke tabel 'products'
     const { error } = await supabase.from('products').update({ stock }).eq('id', id);
     if (error) handleError(error, 'updateProductStock');
 };
@@ -388,7 +391,6 @@ export const subscribeToShifts = (branchId: string, onUpdate: (shift: Shift | nu
 };
 
 export const subscribeToInventory = (branchId: string, onUpdate: () => void) => {
-    // Berlangganan ke tabel 'products'
     const channel = supabase.channel(`inventory-${branchId}`)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, () => onUpdate())
     .on('postgres_changes', { event: '*', schema: 'public', table: 'ingredients' }, () => onUpdate())
