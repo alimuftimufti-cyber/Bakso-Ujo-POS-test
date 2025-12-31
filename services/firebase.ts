@@ -8,17 +8,16 @@ const handleError = (error: any, context: string) => {
 };
 
 // --- INITIALIZATION HELPER ---
-// Memastikan cabang 'pusat' ada agar tidak terjadi error Foreign Key
 export const ensureDefaultBranch = async () => {
     const { data: branch } = await supabase.from('branches').select('id').eq('id', 'pusat').maybeSingle();
     if (!branch) {
-        console.log("🟡 Cabang 'pusat' tidak ditemukan, membuat otomatis...");
         await supabase.from('branches').insert({ id: 'pusat', name: 'Bakso Ujo Pusat' });
     }
 };
 
 // --- MAPPING HELPERS ---
 const mapMenu = (item: any): MenuItem => {
+    // Mapping angka kategori sesuai screenshot Anda: 1=Bakso, 2=Mie Ayam, 6=Minuman, dst.
     let cat = String(item.category || "1"); 
     let categoryName = 'Bakso';
 
@@ -107,17 +106,17 @@ export const updateStoreProfileInCloud = async (profile: StoreProfile) => {
 
 // --- MENU & CATEGORIES ---
 export const getMenuFromCloud = async (branchId: string) => {
-    // Upaya 1: Ambil semua kolom (Bisa gagal 400 jika cache schema bermasalah)
-    const { data, error } = await supabase.from('menu').select('*').eq('branch_id', branchId).order('id', { ascending: true });
+    // Kita tambahkan filter is_active agar sesuai dengan kolom di database Anda
+    const { data, error } = await supabase
+        .from('menu')
+        .select('*')
+        .eq('branch_id', branchId)
+        .eq('is_active', true) // Hanya ambil yang aktif sesuai screenshot
+        .order('id', { ascending: true });
     
     if (error) {
-        console.warn("⚠️ Gagal mengambil menu lengkap, mencoba query alternatif...");
-        // Upaya 2: Ambil kolom dasar saja (Menghindari min_stock jika kolom itu penyebab error 400)
-        const { data: altData, error: altError } = await supabase.from('menu').select('id, name, price, category, image_url, stock').eq('branch_id', branchId);
-        if (altError) {
-            handleError(altError, 'getMenu-Fallback');
-            return [];
-        }
+        console.warn("⚠️ Query menu gagal, mencoba tanpa filter is_active...");
+        const { data: altData } = await supabase.from('menu').select('*').eq('branch_id', branchId);
         return (altData || []).map(mapMenu);
     }
     
@@ -128,7 +127,7 @@ export const addProductToCloud = async (item: MenuItem, branchId: string) => {
     await ensureDefaultBranch();
     
     const catMap: Record<string, number> = { "Bakso": 1, "Mie Ayam": 2, "Tambahan": 3, "Makanan": 4, "Kriuk": 5, "Minuman": 6 };
-    const catValue = catMap[item.category] || item.category;
+    const catValue = catMap[item.category] || 1;
 
     const payload: any = {
         id: item.id && item.id > 1000 ? item.id : Date.now(),
@@ -137,36 +136,26 @@ export const addProductToCloud = async (item: MenuItem, branchId: string) => {
         price: item.price,
         category: catValue,
         image_url: item.imageUrl,
-        stock: item.stock
+        stock: item.stock,
+        is_active: true // Pastikan produk baru langsung aktif
     };
 
-    // Pastikan min_stock hanya dikirim jika tidak null
-    if (item.minStock !== undefined && item.minStock !== null) {
+    if (item.minStock !== undefined) {
         payload.min_stock = item.minStock;
     }
 
     const { error } = await supabase.from('menu').upsert(payload);
-    
-    if (error) {
-        if (error.message.includes('min_stock') || error.code === 'PGRST204') {
-            console.log("🔄 Retrying without min_stock due to schema cache...");
-            delete payload.min_stock;
-            const { error: retryError } = await supabase.from('menu').upsert(payload);
-            if (retryError) handleError(retryError, 'addProduct-Final');
-        } else {
-            handleError(error, 'addProduct');
-        }
-    }
+    if (error) handleError(error, 'addProduct');
 };
 
 export const deleteProductFromCloud = async (id: number) => {
-    const { error } = await supabase.from('menu').delete().eq('id', id);
+    const { error } = await supabase.from('menu').update({ is_active: false }).eq('id', id);
     if (error) handleError(error, 'deleteProduct');
 };
 
 export const getCategoriesFromCloud = async () => {
-    const { data, error } = await supabase.from('categories').select('name').order('name', { ascending: true });
-    if (error) handleError(error, 'getCategories');
+    const { data } = await supabase.from('categories').select('name').order('name', { ascending: true });
+    // Jika tabel kategori kosong, gunakan default agar UI tidak kosong
     if (!data || data.length === 0) return ['Bakso', 'Mie Ayam', 'Tambahan', 'Makanan', 'Kriuk', 'Minuman'];
     return data.map(c => c.name);
 };
