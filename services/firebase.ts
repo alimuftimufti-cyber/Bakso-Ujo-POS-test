@@ -1,5 +1,5 @@
 
-import { Table, Order, Shift, StoreProfile, MenuItem, Ingredient, Expense, ShiftSummary, User } from '../types';
+import { Table, Order, Shift, StoreProfile, MenuItem, Ingredient, Expense, ShiftSummary, User, CartItem } from '../types';
 import { supabase } from './supabaseClient';
 
 const handleError = (error: any, context: string) => {
@@ -17,7 +17,6 @@ export const ensureDefaultBranch = async () => {
 
 // --- MAPPING HELPERS ---
 const mapMenu = (item: any): MenuItem => {
-    // Mapping angka kategori sesuai database products Anda
     const catId = String(item.category_id || item.category || "1"); 
     let categoryName = 'Bakso';
 
@@ -36,7 +35,7 @@ const mapMenu = (item: any): MenuItem => {
         name: item.name || 'Produk Tanpa Nama',
         price: parseFloat(item.price || 0),
         category: categoryName,
-        imageUrl: item.image_url || item.imageurl || '',
+        imageUrl: item.image_url || '',
         stock: item.stock !== undefined && item.stock !== null ? Number(item.stock) : undefined,
         minStock: (item.min_stock !== undefined && item.min_stock !== null) ? Number(item.min_stock) : 5
     };
@@ -60,27 +59,39 @@ const mapProfile = (p: any): StoreProfile => ({
     autoPrintReceipt: false
 });
 
-const mapOrder = (o: any): Order => ({
-    id: String(o.id),
-    branchId: o.branch_id,
-    shiftId: o.shift_id,
-    customerName: o.customer_name || 'Pelanggan',
-    items: Array.isArray(o.items) ? o.items : [], // Asumsi kolom items JSONB tetap ada untuk snapshot
-    total: parseFloat(o.total || 0),
-    subtotal: parseFloat(o.subtotal || 0),
-    discount: parseFloat(o.discount || 0),
-    status: o.status || 'pending',
-    isPaid: o.payment_status === 'paid', // Mapping dari string ke boolean
-    paymentMethod: o.payment_method,
-    orderType: o.type || 'Dine In', // Mapping dari 'type' ke 'orderType'
-    createdAt: Number(o.created_at),
-    paidAt: o.paid_at ? Number(o.paid_at) : undefined,
-    sequentialId: o.sequential_id,
-    discountType: 'fixed',
-    discountValue: 0,
-    taxAmount: parseFloat(o.tax || 0),
-    serviceChargeAmount: parseFloat(o.service || 0)
-});
+const mapOrder = (o: any): Order => {
+    // Mapping items dari tabel order_items (nested)
+    const items: CartItem[] = (o.order_items || []).map((oi: any) => ({
+        id: oi.product_id,
+        name: oi.product_name,
+        price: parseFloat(oi.price),
+        quantity: oi.quantity,
+        note: oi.note || '',
+        category: '' // Kategori tidak disimpan di order_items, tapi tidak kritis untuk tampilan POS
+    }));
+
+    return {
+        id: String(o.id),
+        branchId: o.branch_id,
+        shiftId: o.shift_id,
+        customerName: o.customer_name || 'Pelanggan',
+        items: items,
+        total: parseFloat(o.total || 0),
+        subtotal: parseFloat(o.subtotal || 0),
+        discount: parseFloat(o.discount || 0),
+        status: o.status || 'pending',
+        isPaid: o.payment_status === 'paid',
+        paymentMethod: o.payment_method,
+        orderType: o.type || 'Dine In',
+        createdAt: Number(o.created_at),
+        paidAt: o.paid_at ? Number(o.paid_at) : undefined,
+        sequentialId: o.sequential_id,
+        discountType: 'fixed',
+        discountValue: 0,
+        taxAmount: parseFloat(o.tax || 0),
+        serviceChargeAmount: parseFloat(o.service || 0)
+    };
+};
 
 // --- STORE PROFILE ---
 export const getStoreProfileFromCloud = async (branchId: string) => {
@@ -250,12 +261,13 @@ export const closeShiftInCloud = async (summary: ShiftSummary) => {
 
 export const addOrderToCloud = async (order: Order) => {
     await ensureDefaultBranch();
-    const { error } = await supabase.from('orders').insert({
+    
+    // 1. Simpan header pesanan ke tabel 'orders' (tanpa kolom items)
+    const { error: orderError } = await supabase.from('orders').insert({
         id: order.id,
         branch_id: order.branchId,
         shift_id: order.shiftId,
         customer_name: order.customerName,
-        items: order.items, // Kolom items (JSONB) harus ada di Supabase
         subtotal: order.subtotal || order.total,
         total: order.total,
         discount: order.discount,
@@ -266,11 +278,48 @@ export const addOrderToCloud = async (order: Order) => {
         type: order.orderType,
         created_at: order.createdAt
     });
-    if (error) handleError(error, 'addOrder');
+
+    if (orderError) {
+        handleError(orderError, 'addOrder-Header');
+        return;
+    }
+
+    // 2. Simpan setiap item pesanan ke tabel 'order_items'
+    const itemsToInsert = order.items.map(item => ({
+        order_id: order.id,
+        product_id: item.id,
+        product_name: item.name,
+        price: item.price,
+        quantity: item.quantity,
+        note: item.note
+    }));
+
+    const { error: itemsError } = await supabase.from('order_items').insert(itemsToInsert);
+    if (itemsError) handleError(itemsError, 'addOrder-Items');
 };
 
 export const updateOrderInCloud = async (id: string, updates: any) => {
     const dbUpdates: any = { ...updates };
+    
+    // Jika ada pembaruan item, kita perlu mengelola tabel order_items
+    if (updates.items) {
+        // Hapus item lama
+        await supabase.from('order_items').delete().eq('order_id', id);
+        
+        // Masukkan item baru
+        const itemsToInsert = updates.items.map((item: CartItem) => ({
+            order_id: id,
+            product_id: item.id,
+            product_name: item.name,
+            price: item.price,
+            quantity: item.quantity,
+            note: item.note
+        }));
+        await supabase.from('order_items').insert(itemsToInsert);
+        
+        delete dbUpdates.items; // Jangan masukkan kolom items ke tabel orders
+    }
+
     if (updates.customerName) { dbUpdates.customer_name = updates.customerName; delete dbUpdates.customerName; }
     if (updates.isPaid !== undefined) { 
         dbUpdates.payment_status = updates.isPaid ? 'paid' : 'unpaid'; 
@@ -367,10 +416,23 @@ export const addExpenseToCloud = async (expense: any) => {
 
 // --- SUBSCRIPTIONS ---
 export const subscribeToOrders = (branchId: string, onUpdate: (orders: Order[]) => void) => {
-    const channel = supabase.channel(`orders-${branchId}`).on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `branch_id=eq.${branchId}` }, async () => {
-        const { data } = await supabase.from('orders').select('*').eq('branch_id', branchId).order('created_at', { ascending: false });
+    // Query awal dengan join ke order_items
+    const fetchOrders = async () => {
+        const { data } = await supabase
+            .from('orders')
+            .select('*, order_items(*)')
+            .eq('branch_id', branchId)
+            .order('created_at', { ascending: false });
         onUpdate((data || []).map(mapOrder));
-    }).subscribe();
+    };
+
+    fetchOrders();
+
+    const channel = supabase.channel(`orders-${branchId}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `branch_id=eq.${branchId}` }, fetchOrders)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items' }, fetchOrders)
+        .subscribe();
+        
     return () => supabase.removeChannel(channel);
 };
 
