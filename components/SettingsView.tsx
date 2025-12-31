@@ -13,7 +13,7 @@ const generatePrintLayout = (tables: Table[], profile: StoreProfile) => {
         return;
     }
 
-    const printContent = tables.map(t => {
+    const printContent = tables.sort((a,b) => parseInt(a.number) - parseInt(b.number)).map(t => {
         const maskedUrl = `${baseUrl}/?q=${t.qrCodeData}`;
         const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=${encodeURIComponent(maskedUrl)}`;
         return `
@@ -64,9 +64,11 @@ const SettingsView: React.FC = () => {
 
     const [activeTab, setActiveTab] = useState<'profile' | 'menu' | 'tables' | 'staff'>('profile');
     
-    // --- STATE FOR FORMS ---
+    // --- STATE FOR TABLES ---
     const [qrBatchStart, setQrBatchStart] = useState('1');
     const [qrBatchEnd, setQrBatchEnd] = useState('10');
+    const [manualTableName, setManualTableName] = useState('');
+    const [isProcessing, setIsProcessing] = useState(false);
     
     const [editingProduct, setEditingProduct] = useState<Partial<MenuItem> | null>(null);
     const [newCategoryName, setNewCategoryName] = useState('');
@@ -98,21 +100,50 @@ const SettingsView: React.FC = () => {
     const handleSaveUser = (e: React.FormEvent) => {
         e.preventDefault();
         if (editingUser) {
+            // FIX: Ensured editingUser is not null before spreading by using functional updates or explicit check
             addUser({ ...editingUser, id: editingUser.id || Date.now().toString() } as User);
             setEditingUser(null);
+        }
+    };
+
+    const handleAddSingleTable = async () => {
+        if (!manualTableName.trim()) return;
+        setIsProcessing(true);
+        try {
+            if (tables.find(t => t.number === manualTableName.trim())) {
+                alert("Nomor meja sudah ada!");
+                return;
+            }
+            await addTable(manualTableName.trim());
+            setManualTableName('');
+        } catch (e) {
+            alert("Gagal menambah meja. Pastikan database sudah siap (RLS Disabled).");
+        } finally {
+            setIsProcessing(false);
         }
     };
 
     const handleBatchAddTable = async () => {
         const start = parseInt(qrBatchStart), end = parseInt(qrBatchEnd);
         if(!isNaN(start) && !isNaN(end) && end >= start) {
-            for(let i=start; i<=end; i++) {
-                const numStr = i.toString();
-                if(!tables.find(t => t.number === numStr)) {
-                    await addTable(numStr); 
-                }
+            if (end - start > 50) {
+                alert("Maksimal 50 meja per batch untuk menjaga stabilitas.");
+                return;
             }
-            alert(`Selesai memproses pembuatan meja.`);
+            setIsProcessing(true);
+            try {
+                for(let i=start; i<=end; i++) {
+                    const numStr = i.toString();
+                    if(!tables.find(t => t.number === numStr)) {
+                        await addTable(numStr); 
+                    }
+                }
+                alert(`Selesai memproses pembuatan meja.`);
+            } catch (e) {
+                alert("Terjadi kesalahan saat batch upload. Cek koneksi.");
+            } finally {
+                setIsProcessing(false);
+            }
         }
     };
 
@@ -212,12 +243,13 @@ const SettingsView: React.FC = () => {
                                     <div className="bg-gray-50 p-6 rounded-2xl border-2 border-dashed border-gray-200 mb-8 animate-slide-in-up">
                                         <h4 className="font-bold text-gray-800 mb-4 uppercase text-sm">Form Data Menu</h4>
                                         <form onSubmit={handleSaveProduct} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                            <input required value={editingProduct.name} onChange={e => setEditingProduct({...editingProduct, name: e.target.value})} placeholder="Nama Menu" className="border rounded-xl p-3 font-bold" />
-                                            <input required type="number" value={editingProduct.price} onChange={e => setEditingProduct({...editingProduct, price: parseInt(e.target.value) || 0})} placeholder="Harga (Rp)" className="border rounded-xl p-3 font-bold" />
-                                            <select value={editingProduct.category} onChange={e => setEditingProduct({...editingProduct, category: e.target.value})} className="border rounded-xl p-3 bg-white font-bold">
+                                            {/* FIX: Replaced spread of nullable editingProduct with functional update to avoid TypeScript error */}
+                                            <input required value={editingProduct.name} onChange={e => setEditingProduct(prev => prev ? {...prev, name: e.target.value} : prev)} placeholder="Nama Menu" className="border rounded-xl p-3 font-bold" />
+                                            <input required type="number" value={editingProduct.price} onChange={e => setEditingProduct(prev => prev ? {...prev, price: parseInt(e.target.value) || 0} : prev)} placeholder="Harga (Rp)" className="border rounded-xl p-3 font-bold" />
+                                            <select value={editingProduct.category} onChange={e => setEditingProduct(prev => prev ? {...prev, category: e.target.value} : prev)} className="border rounded-xl p-3 bg-white font-bold">
                                                 {categories.map(c => <option key={c} value={c}>{c}</option>)}
                                             </select>
-                                            <input value={editingProduct.imageUrl} onChange={e => setEditingProduct({...editingProduct, imageUrl: e.target.value})} placeholder="URL Gambar (Opsional)" className="border rounded-xl p-3" />
+                                            <input value={editingProduct.imageUrl} onChange={e => setEditingProduct(prev => prev ? {...prev, imageUrl: e.target.value} : prev)} placeholder="URL Gambar (Opsional)" className="border rounded-xl p-3" />
                                             <div className="md:col-span-2 flex justify-end gap-2 mt-2">
                                                 <button type="button" onClick={() => setEditingProduct(null)} className="px-6 py-2 rounded-xl font-bold text-gray-500 hover:bg-gray-200">BATAL</button>
                                                 <button type="submit" className="px-8 py-2 bg-green-600 text-white rounded-xl font-black hover:bg-green-700 shadow-md">SIMPAN</button>
@@ -251,10 +283,31 @@ const SettingsView: React.FC = () => {
                     {/* TAB: MEJA & QR */}
                     {activeTab === 'tables' && (
                         <div className="animate-fade-in space-y-8">
+                            {/* Input Satu-Satu (Manual) */}
+                            <div className="bg-white p-8 rounded-3xl shadow-sm border">
+                                <h3 className="text-xl font-black mb-6 flex items-center gap-3">
+                                    <span className="w-2 h-6 bg-green-500 rounded-full"></span>
+                                    TAMBAH MEJA MANUAL
+                                </h3>
+                                <div className="flex gap-4 items-end">
+                                    <div className="flex-1">
+                                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Nomor Meja</label>
+                                        <input value={manualTableName} onChange={e => setManualTableName(e.target.value)} placeholder="Contoh: A1, 15, VVIP..." className="w-full border-2 border-gray-100 rounded-xl p-3 focus:border-green-500 outline-none font-bold" />
+                                    </div>
+                                    <button 
+                                        onClick={handleAddSingleTable} 
+                                        disabled={isProcessing || !manualTableName}
+                                        className="bg-green-600 text-white font-black px-8 py-3.5 rounded-xl hover:bg-green-700 shadow-lg disabled:bg-gray-300 transition-all"
+                                    >
+                                        {isProcessing ? '...' : '+ TAMBAH'}
+                                    </button>
+                                </div>
+                            </div>
+
                             <div className="bg-white p-8 rounded-3xl shadow-sm border">
                                 <h3 className="text-xl font-black mb-6 flex items-center gap-3">
                                     <span className="w-2 h-6 bg-indigo-500 rounded-full"></span>
-                                    GENERATOR MEJA QR
+                                    GENERATOR BATCH (NOMOR URUT)
                                 </h3>
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-end">
                                     <div className="grid grid-cols-2 gap-4">
@@ -268,15 +321,17 @@ const SettingsView: React.FC = () => {
                                         </div>
                                     </div>
                                     <div className="flex gap-2">
-                                        <button onClick={handleBatchAddTable} className="flex-1 bg-indigo-600 text-white font-black py-3 rounded-xl hover:bg-indigo-700 shadow-lg active:scale-95 transition-all">BUAT BATCH</button>
+                                        <button onClick={handleBatchAddTable} disabled={isProcessing} className="flex-1 bg-indigo-600 text-white font-black py-3 rounded-xl hover:bg-indigo-700 shadow-lg active:scale-95 transition-all disabled:bg-gray-300">
+                                            {isProcessing ? 'MEMPROSES...' : 'BUAT BATCH'}
+                                        </button>
                                         <button onClick={() => generatePrintLayout(tables, storeProfile)} className="bg-gray-900 text-white font-black px-6 py-3 rounded-xl hover:bg-black shadow-lg transition-all">CETAK SEMUA</button>
                                     </div>
                                 </div>
-                                <p className="text-[10px] text-gray-400 mt-4 italic font-medium">* Meja yang sudah ada dengan nomor yang sama tidak akan dibuat ulang.</p>
+                                <p className="text-[10px] text-gray-400 mt-4 italic font-medium">* Pastikan Anda sudah menjalankan SQL terbaru (RLS Disabled) jika mengalami error 401.</p>
                             </div>
 
                             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                                {tables.map(table => {
+                                {tables.sort((a,b) => parseInt(a.number) - parseInt(b.number) || a.number.localeCompare(b.number)).map(table => {
                                     const baseUrl = window.location.origin;
                                     const maskedUrl = `${baseUrl}/?q=${table.qrCodeData}`; 
                                     const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(maskedUrl)}`;
@@ -308,9 +363,10 @@ const SettingsView: React.FC = () => {
                                 {editingUser && (
                                     <div className="bg-gray-50 p-6 rounded-2xl border-2 border-dashed border-gray-200 mb-8 animate-slide-in-up">
                                         <form onSubmit={handleSaveUser} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                            <input required value={editingUser.name} onChange={e => setEditingUser({...editingUser, name: e.target.value})} placeholder="Nama Lengkap" className="border rounded-xl p-3 font-bold" />
-                                            <input required value={editingUser.pin} onChange={e => setEditingUser({...editingUser, pin: e.target.value.replace(/\D/g,'')})} placeholder="PIN Login (4-6 Angka)" className="border rounded-xl p-3 font-bold" maxLength={6} />
-                                            <select value={editingUser.role} onChange={e => setEditingUser({...editingUser, role: e.target.value as any})} className="border rounded-xl p-3 bg-white font-bold">
+                                            {/* FIX: Replaced spread of nullable editingUser with functional update to avoid TypeScript error */}
+                                            <input required value={editingUser.name} onChange={e => setEditingUser(prev => prev ? {...prev, name: e.target.value} : prev)} placeholder="Nama Lengkap" className="border rounded-xl p-3 font-bold" />
+                                            <input required value={editingUser.pin} onChange={e => setEditingUser(prev => prev ? {...prev, pin: e.target.value.replace(/\D/g,'')} : prev)} placeholder="PIN Login (4-6 Angka)" className="border rounded-xl p-3 font-bold" maxLength={6} />
+                                            <select value={editingUser.role} onChange={e => setEditingUser(prev => prev ? {...prev, role: e.target.value as any} : prev)} className="border rounded-xl p-3 bg-white font-bold">
                                                 <option value="admin">Admin / Owner</option>
                                                 <option value="cashier">Kasir</option>
                                                 <option value="kitchen">Dapur</option>
@@ -328,7 +384,7 @@ const SettingsView: React.FC = () => {
                                     {users.map(u => (
                                         <div key={u.id} className="flex items-center justify-between bg-white border p-4 rounded-2xl hover:border-purple-200 transition-all">
                                             <div className="flex items-center gap-4">
-                                                <div className="w-12 h-12 bg-purple-100 text-purple-600 rounded-full flex items-center justify-center font-black text-xl">{u.name.charAt(0)}</div>
+                                                <div className={`w-12 h-12 bg-purple-100 text-purple-600 rounded-full flex items-center justify-center font-black text-xl">{u.name.charAt(0)}</div>
                                                 <div>
                                                     <div className="font-bold text-gray-800">{u.name}</div>
                                                     <div className="flex items-center gap-2">
