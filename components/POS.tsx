@@ -163,7 +163,6 @@ const POSView: React.FC = () => {
         return menu.filter(item => (selectedCategory === 'All' || item.category === selectedCategory) && item.name.toLowerCase().includes(lower));
     }, [menu, selectedCategory, searchTerm]);
 
-    // UPDATED: 'serving' is now considered an active status
     const pendingOrders = useMemo(() => orders.filter(o => o.status !== 'completed' && o.status !== 'cancelled').sort((a, b) => b.createdAt - a.createdAt), [orders]);
     const historyOrders = useMemo(() => orders.filter(o => o.status === 'completed' || o.status === 'cancelled').sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0)).slice(0, 20), [orders]);
     const displayedOrders = sidebarTab === 'active' ? pendingOrders : historyOrders;
@@ -317,6 +316,7 @@ const POSView: React.FC = () => {
                     )}
                     {displayedOrders.map(o => {
                         const isPendingOnline = o.status === 'pending' && !o.isPaid;
+                        const isSelfOrder = o.orderSource === 'customer';
                         const shouldHighlight = highlightedOrderId === o.id || isPendingOnline;
 
                         return (
@@ -329,8 +329,13 @@ const POSView: React.FC = () => {
                                 `}
                             >
                                 <div className="flex justify-between items-start mb-1">
-                                    <div>
-                                        <div className="font-bold text-gray-800 text-sm">#{o.sequentialId} {o.customerName}</div>
+                                    <div className="flex flex-col">
+                                        <div className="font-bold text-gray-800 text-sm flex items-center gap-1.5 truncate">
+                                            #{o.sequentialId} {o.customerName}
+                                            {isSelfOrder && (
+                                                <span className="bg-orange-600 text-white text-[8px] font-black px-1.5 py-0.5 rounded shadow-sm">SELF</span>
+                                            )}
+                                        </div>
                                         <div className="text-[10px] text-gray-400 font-mono mt-0.5">{new Date(o.createdAt).toLocaleTimeString('id-ID', {hour: '2-digit', minute:'2-digit'})}</div>
                                     </div>
                                     <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide ${o.isPaid ? 'bg-green-100 text-green-700' : (o.status === 'cancelled' ? 'bg-red-100 text-red-600' : 'bg-gray-200 text-gray-600')}`}>{o.status === 'cancelled' ? 'BATAL' : (o.isPaid ? 'Lunas' : 'Unpaid')}</span>
@@ -366,7 +371,7 @@ const POSView: React.FC = () => {
                 </div>
 
                 <div className="flex-1 overflow-y-auto p-4 bg-gray-50">
-                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
+                    <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
                         {filteredMenu.map(item => {
                             const isOutOfStock = item.stock !== undefined && item.stock <= 0;
                             return (

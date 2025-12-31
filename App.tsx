@@ -146,7 +146,6 @@ const App: React.FC = () => {
             const ok = await checkConnection();
             setIsDatabaseReady(ok);
             if (ok) {
-                // DETEKSI ROUTING DARI QR CODE
                 const params = new URLSearchParams(window.location.search);
                 if (params.has('q') || params.has('table')) {
                     setAppMode('customer');
@@ -232,7 +231,7 @@ const App: React.FC = () => {
             return summary;
         },
         addOrder: (cart, name, dv, dt, ot) => {
-             const order: Order = { id: Date.now().toString(), customerName: name, items: cart, total: cart.reduce((s, i) => s + i.price * i.quantity, 0), subtotal: 0, discount: 0, discountType: dt, discountValue: dv, taxAmount: 0, serviceChargeAmount: 0, status: 'pending', createdAt: Date.now(), isPaid: false, shiftId: activeShift?.id || '', orderType: ot, branchId: activeBranchId };
+             const order: Order = { id: Date.now().toString(), customerName: name, items: cart, total: cart.reduce((s, i) => s + i.price * i.quantity, 0), subtotal: 0, discount: 0, discountType: dt, discountValue: dv, taxAmount: 0, serviceChargeAmount: 0, status: 'pending', createdAt: Date.now(), isPaid: false, shiftId: activeShift?.id || '', orderType: ot, branchId: activeBranchId, orderSource: 'admin' };
              addOrderToCloud(order);
              return order;
         },
@@ -251,14 +250,14 @@ const App: React.FC = () => {
             }).filter(i => i.quantity > 0);
             const remainingSubtotal = remainingItems.reduce((s, i) => s + i.price * i.quantity, 0);
             updateOrderInCloud(original.id, { items: remainingItems, subtotal: remainingSubtotal });
-            const newOrder: Order = { ...original, id: Date.now().toString(), items: itemsToMove, sequentialId: undefined, status: 'pending', isPaid: false, createdAt: Date.now() };
+            const newOrder: Order = { ...original, id: Date.now().toString(), items: itemsToMove, sequentialId: undefined, status: 'pending', isPaid: false, createdAt: Date.now(), orderSource: original.orderSource };
             addOrderToCloud(newOrder);
         },
         addExpense: async (d, a) => { if(activeShift) await addExpenseToCloud({ id: Date.now(), shiftId: activeShift.id, description: d, amount: a, date: Date.now() }); },
         setView, setTables, setUsers: () => {}, clockIn: async () => {}, clockOut: async () => {}, refreshOrders: refreshAllData, deleteExpense: () => {}, deleteAndResetShift: () => {}, requestPassword: (t, c) => c(), 
         printerDevice: null, isPrinting: false, connectToPrinter: async () => {}, disconnectPrinter: async () => {}, previewReceipt: () => {}, printOrderToDevice: async () => {}, printShiftToDevice: async () => {}, printOrderViaBrowser: () => {},
         customerSubmitOrder: async (cart, name) => {
-            const order: Order = { id: Date.now().toString(), customerName: name, items: cart, total: cart.reduce((s, i) => s + i.price * i.quantity, 0), subtotal: 0, discount: 0, discountType: 'percent', discountValue: 0, taxAmount: 0, serviceChargeAmount: 0, status: 'pending', createdAt: Date.now(), isPaid: false, shiftId: activeShift?.id || '', orderType: 'Dine In', branchId: activeBranchId };
+            const order: Order = { id: Date.now().toString(), customerName: name, items: cart, total: cart.reduce((s, i) => s + i.price * i.quantity, 0), subtotal: 0, discount: 0, discountType: 'percent', discountValue: 0, taxAmount: 0, serviceChargeAmount: 0, status: 'pending', createdAt: Date.now(), isPaid: false, shiftId: activeShift?.id || '', orderType: 'Dine In', branchId: activeBranchId, orderSource: 'customer' };
             await addOrderToCloud(order);
             return order;
         }

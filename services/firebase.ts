@@ -1,5 +1,5 @@
 
-import { Table, Order, Shift, StoreProfile, MenuItem, Ingredient, Expense, ShiftSummary, User, CartItem } from '../types';
+import { Table, Order, Shift, StoreProfile, MenuItem, Ingredient, Expense, ShiftSummary, User, CartItem, OrderSource } from '../types';
 import { supabase } from './supabaseClient';
 
 const handleError = (error: any, context: string) => {
@@ -60,14 +60,13 @@ const mapProfile = (p: any): StoreProfile => ({
 });
 
 const mapOrder = (o: any): Order => {
-    // Mapping items dari tabel order_items (nested)
     const items: CartItem[] = (o.order_items || []).map((oi: any) => ({
         id: oi.product_id,
         name: oi.product_name,
         price: parseFloat(oi.price),
         quantity: oi.quantity,
         note: oi.note || '',
-        category: '' // Kategori tidak disimpan di order_items, tapi tidak kritis untuk tampilan POS
+        category: ''
     }));
 
     return {
@@ -89,7 +88,8 @@ const mapOrder = (o: any): Order => {
         discountType: 'fixed',
         discountValue: 0,
         taxAmount: parseFloat(o.tax || 0),
-        serviceChargeAmount: parseFloat(o.service || 0)
+        serviceChargeAmount: parseFloat(o.service || 0),
+        orderSource: o.order_source || 'admin'
     };
 };
 
@@ -262,7 +262,7 @@ export const closeShiftInCloud = async (summary: ShiftSummary) => {
 export const addOrderToCloud = async (order: Order) => {
     await ensureDefaultBranch();
     
-    // 1. Simpan header pesanan ke tabel 'orders' (tanpa kolom items)
+    // Header
     const { error: orderError } = await supabase.from('orders').insert({
         id: order.id,
         branch_id: order.branchId,
@@ -276,7 +276,8 @@ export const addOrderToCloud = async (order: Order) => {
         status: order.status,
         payment_status: order.isPaid ? 'paid' : 'unpaid',
         type: order.orderType,
-        created_at: order.createdAt
+        created_at: order.createdAt,
+        order_source: order.orderSource || 'admin'
     });
 
     if (orderError) {
@@ -284,7 +285,7 @@ export const addOrderToCloud = async (order: Order) => {
         return;
     }
 
-    // 2. Simpan setiap item pesanan ke tabel 'order_items'
+    // Items
     const itemsToInsert = order.items.map(item => ({
         order_id: order.id,
         product_id: item.id,
@@ -301,12 +302,8 @@ export const addOrderToCloud = async (order: Order) => {
 export const updateOrderInCloud = async (id: string, updates: any) => {
     const dbUpdates: any = { ...updates };
     
-    // Jika ada pembaruan item, kita perlu mengelola tabel order_items
     if (updates.items) {
-        // Hapus item lama
         await supabase.from('order_items').delete().eq('order_id', id);
-        
-        // Masukkan item baru
         const itemsToInsert = updates.items.map((item: CartItem) => ({
             order_id: id,
             product_id: item.id,
@@ -316,8 +313,7 @@ export const updateOrderInCloud = async (id: string, updates: any) => {
             note: item.note
         }));
         await supabase.from('order_items').insert(itemsToInsert);
-        
-        delete dbUpdates.items; // Jangan masukkan kolom items ke tabel orders
+        delete dbUpdates.items;
     }
 
     if (updates.customerName) { dbUpdates.customer_name = updates.customerName; delete dbUpdates.customerName; }
@@ -327,6 +323,7 @@ export const updateOrderInCloud = async (id: string, updates: any) => {
     }
     if (updates.paymentMethod) { dbUpdates.payment_method = updates.paymentMethod; delete dbUpdates.paymentMethod; }
     if (updates.orderType) { dbUpdates.type = updates.orderType; delete dbUpdates.orderType; }
+    if (updates.orderSource) { dbUpdates.order_source = updates.orderSource; delete dbUpdates.orderSource; }
     
     const { error } = await supabase.from('orders').update(dbUpdates).eq('id', id);
     if (error) handleError(error, 'updateOrder');
@@ -416,7 +413,6 @@ export const addExpenseToCloud = async (expense: any) => {
 
 // --- SUBSCRIPTIONS ---
 export const subscribeToOrders = (branchId: string, onUpdate: (orders: Order[]) => void) => {
-    // Query awal dengan join ke order_items
     const fetchOrders = async () => {
         const { data } = await supabase
             .from('orders')

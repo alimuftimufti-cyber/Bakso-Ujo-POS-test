@@ -112,6 +112,7 @@ export interface Branch {
 export type OrderStatus = 'pending' | 'ready' | 'serving' | 'completed' | 'cancelled';
 export type OrderType = 'Dine In' | 'Take Away';
 export type PaymentMethod = 'Tunai' | 'QRIS' | 'Debit';
+export type OrderSource = 'admin' | 'customer';
 
 export interface Order {
     id: string;
@@ -142,6 +143,7 @@ export interface Order {
     
     // Multi-Branch
     branchId?: string;
+    orderSource?: OrderSource;
 }
 
 export interface Expense {
@@ -176,7 +178,7 @@ export interface ShiftSummary extends Shift {
     expectedCash: number; // Calculated: Start + CashRevenue - Expenses
 }
 
-// --- ATTENDANCE TYPES ---
+// --- ATTENDANCE RECORDS ---
 export interface AttendanceRecord {
     id: string;
     userId: string;
@@ -316,7 +318,6 @@ export interface AppContextType {
     refreshOrders: () => Promise<void>; 
 
     // Expenses
-    // UPDATED: Changed to Promise<void> for loading state handling in UI
     addExpense: (description: string, amount: number) => Promise<void>;
     deleteExpense: (id: number) => void;
     
