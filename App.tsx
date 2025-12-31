@@ -107,7 +107,6 @@ const App: React.FC = () => {
 
     const refreshAllData = useCallback(async () => {
         try {
-            // Kita coba fetch satu per satu agar tahu mana yang error
             const p = await getStoreProfileFromCloud(activeBranchId).catch(() => null);
             if (p) setStoreProfile(p);
 
@@ -136,7 +135,6 @@ const App: React.FC = () => {
             setDbErrorMessage(null);
         } catch (err: any) { 
             console.error("Refresh error:", err);
-            // Jika tabel penting tidak ditemukan
             if (err.message?.includes('not find the table') || err.message?.includes('404')) {
                 setDbErrorMessage(`Tabel '${err.details || 'tidak dikenal'}' tidak ditemukan. Pastikan skema SQL sudah dijalankan.`);
             }
@@ -156,12 +154,23 @@ const App: React.FC = () => {
 
     useEffect(() => {
         if (!isDatabaseReady || dbErrorMessage) return;
-        const unsubTables = subscribeToTables(activeBranchId, (newTables) => {
-            setTables(newTables);
-        });
+        
+        // --- REAL TIME SUBSCRIPTIONS ---
+        const unsubTables = subscribeToTables(activeBranchId, (newTables) => setTables(newTables));
         const unsubOrders = subscribeToOrders(activeBranchId, (newOrders) => setOrders(newOrders));
         const unsubShifts = subscribeToShifts(activeBranchId, setActiveShift);
-        return () => { unsubTables(); unsubOrders(); unsubShifts(); };
+        const unsubInventory = subscribeToInventory(activeBranchId, () => {
+            // Re-fetch inventory data (menu & ingredients) when cloud changes
+            getMenuFromCloud(activeBranchId).then(setMenu);
+            getIngredientsFromCloud(activeBranchId).then(setIngredients);
+        });
+
+        return () => { 
+            unsubTables(); 
+            unsubOrders(); 
+            unsubShifts(); 
+            unsubInventory();
+        };
     }, [activeBranchId, isDatabaseReady, dbErrorMessage]);
 
     const handleLogin = (pin: string) => {
@@ -185,36 +194,19 @@ const App: React.FC = () => {
         menu, categories, orders, expenses, activeShift, completedShifts: [], storeProfile, ingredients, tables, branches: [], users, currentUser, attendanceRecords: [], kitchenAlarmTime: 600, kitchenAlarmSound: 'beep', isStoreOpen: !!activeShift, isShiftLoading: isGlobalLoading,
         setMenu, setCategories, setStoreProfile: (p: any) => { setStoreProfile(p); updateStoreProfileInCloud(p); },
         setKitchenAlarmTime: () => {}, setKitchenAlarmSound: () => {}, addCategory: addCategoryToCloud, deleteCategory: deleteCategoryFromCloud, setIngredients,
-        saveMenuItem: async (i) => { await addProductToCloud(i, activeBranchId); refreshAllData(); },
-        removeMenuItem: async (id) => { await deleteProductFromCloud(id); refreshAllData(); },
+        saveMenuItem: async (i) => { await addProductToCloud(i, activeBranchId); },
+        removeMenuItem: async (id) => { await deleteProductFromCloud(id); },
+        saveIngredient: async (ing) => { await addIngredientToCloud(ing, activeBranchId); },
+        removeIngredient: async (id) => { await deleteIngredientFromCloud(id); },
         addTable: async (num) => {
             const payload = btoa(`B:${activeBranchId}|T:${num}`);
             const newTable = { id: Date.now().toString(), number: num, qrCodeData: payload };
-            
-            // Optimistic Update: Tambahkan ke UI dulu biar cepat
             setTables(prev => [...prev, newTable]);
-            
-            // Simpan ke cloud
-            try {
-                await addTableToCloud(newTable, activeBranchId);
-            } catch (e) {
-                // Rollback jika gagal
-                setTables(prev => prev.filter(t => t.id !== newTable.id));
-                throw e;
-            }
+            try { await addTableToCloud(newTable, activeBranchId); } catch (e) { setTables(prev => prev.filter(t => t.id !== newTable.id)); throw e; }
         },
         deleteTable: async (id) => {
-            // Optimistic Update: Hapus dari UI dulu
             setTables(prev => prev.filter(t => t.id !== id));
-            
-            try {
-                await deleteTableFromCloud(id);
-            } catch (e) {
-                // Refresh data jika gagal agar sinkron kembali
-                const tb = await getTablesFromCloud(activeBranchId);
-                setTables(tb);
-                throw e;
-            }
+            try { await deleteTableFromCloud(id); } catch (e) { const tb = await getTablesFromCloud(activeBranchId); setTables(tb); throw e; }
         },
         updateProductStock: updateProductStockInCloud,
         updateIngredientStock: updateIngredientStockInCloud,

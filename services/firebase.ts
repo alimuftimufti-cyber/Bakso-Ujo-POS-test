@@ -7,11 +7,62 @@ const handleError = (error: any, context: string) => {
     throw error;
 };
 
+// --- MAPPING HELPERS ---
+const mapMenu = (item: any): MenuItem => ({
+    id: item.id,
+    name: item.name,
+    price: parseFloat(item.price),
+    category: item.category,
+    imageUrl: item.image_url,
+    stock: item.stock,
+    minStock: item.min_stock
+});
+
+const mapProfile = (p: any): StoreProfile => ({
+    branchId: p.branch_id,
+    name: p.name,
+    address: p.address,
+    slogan: p.slogan,
+    logo: p.logo,
+    taxRate: parseFloat(p.tax_rate || 0),
+    enableTax: !!p.enable_tax,
+    serviceChargeRate: parseFloat(p.service_charge_rate || 0),
+    enableServiceCharge: !!p.enable_service_charge,
+    themeColor: p.theme_color || 'orange',
+    enableKitchen: true,
+    kitchenMotivations: [],
+    enableTableLayout: false,
+    enableTableInput: true,
+    autoPrintReceipt: false
+});
+
+const mapOrder = (o: any): Order => ({
+    id: o.id,
+    branchId: o.branch_id,
+    shiftId: o.shift_id,
+    customerName: o.customer_name,
+    items: o.items, // JSONB auto maps to array
+    total: parseFloat(o.total),
+    discount: parseFloat(o.discount || 0),
+    status: o.status,
+    isPaid: !!o.is_paid,
+    paymentMethod: o.payment_method,
+    orderType: o.order_type,
+    createdAt: parseInt(o.created_at),
+    paidAt: o.paid_at ? parseInt(o.paid_at) : undefined,
+    sequentialId: o.sequential_id,
+    subtotal: 0, // Calculated in UI
+    discountType: 'fixed',
+    discountValue: 0,
+    taxAmount: 0,
+    serviceChargeAmount: 0
+});
+
 // --- STORE PROFILE ---
 export const getStoreProfileFromCloud = async (branchId: string) => {
     const { data, error } = await supabase.from('store_profiles').select('*').eq('branch_id', branchId).single();
     if (error && error.code !== 'PGRST116') handleError(error, 'getStoreProfile');
-    return data;
+    return data ? mapProfile(data) : null;
 };
 
 export const updateStoreProfileInCloud = async (profile: StoreProfile) => {
@@ -24,7 +75,8 @@ export const updateStoreProfileInCloud = async (profile: StoreProfile) => {
         tax_rate: profile.taxRate,
         enable_tax: profile.enableTax,
         service_charge_rate: profile.serviceChargeRate,
-        enable_service_charge: profile.enableServiceCharge
+        enable_service_charge: profile.enableServiceCharge,
+        theme_color: profile.themeColor
     }, { onConflict: 'branch_id' });
     if (error) handleError(error, 'updateStoreProfile');
 };
@@ -33,7 +85,7 @@ export const updateStoreProfileInCloud = async (profile: StoreProfile) => {
 export const getMenuFromCloud = async (branchId: string) => {
     const { data, error } = await supabase.from('menu').select('*').eq('branch_id', branchId).order('name', { ascending: true });
     if (error) handleError(error, 'getMenu');
-    return data || [];
+    return (data || []).map(mapMenu);
 };
 
 export const addProductToCloud = async (item: MenuItem, branchId: string) => {
@@ -75,7 +127,14 @@ export const deleteCategoryFromCloud = async (name: string) => {
 export const getUsersFromCloud = async (branchId: string) => {
     const { data, error } = await supabase.from('users').select('*').eq('branch_id', branchId);
     if (error) handleError(error, 'getUsers');
-    return data || [];
+    return (data || []).map(u => ({
+        id: u.id,
+        name: u.name,
+        pin: u.pin,
+        attendancePin: u.attendance_pin,
+        role: u.role,
+        branchId: u.branch_id
+    }));
 };
 
 export const addUserToCloud = async (user: User) => {
@@ -101,8 +160,10 @@ export const getActiveShiftFromCloud = async (branchId: string) => {
     if (error && error.code !== 'PGRST116') handleError(error, 'getActiveShift');
     return data ? {
         ...data,
-        start: data.start_time,
-        end: data.end_time
+        start: parseInt(data.start_time),
+        end: data.end_time ? parseInt(data.end_time) : null,
+        revenue: parseFloat(data.revenue),
+        start_cash: parseFloat(data.start_cash)
     } : null;
 };
 
@@ -118,7 +179,6 @@ export const startShiftInCloud = async (shift: Shift) => {
     if (error) handleError(error, 'startShift');
 };
 
-// Fix: Implement missing updateShiftInCloud export
 export const updateShiftInCloud = async (id: string, updates: any) => {
     const { error } = await supabase.from('shifts').update(updates).eq('id', id);
     if (error) handleError(error, 'updateShift');
@@ -155,8 +215,12 @@ export const addOrderToCloud = async (order: Order) => {
 };
 
 export const updateOrderInCloud = async (id: string, updates: any) => {
-    // Map status field if necessary
-    const { error } = await supabase.from('orders').update(updates).eq('id', id);
+    const dbUpdates: any = { ...updates };
+    if (updates.customerName) { dbUpdates.customer_name = updates.customerName; delete dbUpdates.customerName; }
+    if (updates.isPaid !== undefined) { dbUpdates.is_paid = updates.isPaid; delete dbUpdates.isPaid; }
+    if (updates.paymentMethod) { dbUpdates.payment_method = updates.paymentMethod; delete dbUpdates.paymentMethod; }
+    
+    const { error } = await supabase.from('orders').update(dbUpdates).eq('id', id);
     if (error) handleError(error, 'updateOrder');
 };
 
@@ -179,7 +243,14 @@ export const deleteTableFromCloud = async (id: string) => {
 export const getIngredientsFromCloud = async (branchId: string) => {
     const { data, error } = await supabase.from('ingredients').select('*').eq('branch_id', branchId);
     if (error) handleError(error, 'getIngredients');
-    return data || [];
+    return (data || []).map(i => ({
+        id: i.id,
+        name: i.name,
+        stock: parseFloat(i.stock),
+        unit: i.unit,
+        type: i.type,
+        minStock: i.min_stock
+    }));
 };
 
 export const addIngredientToCloud = async (item: Ingredient, branchId: string) => {
@@ -214,7 +285,13 @@ export const updateIngredientStockInCloud = async (id: string, stock: number) =>
 export const getExpensesFromCloud = async (shiftId: string) => {
     const { data, error } = await supabase.from('expenses').select('*').eq('shift_id', shiftId);
     if (error) handleError(error, 'getExpenses');
-    return data || [];
+    return (data || []).map(e => ({
+        id: e.id,
+        shiftId: e.shift_id,
+        description: e.description,
+        amount: parseFloat(e.amount),
+        date: parseInt(e.created_at)
+    }));
 };
 
 export const addExpenseToCloud = async (expense: any) => {
@@ -229,15 +306,15 @@ export const addExpenseToCloud = async (expense: any) => {
 
 // --- SUBSCRIPTIONS ---
 export const subscribeToOrders = (branchId: string, onUpdate: (orders: Order[]) => void) => {
-    const channel = supabase.channel(`orders-${branchId}`).on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, async () => {
+    const channel = supabase.channel(`orders-${branchId}`).on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `branch_id=eq.${branchId}` }, async () => {
         const { data } = await supabase.from('orders').select('*').eq('branch_id', branchId).order('created_at', { ascending: false });
-        onUpdate(data || []);
+        onUpdate((data || []).map(mapOrder));
     }).subscribe();
     return () => supabase.removeChannel(channel);
 };
 
 export const subscribeToTables = (branchId: string, onUpdate: (tables: Table[]) => void) => {
-    const channel = supabase.channel(`tables-${branchId}`).on('postgres_changes', { event: '*', schema: 'public', table: 'tables' }, async () => {
+    const channel = supabase.channel(`tables-${branchId}`).on('postgres_changes', { event: '*', schema: 'public', table: 'tables', filter: `branch_id=eq.${branchId}` }, async () => {
         const data = await getTablesFromCloud(branchId);
         onUpdate(data);
     }).subscribe();
@@ -245,33 +322,28 @@ export const subscribeToTables = (branchId: string, onUpdate: (tables: Table[]) 
 };
 
 export const subscribeToShifts = (branchId: string, onUpdate: (shift: Shift | null) => void) => {
-    const channel = supabase.channel(`shifts-${branchId}`).on('postgres_changes', { event: '*', schema: 'public', table: 'shifts' }, async () => {
+    const channel = supabase.channel(`shifts-${branchId}`).on('postgres_changes', { event: '*', schema: 'public', table: 'shifts', filter: `branch_id=eq.${branchId}` }, async () => {
         const data = await getActiveShiftFromCloud(branchId);
         onUpdate(data);
     }).subscribe();
     return () => supabase.removeChannel(channel);
 };
 
-// Fix: Implement missing subscribeToInventory export
-export const subscribeToInventory = (branchId: string, onUpdate: (data: any) => void) => {
-    const channel = supabase.channel(`inventory-${branchId}`).on('postgres_changes', { event: '*', schema: 'public', table: 'menu' }, async () => {
-        onUpdate({});
-    }).on('postgres_changes', { event: '*', schema: 'public', table: 'ingredients' }, async () => {
-        onUpdate({});
-    }).subscribe();
+export const subscribeToInventory = (branchId: string, onUpdate: () => void) => {
+    const channel = supabase.channel(`inventory-${branchId}`).on('postgres_changes', { event: '*', schema: 'public', table: 'menu' }, () => onUpdate())
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'ingredients' }, () => onUpdate())
+    .subscribe();
     return () => supabase.removeChannel(channel);
 };
 
-// Fix: Implement missing subscribeToExpenses export
 export const subscribeToExpenses = (shiftId: string, onUpdate: (expenses: Expense[]) => void) => {
-    const channel = supabase.channel(`expenses-${shiftId}`).on('postgres_changes', { event: '*', schema: 'public', table: 'expenses' }, async () => {
+    const channel = supabase.channel(`expenses-${shiftId}`).on('postgres_changes', { event: '*', schema: 'public', table: 'expenses', filter: `shift_id=eq.${shiftId}` }, async () => {
         const data = await getExpensesFromCloud(shiftId);
         onUpdate(data);
     }).subscribe();
     return () => supabase.removeChannel(channel);
 };
 
-// STUBS FOR TYPES
 export const getBranchesFromCloud = async () => [];
 export const addBranchToCloud = async (b: any) => {};
 export const deleteBranchFromCloud = async (id: string) => {};
