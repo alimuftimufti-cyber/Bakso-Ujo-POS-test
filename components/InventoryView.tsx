@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { useAppContext } from '../types';
-import type { IngredientType } from '../types';
+import type { IngredientType, MenuItem } from '../types';
 
 // --- COMPONENTS ---
 
@@ -71,17 +71,27 @@ const StockCard = ({ title, stock, unit, onUpdate, onEdit, image, theme, minStoc
     );
 };
 
-const EditInventoryModal = ({ onClose, onSave, item, type }: { onClose: () => void, onSave: (data: any) => void, item: any, type: 'product' | 'ingredient' }) => {
+const EditInventoryModal = ({ onClose, onSave, item, type, categories }: { onClose: () => void, onSave: (data: any) => void, item: any, type: 'product' | 'ingredient', categories: string[] }) => {
     // Initial state logic: if product has stock defined, trackStock is true
+    const isNew = !item;
     const initialTrackStock = type === 'ingredient' ? true : (item?.stock !== undefined);
     
-    const [form, setForm] = useState(item || { name: '', unit: 'pcs', stock: 0, minStock: 5, type: 'raw' });
-    const [trackStock, setTrackStock] = useState(initialTrackStock);
+    const [form, setForm] = useState(item || { 
+        name: '', 
+        price: 0, 
+        category: categories[0] || 'Bakso', 
+        unit: 'pcs', 
+        stock: 0, 
+        minStock: 5, 
+        type: 'raw' 
+    });
+    const [trackStock, setTrackStock] = useState(initialTrackStock || type === 'product');
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         onSave({ 
-            ...form, 
+            ...form,
+            id: form.id || Date.now(),
             stock: trackStock ? parseFloat(form.stock || 0) : undefined, 
             minStock: trackStock ? parseFloat(form.minStock || 5) : undefined 
         });
@@ -93,7 +103,7 @@ const EditInventoryModal = ({ onClose, onSave, item, type }: { onClose: () => vo
                 <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                 </button>
-                <h3 className="text-xl font-bold text-gray-800 mb-6">{item ? 'Edit Item' : 'Tambah Item Baru'}</h3>
+                <h3 className="text-xl font-bold text-gray-800 mb-6">{isNew ? `Tambah ${type === 'product' ? 'Produk Jadi' : 'Bahan Baku'}` : 'Edit Item'}</h3>
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <div>
                         <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Nama Item</label>
@@ -101,29 +111,49 @@ const EditInventoryModal = ({ onClose, onSave, item, type }: { onClose: () => vo
                             type="text" 
                             value={form.name} 
                             onChange={e => setForm({...form, name: e.target.value})} 
-                            className={`w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 outline-none focus:border-gray-800 ${type === 'product' ? 'bg-gray-100 text-gray-500' : ''}`}
-                            readOnly={type === 'product'} // Prevent renaming menu here, do it in Settings
+                            className={`w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 outline-none focus:border-gray-800 transition-all`}
+                            placeholder="Contoh: Bakso Urat"
                             required 
                         />
-                        {type === 'product' && <p className="text-[10px] text-gray-400 mt-1">Nama produk diubah melalui menu Pengaturan.</p>}
                     </div>
 
                     {type === 'product' && (
-                        <div className="flex items-center justify-between p-3 bg-blue-50 rounded-xl border border-blue-100">
-                            <div>
-                                <label className="block text-sm font-bold text-blue-900">Kelola Stok?</label>
-                                <p className="text-xs text-blue-600">Aktifkan untuk melacak sisa porsi.</p>
+                        <>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Harga Jual (Rp)</label>
+                                    <input 
+                                        type="number" 
+                                        value={form.price} 
+                                        onChange={e => setForm({...form, price: parseFloat(e.target.value) || 0})} 
+                                        className="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 outline-none focus:border-gray-800 font-bold" 
+                                        placeholder="0"
+                                        required 
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Kategori</label>
+                                    <select value={form.category} onChange={e => setForm({...form, category: e.target.value})} className="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 outline-none focus:border-gray-800 bg-white">
+                                        {categories.map(c => <option key={c} value={c}>{c}</option>)}
+                                    </select>
+                                </div>
                             </div>
-                            <label className="relative inline-flex items-center cursor-pointer">
-                                <input type="checkbox" checked={trackStock} onChange={e => setTrackStock(e.target.checked)} className="sr-only peer" />
-                                <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                            </label>
-                        </div>
+                            <div className="flex items-center justify-between p-3 bg-blue-50 rounded-xl border border-blue-100">
+                                <div>
+                                    <label className="block text-sm font-bold text-blue-900">Kelola Stok?</label>
+                                    <p className="text-xs text-blue-600">Aktifkan untuk melacak sisa porsi.</p>
+                                </div>
+                                <label className="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" checked={trackStock} onChange={e => setTrackStock(e.target.checked)} className="sr-only peer" />
+                                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                                </label>
+                            </div>
+                        </>
                     )}
 
                     {type === 'ingredient' && (
                         <div>
-                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Kategori</label>
+                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Kategori Bahan</label>
                             <select value={form.type} onChange={e => setForm({...form, type: e.target.value})} className="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 outline-none focus:border-gray-800 bg-white">
                                 <option value="raw">Bahan Baku (Raw)</option>
                                 <option value="spice">Bumbu (Spice)</option>
@@ -169,7 +199,7 @@ const EditInventoryModal = ({ onClose, onSave, item, type }: { onClose: () => vo
                         </>
                     )}
                     
-                    <button className="w-full bg-gray-900 text-white font-bold py-3 rounded-xl hover:bg-black transition-all mt-4">Simpan Perubahan</button>
+                    <button className="w-full bg-gray-900 text-white font-bold py-3 rounded-xl hover:bg-black transition-all mt-4 shadow-lg active:scale-95">Simpan Data</button>
                 </form>
             </div>
         </div>
@@ -193,7 +223,7 @@ const typeColors: Record<string, string> = {
 };
 
 const InventoryView: React.FC = () => {
-    const { menu, ingredients, storeProfile, updateProductStock, updateIngredientStock, saveMenuItem, saveIngredient, removeIngredient } = useAppContext();
+    const { menu, ingredients, storeProfile, categories, updateProductStock, updateIngredientStock, saveMenuItem, saveIngredient, removeIngredient } = useAppContext();
     const [viewMode, setViewMode] = useState<'products' | 'ingredients'>('products');
     const [ingredientFilter, setIngredientFilter] = useState<string>('all');
     const [searchTerm, setSearchTerm] = useState('');
@@ -206,7 +236,7 @@ const InventoryView: React.FC = () => {
         const item = menu.find(m => m.id === id);
         if (item && item.stock !== undefined) {
             const newStock = Math.max(0, item.stock + change);
-            updateProductStock(id, newStock); // Call API (stock only)
+            updateProductStock(id, newStock); 
         }
     };
 
@@ -214,16 +244,14 @@ const InventoryView: React.FC = () => {
         const ing = ingredients.find(i => i.id === id);
         if (ing) {
             const newStock = Math.max(0, ing.stock + change);
-            updateIngredientStock(id, newStock); // Call API (stock only)
+            updateIngredientStock(id, newStock);
         }
     };
 
     const handleSaveItem = (data: any) => {
         if (viewMode === 'products') {
-            // FULL Cloud Save/Update for Product (handles stock & other fields)
             saveMenuItem(data);
         } else {
-            // FULL Cloud Save/Update for Ingredient
             const itemData = data.id ? data : { ...data, id: Date.now().toString() };
             saveIngredient(itemData);
         }
@@ -243,17 +271,16 @@ const InventoryView: React.FC = () => {
         return items.sort((a, b) => {
             const getScore = (item: any) => {
                 const min = item.minStock || 5;
-                if (item.stock <= 0) return 0; // Highest priority
-                if (item.stock <= min) return 1; // Medium priority
-                return 2; // Low priority
+                if (item.stock <= 0) return 0; 
+                if (item.stock <= min) return 1; 
+                return 2; 
             };
             return getScore(a) - getScore(b);
         });
     }, [ingredients, ingredientFilter, searchTerm]);
 
     const filteredProducts = useMemo(() => {
-        // Show all products now, not just those with stock
-        return menu.filter(m => m.name.toLowerCase().includes(searchTerm.toLowerCase()));
+        return menu.filter(m => m.name.toLowerCase().includes(searchTerm.toLowerCase())).sort((a,b) => a.name.localeCompare(b.name));
     }, [menu, searchTerm]);
 
     const lowStockCount = useMemo(() => {
@@ -270,6 +297,7 @@ const InventoryView: React.FC = () => {
                     onSave={handleSaveItem} 
                     item={editingItem} 
                     type={viewMode === 'products' ? 'product' : 'ingredient'} 
+                    categories={categories}
                 />
             )}
 
@@ -278,7 +306,7 @@ const InventoryView: React.FC = () => {
                 <div className="px-6 py-4">
                     <div className="flex justify-between items-center mb-4">
                         <div>
-                            <h1 className="text-2xl font-black text-gray-900 tracking-tight">Manajemen Stok</h1>
+                            <h1 className="text-2xl font-black text-gray-900 tracking-tight uppercase italic">Manajemen Stok</h1>
                             <div className="flex items-center gap-2 mt-1">
                                 <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${lowStockCount > 0 ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>
                                     {lowStockCount > 0 ? `${lowStockCount} Item Perlu Restock` : 'Stok Aman'}
@@ -287,8 +315,7 @@ const InventoryView: React.FC = () => {
                         </div>
                         <button 
                             onClick={() => setAddModalOpen(true)} 
-                            disabled={viewMode === 'products'}
-                            className={`px-4 py-2 rounded-xl font-bold text-sm flex items-center gap-2 ${viewMode === 'products' ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : `bg-${theme}-600 text-white hover:bg-${theme}-700 shadow-lg`}`}
+                            className={`px-4 py-2 rounded-xl font-bold text-sm flex items-center gap-2 bg-${theme}-600 text-white hover:bg-${theme}-700 shadow-lg active:scale-95 transition-all`}
                         >
                             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" /></svg>
                             Item Baru
@@ -376,7 +403,7 @@ const InventoryView: React.FC = () => {
                                             <th className="px-6 py-3 text-center">Aksi</th>
                                         </tr>
                                     </thead>
-                                    <tbody className="divide-y divide-gray-50">
+                                    <tbody className="divide-y divide-gray-100">
                                         {sortedIngredients.map((item) => {
                                             const min = item.minStock || 5;
                                             const isLow = item.stock <= min;
