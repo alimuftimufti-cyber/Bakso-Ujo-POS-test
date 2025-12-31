@@ -74,6 +74,31 @@ const SettingsView: React.FC = () => {
     const [newCategoryName, setNewCategoryName] = useState('');
     const [editingUser, setEditingUser] = useState<Partial<User> | null>(null);
 
+    // --- HELPER DELETION FUNCTIONS (MENCEGAH ERROR SINTAKSIS) ---
+    const onConfirmDeleteCategory = (cat: string) => {
+        if (window.confirm(`Hapus kategori ${cat}?`)) {
+            deleteCategory(cat);
+        }
+    };
+
+    const onConfirmRemoveMenu = (id: number, name: string) => {
+        if (window.confirm(`Hapus menu ${name}?`)) {
+            removeMenuItem(id);
+        }
+    };
+
+    const onConfirmDeleteTable = (id: string, num: string) => {
+        if (window.confirm(`Hapus meja ${num}?`)) {
+            deleteTable(id);
+        }
+    };
+
+    const onConfirmDeleteUser = (id: string, name: string) => {
+        if (window.confirm(`Hapus staff ${name}?`)) {
+            deleteUser(id);
+        }
+    };
+
     // --- ACTIONS ---
     const handleSaveProfile = (e: React.FormEvent) => {
         e.preventDefault();
@@ -100,9 +125,13 @@ const SettingsView: React.FC = () => {
     const handleSaveUser = (e: React.FormEvent) => {
         e.preventDefault();
         if (editingUser) {
-            // FIX: Ensured editingUser is not null before spreading by using functional updates or explicit check
-            addUser({ ...editingUser, id: editingUser.id || Date.now().toString() } as User);
+            const userData = {
+                ...editingUser,
+                id: editingUser.id || Date.now().toString()
+            } as User;
+            addUser(userData);
             setEditingUser(null);
+            alert("Data Staff Berhasil Disimpan!");
         }
     };
 
@@ -117,7 +146,7 @@ const SettingsView: React.FC = () => {
             await addTable(manualTableName.trim());
             setManualTableName('');
         } catch (e) {
-            alert("Gagal menambah meja. Pastikan database sudah siap (RLS Disabled).");
+            alert("Gagal menambah meja.");
         } finally {
             setIsProcessing(false);
         }
@@ -127,7 +156,7 @@ const SettingsView: React.FC = () => {
         const start = parseInt(qrBatchStart), end = parseInt(qrBatchEnd);
         if(!isNaN(start) && !isNaN(end) && end >= start) {
             if (end - start > 50) {
-                alert("Maksimal 50 meja per batch untuk menjaga stabilitas.");
+                alert("Maksimal 50 meja per batch.");
                 return;
             }
             setIsProcessing(true);
@@ -138,9 +167,8 @@ const SettingsView: React.FC = () => {
                         await addTable(numStr); 
                     }
                 }
-                alert(`Selesai memproses pembuatan meja.`);
             } catch (e) {
-                alert("Terjadi kesalahan saat batch upload. Cek koneksi.");
+                alert("Gagal batch upload.");
             } finally {
                 setIsProcessing(false);
             }
@@ -186,7 +214,7 @@ const SettingsView: React.FC = () => {
                                             <input value={storeProfile.address} onChange={e => setStoreProfile({...storeProfile, address: e.target.value})} className="w-full border-2 border-gray-100 rounded-xl p-3 focus:border-orange-500 outline-none" />
                                         </div>
                                         <div>
-                                            <label className="block text-xs font-bold text-gray-400 uppercase mb-1">URL Logo (Link Gambar)</label>
+                                            <label className="block text-xs font-bold text-gray-400 uppercase mb-1">URL Logo</label>
                                             <input value={storeProfile.logo} onChange={e => setStoreProfile({...storeProfile, logo: e.target.value})} className="w-full border-2 border-gray-100 rounded-xl p-3 focus:border-orange-500 outline-none" placeholder="https://..." />
                                         </div>
                                         <div>
@@ -200,7 +228,7 @@ const SettingsView: React.FC = () => {
                                             </div>
                                         </div>
                                     </div>
-                                    <button type="submit" className="bg-orange-600 text-white font-black px-8 py-3 rounded-xl hover:bg-orange-700 shadow-lg shadow-orange-100 transition-all active:scale-95">SIMPAN PROFIL</button>
+                                    <button type="submit" className="bg-orange-600 text-white font-black px-8 py-3 rounded-xl hover:bg-orange-700 shadow-lg transition-all active:scale-95">SIMPAN PROFIL</button>
                                 </form>
                             </div>
                         </div>
@@ -209,7 +237,6 @@ const SettingsView: React.FC = () => {
                     {/* TAB: MENU & PRODUK */}
                     {activeTab === 'menu' && (
                         <div className="animate-fade-in space-y-8">
-                            {/* Kategori Management */}
                             <div className="bg-white rounded-3xl shadow-sm border p-8">
                                 <h3 className="text-xl font-black mb-6 flex items-center gap-3">
                                     <span className="w-2 h-6 bg-blue-500 rounded-full"></span>
@@ -219,7 +246,7 @@ const SettingsView: React.FC = () => {
                                     {categories.map(cat => (
                                         <div key={cat} className="flex items-center gap-2 bg-gray-100 px-4 py-2 rounded-full border">
                                             <span className="text-sm font-bold text-gray-700">{cat}</span>
-                                            <button onClick={() => { if(confirm(`Hapus kategori ${cat}?`)) deleteCategory(cat); }} className="text-red-400 hover:text-red-600">&times;</button>
+                                            <button onClick={() => onConfirmDeleteCategory(cat)} className="text-red-400 hover:text-red-600 text-lg">&times;</button>
                                         </div>
                                     ))}
                                 </div>
@@ -229,7 +256,6 @@ const SettingsView: React.FC = () => {
                                 </div>
                             </div>
 
-                            {/* Product CRUD */}
                             <div className="bg-white rounded-3xl shadow-sm border p-8">
                                 <div className="flex justify-between items-center mb-6">
                                     <h3 className="text-xl font-black flex items-center gap-3">
@@ -243,13 +269,12 @@ const SettingsView: React.FC = () => {
                                     <div className="bg-gray-50 p-6 rounded-2xl border-2 border-dashed border-gray-200 mb-8 animate-slide-in-up">
                                         <h4 className="font-bold text-gray-800 mb-4 uppercase text-sm">Form Data Menu</h4>
                                         <form onSubmit={handleSaveProduct} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                            {/* FIX: Replaced spread of nullable editingProduct with functional update to avoid TypeScript error */}
-                                            <input required value={editingProduct.name} onChange={e => setEditingProduct(prev => prev ? {...prev, name: e.target.value} : prev)} placeholder="Nama Menu" className="border rounded-xl p-3 font-bold" />
-                                            <input required type="number" value={editingProduct.price} onChange={e => setEditingProduct(prev => prev ? {...prev, price: parseInt(e.target.value) || 0} : prev)} placeholder="Harga (Rp)" className="border rounded-xl p-3 font-bold" />
-                                            <select value={editingProduct.category} onChange={e => setEditingProduct(prev => prev ? {...prev, category: e.target.value} : prev)} className="border rounded-xl p-3 bg-white font-bold">
+                                            <input required value={editingProduct.name || ''} onChange={e => setEditingProduct(prev => prev ? {...prev, name: e.target.value} : prev)} placeholder="Nama Menu" className="border rounded-xl p-3 font-bold" />
+                                            <input required type="number" value={editingProduct.price || 0} onChange={e => setEditingProduct(prev => prev ? {...prev, price: parseInt(e.target.value) || 0} : prev)} placeholder="Harga (Rp)" className="border rounded-xl p-3 font-bold" />
+                                            <select value={editingProduct.category || ''} onChange={e => setEditingProduct(prev => prev ? {...prev, category: e.target.value} : prev)} className="border rounded-xl p-3 bg-white font-bold">
                                                 {categories.map(c => <option key={c} value={c}>{c}</option>)}
                                             </select>
-                                            <input value={editingProduct.imageUrl} onChange={e => setEditingProduct(prev => prev ? {...prev, imageUrl: e.target.value} : prev)} placeholder="URL Gambar (Opsional)" className="border rounded-xl p-3" />
+                                            <input value={editingProduct.imageUrl || ''} onChange={e => setEditingProduct(prev => prev ? {...prev, imageUrl: e.target.value} : prev)} placeholder="URL Gambar" className="border rounded-xl p-3" />
                                             <div className="md:col-span-2 flex justify-end gap-2 mt-2">
                                                 <button type="button" onClick={() => setEditingProduct(null)} className="px-6 py-2 rounded-xl font-bold text-gray-500 hover:bg-gray-200">BATAL</button>
                                                 <button type="submit" className="px-8 py-2 bg-green-600 text-white rounded-xl font-black hover:bg-green-700 shadow-md">SIMPAN</button>
@@ -262,7 +287,7 @@ const SettingsView: React.FC = () => {
                                     {menu.map(item => (
                                         <div key={item.id} className="flex items-center gap-4 bg-white border p-3 rounded-2xl hover:shadow-md transition-shadow group">
                                             <div className="w-16 h-16 bg-gray-100 rounded-xl overflow-hidden shrink-0">
-                                                {item.imageUrl ? <img src={item.imageUrl} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-gray-300 font-bold">?</div>}
+                                                {item.imageUrl ? <img src={item.imageUrl} className="w-full h-full object-cover" alt={item.name} /> : <div className="w-full h-full flex items-center justify-center text-gray-300 font-bold">?</div>}
                                             </div>
                                             <div className="flex-1">
                                                 <div className="font-bold text-gray-800">{item.name}</div>
@@ -271,7 +296,7 @@ const SettingsView: React.FC = () => {
                                             </div>
                                             <div className="flex flex-col gap-1">
                                                 <button onClick={() => setEditingProduct(item)} className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg"><svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg></button>
-                                                <button onClick={() => { if(confirm(`Hapus ${item.name}?`)) removeMenuItem(item.id); }} className="p-2 text-red-400 hover:bg-red-50 rounded-lg"><svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
+                                                <button onClick={() => onConfirmRemoveMenu(item.id, item.name)} className="p-2 text-red-400 hover:bg-red-50 rounded-lg"><svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
                                             </div>
                                         </div>
                                     ))}
@@ -283,7 +308,6 @@ const SettingsView: React.FC = () => {
                     {/* TAB: MEJA & QR */}
                     {activeTab === 'tables' && (
                         <div className="animate-fade-in space-y-8">
-                            {/* Input Satu-Satu (Manual) */}
                             <div className="bg-white p-8 rounded-3xl shadow-sm border">
                                 <h3 className="text-xl font-black mb-6 flex items-center gap-3">
                                     <span className="w-2 h-6 bg-green-500 rounded-full"></span>
@@ -294,13 +318,7 @@ const SettingsView: React.FC = () => {
                                         <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Nomor Meja</label>
                                         <input value={manualTableName} onChange={e => setManualTableName(e.target.value)} placeholder="Contoh: A1, 15, VVIP..." className="w-full border-2 border-gray-100 rounded-xl p-3 focus:border-green-500 outline-none font-bold" />
                                     </div>
-                                    <button 
-                                        onClick={handleAddSingleTable} 
-                                        disabled={isProcessing || !manualTableName}
-                                        className="bg-green-600 text-white font-black px-8 py-3.5 rounded-xl hover:bg-green-700 shadow-lg disabled:bg-gray-300 transition-all"
-                                    >
-                                        {isProcessing ? '...' : '+ TAMBAH'}
-                                    </button>
+                                    <button onClick={handleAddSingleTable} disabled={isProcessing || !manualTableName} className="bg-green-600 text-white font-black px-8 py-3.5 rounded-xl hover:bg-green-700 shadow-lg disabled:bg-gray-300 transition-all">{isProcessing ? '...' : '+ TAMBAH'}</button>
                                 </div>
                             </div>
 
@@ -321,13 +339,10 @@ const SettingsView: React.FC = () => {
                                         </div>
                                     </div>
                                     <div className="flex gap-2">
-                                        <button onClick={handleBatchAddTable} disabled={isProcessing} className="flex-1 bg-indigo-600 text-white font-black py-3 rounded-xl hover:bg-indigo-700 shadow-lg active:scale-95 transition-all disabled:bg-gray-300">
-                                            {isProcessing ? 'MEMPROSES...' : 'BUAT BATCH'}
-                                        </button>
+                                        <button onClick={handleBatchAddTable} disabled={isProcessing} className="flex-1 bg-indigo-600 text-white font-black py-3 rounded-xl hover:bg-indigo-700 shadow-lg active:scale-95 transition-all disabled:bg-gray-300">{isProcessing ? 'MEMPROSES...' : 'BUAT BATCH'}</button>
                                         <button onClick={() => generatePrintLayout(tables, storeProfile)} className="bg-gray-900 text-white font-black px-6 py-3 rounded-xl hover:bg-black shadow-lg transition-all">CETAK SEMUA</button>
                                     </div>
                                 </div>
-                                <p className="text-[10px] text-gray-400 mt-4 italic font-medium">* Pastikan Anda sudah menjalankan SQL terbaru (RLS Disabled) jika mengalami error 401.</p>
                             </div>
 
                             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
@@ -335,10 +350,9 @@ const SettingsView: React.FC = () => {
                                     const baseUrl = window.location.origin;
                                     const maskedUrl = `${baseUrl}/?q=${table.qrCodeData}`; 
                                     const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(maskedUrl)}`;
-                                    
                                     return (
                                         <div key={table.id} className="bg-white p-4 border rounded-2xl text-center shadow-sm relative group hover:border-indigo-500 transition-all animate-fade-in">
-                                            <button onClick={() => { if(confirm(`Hapus meja ${table.number}?`)) deleteTable(table.id); }} className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full font-bold opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-xs">&times;</button>
+                                            <button onClick={() => onConfirmDeleteTable(table.id, table.number)} className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full font-bold opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-xs">&times;</button>
                                             <img src={qrUrl} className="mx-auto mb-3 w-full aspect-square object-contain" alt={`Meja ${table.number}`} />
                                             <div className="font-black text-gray-800 text-lg">MEJA {table.number}</div>
                                         </div>
@@ -363,10 +377,9 @@ const SettingsView: React.FC = () => {
                                 {editingUser && (
                                     <div className="bg-gray-50 p-6 rounded-2xl border-2 border-dashed border-gray-200 mb-8 animate-slide-in-up">
                                         <form onSubmit={handleSaveUser} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                            {/* FIX: Replaced spread of nullable editingUser with functional update to avoid TypeScript error */}
-                                            <input required value={editingUser.name} onChange={e => setEditingUser(prev => prev ? {...prev, name: e.target.value} : prev)} placeholder="Nama Lengkap" className="border rounded-xl p-3 font-bold" />
-                                            <input required value={editingUser.pin} onChange={e => setEditingUser(prev => prev ? {...prev, pin: e.target.value.replace(/\D/g,'')} : prev)} placeholder="PIN Login (4-6 Angka)" className="border rounded-xl p-3 font-bold" maxLength={6} />
-                                            <select value={editingUser.role} onChange={e => setEditingUser(prev => prev ? {...prev, role: e.target.value as any} : prev)} className="border rounded-xl p-3 bg-white font-bold">
+                                            <input required value={editingUser.name || ''} onChange={e => setEditingUser(prev => prev ? {...prev, name: e.target.value} : prev)} placeholder="Nama Lengkap" className="border rounded-xl p-3 font-bold" />
+                                            <input required value={editingUser.pin || ''} onChange={e => setEditingUser(prev => prev ? {...prev, pin: e.target.value.replace(/\D/g,'')} : prev)} placeholder="PIN Login (4-6 Angka)" className="border rounded-xl p-3 font-bold" maxLength={6} />
+                                            <select value={editingUser.role || 'staff'} onChange={e => setEditingUser(prev => prev ? {...prev, role: e.target.value as any} : prev)} className="border rounded-xl p-3 bg-white font-bold">
                                                 <option value="admin">Admin / Owner</option>
                                                 <option value="cashier">Kasir</option>
                                                 <option value="kitchen">Dapur</option>
@@ -384,7 +397,7 @@ const SettingsView: React.FC = () => {
                                     {users.map(u => (
                                         <div key={u.id} className="flex items-center justify-between bg-white border p-4 rounded-2xl hover:border-purple-200 transition-all">
                                             <div className="flex items-center gap-4">
-                                                <div className={`w-12 h-12 bg-purple-100 text-purple-600 rounded-full flex items-center justify-center font-black text-xl">{u.name.charAt(0)}</div>
+                                                <div className="w-12 h-12 bg-purple-100 text-purple-600 rounded-full flex items-center justify-center font-black text-xl">{u.name ? u.name.charAt(0) : '?'}</div>
                                                 <div>
                                                     <div className="font-bold text-gray-800">{u.name}</div>
                                                     <div className="flex items-center gap-2">
@@ -393,7 +406,9 @@ const SettingsView: React.FC = () => {
                                                     </div>
                                                 </div>
                                             </div>
-                                            <button onClick={() => { if(confirm(`Hapus staff ${u.name}?`)) deleteUser(u.id); }} className="p-2 text-red-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
+                                            <button onClick={() => onConfirmDeleteUser(u.id, u.name)} className="p-2 text-red-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all">
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                            </button>
                                         </div>
                                     ))}
                                 </div>
