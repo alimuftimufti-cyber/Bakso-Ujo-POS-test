@@ -77,7 +77,7 @@ const DatabaseErrorView = ({ message }: { message?: string }) => (
             <h2 className="text-2xl font-black text-gray-900 mb-4 uppercase">Database Belum Siap</h2>
             <p className="text-gray-600 mb-8 leading-relaxed">
                 {message || "Aplikasi mendeteksi bahwa tabel database belum dibuat lengkap di akun Supabase Anda."} <br/><br/>
-                Silakan buka <strong>Supabase Dashboard > SQL Editor</strong> dan jalankan kode SQL Schema yang telah disediakan.
+                Silakan buka <strong>Supabase Dashboard &gt; SQL Editor</strong> dan jalankan kode SQL Schema yang telah disediakan.
             </p>
             <button onClick={() => window.location.reload()} className="bg-gray-900 text-white px-8 py-3 rounded-xl font-bold">Segarkan Halaman</button>
         </div>
