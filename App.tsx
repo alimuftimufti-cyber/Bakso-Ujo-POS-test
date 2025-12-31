@@ -1,100 +1,229 @@
 
-// FIX: Added missing imports for hooks and services
-import React, { useState, useCallback, useEffect } from 'react';
-import { 
-    getTablesFromCloud, addTableToCloud, deleteTableFromCloud, subscribeToTables,
-    getStoreProfileFromCloud, getMenuFromCloud, getIngredientsFromCloud, 
-    getUsersFromCloud, getCategoriesFromCloud, getBranchesFromCloud
-} from './services/firebase';
-import { 
-    Table, AppContextType, AppContext, StoreProfile, MenuItem, 
-    Ingredient, User, Category, Branch 
-} from './types';
+import React, { useState, useEffect, Suspense, useCallback, useRef } from 'react';
+import { AppContext } from './types'; 
+import type { MenuItem, Order, Shift, CartItem, Category, StoreProfile, AppContextType, ShiftSummary, Expense, OrderType, Ingredient, User, View, AppMode, Table, Branch, PaymentMethod, OrderStatus } from './types';
+import { defaultStoreProfile } from './data';
 
-// FIX: Added simple ErrorBoundary
-const ErrorBoundary: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    return <>{children}</>;
+// CLOUD SERVICES
+import { 
+    subscribeToOrders, addOrderToCloud, updateOrderInCloud, 
+    getBranchesFromCloud, addBranchToCloud, deleteBranchFromCloud,
+    getUsersFromCloud, addUserToCloud, updateUserInCloud, deleteUserFromCloud,
+    getMenuFromCloud, addProductToCloud, deleteProductFromCloud,
+    getCategoriesFromCloud, addCategoryToCloud, deleteCategoryFromCloud,
+    getActiveShiftFromCloud, startShiftInCloud, closeShiftInCloud, updateShiftInCloud, subscribeToShifts,
+    getCompletedShiftsFromCloud, getExpensesFromCloud, addExpenseToCloud, deleteExpenseFromCloud,
+    getStoreProfileFromCloud, updateStoreProfileInCloud, updateProductStockInCloud,
+    getIngredientsFromCloud, addIngredientToCloud, deleteIngredientFromCloud, updateIngredientStockInCloud,
+    subscribeToInventory, subscribeToExpenses,
+    getTablesFromCloud, addTableToCloud, deleteTableFromCloud, subscribeToTables
+} from './services/firebase';
+import { checkConnection } from './services/supabaseClient'; 
+
+// Lazy Load Components
+const POSView = React.lazy(() => import('./components/POS'));
+const KitchenView = React.lazy(() => import('./components/Kitchen'));
+const SettingsView = React.lazy(() => import('./components/SettingsView')); 
+const ShiftView = React.lazy(() => import('./components/Shift'));
+const ReportView = React.lazy(() => import('./components/Report'));
+const InventoryView = React.lazy(() => import('./components/InventoryView'));
+const CustomerOrderView = React.lazy(() => import('./components/CustomerOrderView'));
+
+// Icons
+const SidebarIcons = {
+    Pos: () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>,
+    Shift: () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>,
+    Kitchen: () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /></svg>,
+    Inventory: () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>,
+    Report: () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>,
+    Settings: () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066 2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>,
+    Logout: () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
 };
 
+const LandingPage = ({ onSelectMode, branchName, logo, slogan, isStoreOpen, isLoading }: any) => (
+  <div className="min-h-screen bg-orange-50 flex flex-col items-center justify-center p-6 text-center relative overflow-hidden">
+    <div className="absolute -top-24 -left-24 w-64 h-64 bg-orange-200/50 rounded-full blur-3xl"></div>
+    <div className="max-w-md w-full relative z-10 animate-fade-in">
+      <div className="mb-8">
+          <div className="w-24 h-24 bg-orange-600 text-white rounded-3xl flex items-center justify-center mx-auto mb-6 text-4xl font-black shadow-2xl">U</div>
+          <h1 className="text-5xl font-black text-gray-900 mb-2 tracking-tighter uppercase italic">Bakso Ujo</h1>
+          <p className="bg-orange-600 text-white px-4 py-1 rounded-full inline-block text-xs font-bold uppercase tracking-widest">{branchName || 'Cabang Pusat'}</p>
+      </div>
+      <p className="text-gray-500 mb-12 font-bold text-lg italic leading-tight">"{slogan || 'Nikmatnya Asli, Bikin Nagih!'}"</p>
+      
+      <div className="space-y-4">
+        <button onClick={() => onSelectMode('customer')} className="w-full p-6 bg-orange-600 rounded-3xl text-white font-black text-2xl shadow-xl hover:scale-105 active:scale-95 transition-all border-b-8 border-orange-800">PESAN SEKARANG</button>
+        <button onClick={() => onSelectMode('admin')} className="w-full p-4 bg-white border-2 border-orange-100 rounded-2xl text-orange-600 font-bold hover:bg-orange-50 transition-all">Masuk Kasir / Admin</button>
+      </div>
+    </div>
+  </div>
+);
+
 const App: React.FC = () => {
-    // FIX: Initialized missing states
-    const [isDatabaseReady] = useState(true);
-    const [isShiftLoading, setIsShiftLoading] = useState(false);
-    const [activeBranchId] = useState('pusat');
-    const [storeProfile, setStoreProfile] = useState<StoreProfile>({} as any);
+    const [appMode, setAppMode] = useState<AppMode>('landing');
+    const [view, setView] = useState<View>('pos');
+    const [isLoggedIn, setIsLoggedIn] = useState(false);
+    const [activeBranchId, setActiveBranchId] = useState('pusat');
+    const [currentUser, setCurrentUser] = useState<User | null>(null);
+
+    // Data States
+    const [storeProfile, setStoreProfile] = useState<StoreProfile>(defaultStoreProfile);
     const [menu, setMenu] = useState<MenuItem[]>([]);
+    const [categories, setCategories] = useState<Category[]>([]);
     const [ingredients, setIngredients] = useState<Ingredient[]>([]);
     const [users, setUsers] = useState<User[]>([]);
-    const [categories, setCategories] = useState<Category[]>([]);
-    const [branches, setBranches] = useState<Branch[]>([]);
     const [tables, setTables] = useState<Table[]>([]);
+    const [orders, setOrders] = useState<Order[]>([]);
+    const [activeShift, setActiveShift] = useState<Shift | null>(null);
+    const [expenses, setExpenses] = useState<Expense[]>([]);
 
-    const refreshAllData = useCallback(async (isInitial = false) => {
-        if (isDatabaseReady === false) return;
+    const [isDatabaseReady, setIsDatabaseReady] = useState<boolean | null>(null);
+    const [isGlobalLoading, setIsGlobalLoading] = useState(true);
+
+    const refreshAllData = useCallback(async () => {
         try {
-            if (isInitial) setIsShiftLoading(true);
-            const [p, m, i, u, cat, br, tb] = await Promise.all([
+            const [p, m, i, u, cat, tb, sh] = await Promise.all([
                 getStoreProfileFromCloud(activeBranchId),
                 getMenuFromCloud(activeBranchId),
                 getIngredientsFromCloud(activeBranchId),
                 getUsersFromCloud(activeBranchId),
                 getCategoriesFromCloud(),
-                getBranchesFromCloud(),
-                getTablesFromCloud(activeBranchId) // Ambil meja dari cloud
+                getTablesFromCloud(activeBranchId),
+                getActiveShiftFromCloud(activeBranchId)
             ]);
-            setStoreProfile(p); setMenu(m); setIngredients(i); setUsers(u); setCategories(cat); setBranches(br); setTables(tb);
-        } catch (err) { console.error("Gagal refresh data:", err); } finally {
-            if (isInitial) setIsShiftLoading(false);
-        }
-    }, [activeBranchId, isDatabaseReady]);
+            if (p) setStoreProfile(p);
+            setMenu(m); setIngredients(i); setUsers(u); setCategories(cat); setTables(tb); setActiveShift(sh);
+            if (sh) { const ex = await getExpensesFromCloud(sh.id); setExpenses(ex); }
+        } catch (err) { console.error("Refresh error:", err); }
+        finally { setIsGlobalLoading(false); }
+    }, [activeBranchId]);
 
     useEffect(() => {
-        if (isDatabaseReady !== true) return;
-        
-        // Listener Meja Real-time
-        const unsubTables = subscribeToTables(activeBranchId, (newTables) => {
-            setTables(newTables);
-        });
+        const init = async () => {
+            const ok = await checkConnection();
+            setIsDatabaseReady(ok);
+            await refreshAllData();
+        };
+        init();
+    }, [refreshAllData]);
 
-        refreshAllData(true);
-        
-        return () => { unsubTables(); };
-    }, [activeBranchId, isDatabaseReady, refreshAllData]);
+    useEffect(() => {
+        if (!isDatabaseReady) return;
+        const unsubTables = subscribeToTables(activeBranchId, setTables);
+        const unsubOrders = subscribeToOrders(activeBranchId, (newOrders) => setOrders(newOrders));
+        const unsubShifts = subscribeToShifts(activeBranchId, setActiveShift);
+        return () => { unsubTables(); unsubOrders(); unsubShifts(); };
+    }, [activeBranchId, isDatabaseReady]);
+
+    const handleLogin = (pin: string) => {
+        const user = users.find(u => u.pin === pin);
+        if (user) {
+            setCurrentUser(user);
+            setIsLoggedIn(true);
+            if (user.role === 'kitchen') setView('kitchen');
+            return true;
+        }
+        alert("PIN Salah!");
+        return false;
+    };
 
     const contextValue: AppContextType = {
-        tables,
-        setTables, 
-        addTable: async (num: string) => {
-            const rawPayload = `B:${activeBranchId}|T:${num}`;
-            const maskedPayload = btoa(rawPayload); // Buat isi QR (Masking)
-            
-            const newTable: Table = {
-                id: Date.now().toString(),
-                number: num,
-                qrCodeData: maskedPayload
-            };
-            
-            // Simpan ke Database
-            await addTableToCloud(newTable, activeBranchId);
+        menu, categories, orders, expenses, activeShift, completedShifts: [], storeProfile, ingredients, tables, branches: [], users, currentUser, attendanceRecords: [], kitchenAlarmTime: 600, kitchenAlarmSound: 'beep', isStoreOpen: !!activeShift, isShiftLoading: isGlobalLoading,
+        setMenu, setCategories, setStoreProfile: (p: any) => { setStoreProfile(p); updateStoreProfileInCloud(p); },
+        setKitchenAlarmTime: () => {}, setKitchenAlarmSound: () => {}, addCategory: addCategoryToCloud, deleteCategory: deleteCategoryFromCloud, setIngredients,
+        saveMenuItem: async (i) => { await addProductToCloud(i, activeBranchId); refreshAllData(); },
+        removeMenuItem: async (id) => { await deleteProductFromCloud(id); refreshAllData(); },
+        addTable: async (num) => {
+            const payload = btoa(`B:${activeBranchId}|T:${num}`);
+            await addTableToCloud({ id: Date.now().toString(), number: num, qrCodeData: payload }, activeBranchId);
         },
-        deleteTable: async (id: string) => {
-            await deleteTableFromCloud(id);
+        deleteTable: deleteTableFromCloud,
+        updateProductStock: updateProductStockInCloud,
+        updateIngredientStock: updateIngredientStockInCloud,
+        addUser: addUserToCloud, updateUser: updateUserInCloud, deleteUser: deleteUserFromCloud,
+        loginUser: handleLogin, logout: () => { setIsLoggedIn(false); setAppMode('landing'); },
+        startShift: async (cash) => {
+            const newS: Shift = { id: Date.now().toString(), start: Date.now(), start_cash: cash, revenue: 0, transactions: 0, cashRevenue: 0, nonCashRevenue: 0, totalDiscount: 0, branchId: activeBranchId };
+            await startShiftInCloud(newS);
+            setActiveShift(newS);
         },
-        // FIX: Partial mock to satisfy type requirements for the context provider
-        menu, setMenu, categories, setCategories, storeProfile, setStoreProfile,
-        ingredients, setIngredients, users, setUsers, branches,
-        isShiftLoading, isStoreOpen: true, activeShift: null, currentUser: null,
+        closeShift: (cash) => {
+            if (!activeShift) return null;
+            const summary: ShiftSummary = { ...activeShift, end: Date.now(), closingCash: cash, cashDifference: 0, totalExpenses: 0, netRevenue: 0, averageKitchenTime: 0, expectedCash: 0 };
+            closeShiftInCloud(summary);
+            setActiveShift(null);
+            return summary;
+        },
+        addOrder: (cart, name, dv, dt, ot) => {
+             const order: Order = { id: Date.now().toString(), customerName: name, items: cart, total: cart.reduce((s, i) => s + i.price * i.quantity, 0), subtotal: 0, discount: 0, discountType: dt, discountValue: dv, taxAmount: 0, serviceChargeAmount: 0, status: 'pending', createdAt: Date.now(), isPaid: false, shiftId: activeShift?.id || '', orderType: ot, branchId: activeBranchId };
+             addOrderToCloud(order);
+             return order;
+        },
+        updateOrderStatus: (id, status) => updateOrderInCloud(id, { status }),
+        payForOrder: (o, m) => { updateOrderInCloud(o.id, { isPaid: true, paymentMethod: m }); return o; },
+        addExpense: async (d, a) => { if(activeShift) await addExpenseToCloud({ id: Date.now(), shiftId: activeShift.id, description: d, amount: a, date: Date.now() }); },
+        setView, setTables, setUsers: () => {}, clockIn: async () => {}, clockOut: async () => {}, splitOrder: () => {}, voidOrder: () => {}, refreshOrders: refreshAllData, deleteExpense: () => {}, deleteAndResetShift: () => {}, requestPassword: (t, c) => c(), 
+        printerDevice: null, isPrinting: false, connectToPrinter: async () => {}, disconnectPrinter: async () => {}, previewReceipt: () => {}, printOrderToDevice: async () => {}, printShiftToDevice: async () => {}, printOrderViaBrowser: () => {},
+        customerSubmitOrder: async (cart, name) => {
+            const order: Order = { id: Date.now().toString(), customerName: name, items: cart, total: cart.reduce((s, i) => s + i.price * i.quantity, 0), subtotal: 0, discount: 0, discountType: 'percent', discountValue: 0, taxAmount: 0, serviceChargeAmount: 0, status: 'pending', createdAt: Date.now(), isPaid: false, shiftId: activeShift?.id || '', orderType: 'Dine In', branchId: activeBranchId };
+            await addOrderToCloud(order);
+            return order;
+        }
     } as any;
 
+    if (isGlobalLoading) return <div className="h-screen flex items-center justify-center bg-orange-50"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-600"></div></div>;
+
     return (
-        <ErrorBoundary>
-            <AppContext.Provider value={contextValue}>
-                <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center">
-                    <h1 className="text-3xl font-black text-gray-900">Kedai Bakso Enak POS</h1>
-                    <p className="text-gray-500 mt-2">Sistem Manajemen Cabang: {activeBranchId}</p>
-                </div>
-            </AppContext.Provider>
-        </ErrorBoundary>
+        <AppContext.Provider value={contextValue}>
+            <div className="h-full w-full bg-gray-50">
+                {appMode === 'landing' && <LandingPage onSelectMode={setAppMode} branchName={storeProfile.name} logo={storeProfile.logo} slogan={storeProfile.slogan} isStoreOpen={!!activeShift} />}
+                
+                {appMode === 'customer' && <Suspense fallback={null}><CustomerOrderView onBack={() => setAppMode('landing')} /></Suspense>}
+                
+                {appMode === 'admin' && (
+                    <div className="h-full">
+                        {!isLoggedIn ? (
+                            <div className="fixed inset-0 bg-gray-900/95 flex items-center justify-center z-50 p-4">
+                                <div className="bg-white p-10 rounded-[2rem] shadow-2xl max-w-sm w-full text-center">
+                                    <h2 className="text-2xl font-black mb-6 uppercase tracking-widest text-gray-800">Login Kasir</h2>
+                                    <input type="password" placeholder="••••" className="w-full bg-gray-50 border-2 border-gray-200 rounded-2xl p-4 text-center text-4xl tracking-[0.5em] font-bold focus:border-orange-500 outline-none mb-6" onChange={(e) => { if(e.target.value.length >= 4) handleLogin(e.target.value); }} autoFocus />
+                                    <button onClick={() => setAppMode('landing')} className="text-sm font-bold text-gray-400 hover:text-orange-600">Kembali</button>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="flex h-screen overflow-hidden bg-slate-900">
+                                <aside className="w-64 bg-slate-900 border-r border-slate-800 hidden md:flex flex-col">
+                                    <div className="p-6 border-b border-slate-800">
+                                        <h2 className="font-black text-white text-xl uppercase italic">Bakso Ujo</h2>
+                                    </div>
+                                    <nav className="flex-1 p-4 space-y-2">
+                                        <button onClick={() => setView('pos')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-all ${view === 'pos' ? 'bg-orange-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><SidebarIcons.Pos /> Kasir</button>
+                                        <button onClick={() => setView('shift')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-all ${view === 'shift' ? 'bg-orange-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><SidebarIcons.Shift /> Keuangan</button>
+                                        <button onClick={() => setView('kitchen')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-all ${view === 'kitchen' ? 'bg-orange-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><SidebarIcons.Kitchen /> Dapur</button>
+                                        <button onClick={() => setView('inventory')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-all ${view === 'inventory' ? 'bg-orange-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><SidebarIcons.Inventory /> Stok</button>
+                                        <button onClick={() => setView('report')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-all ${view === 'report' ? 'bg-orange-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><SidebarIcons.Report /> Laporan</button>
+                                        <button onClick={() => setView('settings')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-all ${view === 'settings' ? 'bg-orange-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><SidebarIcons.Settings /> Pengaturan</button>
+                                    </nav>
+                                    <div className="p-4 border-t border-slate-800">
+                                        <button onClick={() => { setIsLoggedIn(false); setAppMode('landing'); }} className="w-full flex items-center gap-3 px-4 py-3 text-red-400 font-bold hover:bg-red-500/10 rounded-xl transition-all"><SidebarIcons.Logout /> Keluar</button>
+                                    </div>
+                                </aside>
+                                <main className="flex-1 overflow-hidden bg-white">
+                                    <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-500"></div></div>}>
+                                        {view === 'pos' && <POSView />}
+                                        {view === 'kitchen' && <KitchenView />}
+                                        {view === 'settings' && <SettingsView />}
+                                        {view === 'shift' && <ShiftView />}
+                                        {view === 'report' && <ReportView />}
+                                        {view === 'inventory' && <InventoryView />}
+                                    </Suspense>
+                                </main>
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
+        </AppContext.Provider>
     );
 };
 
