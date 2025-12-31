@@ -17,17 +17,20 @@ export const ensureDefaultBranch = async () => {
 
 // --- MAPPING HELPERS ---
 const mapMenu = (item: any): MenuItem => {
-    // Mapping angka kategori sesuai screenshot Anda: 1=Bakso, 2=Mie Ayam, 6=Minuman, dst.
-    let cat = String(item.category || "1"); 
+    // Mapping angka kategori sesuai screenshot Anda (tabel products): 
+    // 1=Bakso, 2=Mie Ayam, 3=Nasi Putih (Tambahan), 5=Kerupuk (Kriuk), 6=Minuman
+    const catId = String(item.category || "1"); 
     let categoryName = 'Bakso';
 
-    if (cat === "1") categoryName = "Bakso";
-    else if (cat === "2") categoryName = "Mie Ayam";
-    else if (cat === "3") categoryName = "Tambahan";
-    else if (cat === "4") categoryName = "Makanan";
-    else if (cat === "5") categoryName = "Kriuk";
-    else if (cat === "6") categoryName = "Minuman";
-    else categoryName = item.category || 'Bakso';
+    switch (catId) {
+        case "1": categoryName = "Bakso"; break;
+        case "2": categoryName = "Mie Ayam"; break;
+        case "3": categoryName = "Tambahan"; break;
+        case "4": categoryName = "Makanan"; break;
+        case "5": categoryName = "Kriuk"; break;
+        case "6": categoryName = "Minuman"; break;
+        default: categoryName = item.category_name || item.category || 'Bakso';
+    }
 
     return {
         id: Number(item.id),
@@ -104,20 +107,20 @@ export const updateStoreProfileInCloud = async (profile: StoreProfile) => {
     if (error) handleError(error, 'updateStoreProfile');
 };
 
-// --- PRODUCT (MENU) & CATEGORIES ---
+// --- PRODUCTS & CATEGORIES ---
 export const getMenuFromCloud = async (branchId: string) => {
-    // MENGGUNAKAN TABEL 'product' sesuai database Anda
+    // MENGGUNAKAN TABEL 'products' (plural) sesuai screenshot Anda
     const { data, error } = await supabase
-        .from('product') 
+        .from('products') 
         .select('*')
         .eq('branch_id', branchId)
         .eq('is_active', true) 
         .order('id', { ascending: true });
     
     if (error) {
-        console.warn("⚠️ Gagal mengambil dari tabel 'product', mencoba fallback...");
-        // Fallback jika is_active tidak ada
-        const { data: fallbackData } = await supabase.from('product').select('*').eq('branch_id', branchId);
+        handleError(error, 'getMenu');
+        // Fallback jika terjadi error pada is_active filter
+        const { data: fallbackData } = await supabase.from('products').select('*').eq('branch_id', branchId);
         return (fallbackData || []).map(mapMenu);
     }
     
@@ -145,13 +148,13 @@ export const addProductToCloud = async (item: MenuItem, branchId: string) => {
         payload.min_stock = item.minStock;
     }
 
-    const { error } = await supabase.from('product').upsert(payload);
+    const { error } = await supabase.from('products').upsert(payload);
     if (error) handleError(error, 'addProduct');
 };
 
 export const deleteProductFromCloud = async (id: number) => {
-    // Soft delete menggunakan is_active
-    const { error } = await supabase.from('product').update({ is_active: false }).eq('id', id);
+    // Soft delete menggunakan is_active pada tabel 'products'
+    const { error } = await supabase.from('products').update({ is_active: false }).eq('id', id);
     if (error) handleError(error, 'deleteProduct');
 };
 
@@ -284,6 +287,7 @@ export const getTablesFromCloud = async (branchId: string): Promise<Table[]> => 
 
 export const addTableToCloud = async (table: Table, branchId: string) => {
     await ensureDefaultBranch();
+    // FIX: Table type uses qrCodeData property, while the database column is qr_payload. Corrected table.qr_payload to table.qrCodeData.
     await supabase.from('tables').insert({ id: table.id, branch_id: branchId, table_number: table.number, qr_payload: table.qrCodeData });
 };
 
@@ -325,8 +329,8 @@ export const deleteIngredientFromCloud = async (id: string) => {
 };
 
 export const updateProductStockInCloud = async (id: number, stock: number) => {
-    // Update ke tabel 'product'
-    const { error } = await supabase.from('product').update({ stock }).eq('id', id);
+    // Update ke tabel 'products'
+    const { error } = await supabase.from('products').update({ stock }).eq('id', id);
     if (error) handleError(error, 'updateProductStock');
 };
 
@@ -384,9 +388,9 @@ export const subscribeToShifts = (branchId: string, onUpdate: (shift: Shift | nu
 };
 
 export const subscribeToInventory = (branchId: string, onUpdate: () => void) => {
-    // Berlangganan ke tabel 'product'
+    // Berlangganan ke tabel 'products'
     const channel = supabase.channel(`inventory-${branchId}`)
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'product' }, () => onUpdate())
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, () => onUpdate())
     .on('postgres_changes', { event: '*', schema: 'public', table: 'ingredients' }, () => onUpdate())
     .subscribe();
     return () => supabase.removeChannel(channel);
