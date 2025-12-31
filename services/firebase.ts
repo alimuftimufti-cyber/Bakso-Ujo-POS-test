@@ -8,15 +8,30 @@ const handleError = (error: any, context: string) => {
 };
 
 // --- MAPPING HELPERS ---
-const mapMenu = (item: any): MenuItem => ({
-    id: Number(item.id),
-    name: item.name || '',
-    price: parseFloat(item.price || 0),
-    category: item.category || 'Umum',
-    imageUrl: item.image_url || '',
-    stock: item.stock !== null ? Number(item.stock) : undefined,
-    minStock: item.min_stock !== null ? Number(item.min_stock) : 5
-});
+const mapMenu = (item: any): MenuItem => {
+    // Database menggunakan INT4 (angka), UI menggunakan Nama Kategori (string).
+    // Kita konversi ID kategori menjadi nama agar sesuai dengan filter di POS.
+    let cat = String(item.category); 
+    let categoryName = 'Lainnya';
+
+    if (cat === "1") categoryName = "Bakso";
+    else if (cat === "2") categoryName = "Mie Ayam";
+    else if (cat === "3") categoryName = "Tambahan";
+    else if (cat === "4") categoryName = "Makanan";
+    else if (cat === "5") categoryName = "Kriuk";
+    else if (cat === "6") categoryName = "Minuman";
+    else if (isNaN(Number(cat))) categoryName = item.category; // Jika sudah berupa teks
+
+    return {
+        id: Number(item.id),
+        name: item.name || '',
+        price: parseFloat(item.price || 0),
+        category: categoryName,
+        imageUrl: item.image_url || '',
+        stock: item.stock !== null ? Number(item.stock) : undefined,
+        minStock: item.min_stock !== null ? Number(item.min_stock) : 5
+    };
+};
 
 const mapProfile = (p: any): StoreProfile => ({
     branchId: p.branch_id || 'pusat',
@@ -83,27 +98,28 @@ export const updateStoreProfileInCloud = async (profile: StoreProfile) => {
 
 // --- MENU & CATEGORIES ---
 export const getMenuFromCloud = async (branchId: string) => {
-    // Kami mencoba mengambil data dengan filter branch_id, jika kosong kami coba ambil tanpa filter untuk membantu pemula yang lupa set branch_id
-    let query = supabase.from('menu').select('*').eq('branch_id', branchId);
-    let { data, error } = await query.order('name', { ascending: true });
+    // Ambil semua menu yang aktif dan sesuai branch_id 'pusat'
+    const { data, error } = await supabase
+        .from('menu')
+        .select('*')
+        .eq('branch_id', branchId)
+        .order('id', { ascending: true });
     
     if (error) handleError(error, 'getMenu');
-    
-    if (!data || data.length === 0) {
-        const { data: allData } = await supabase.from('menu').select('*').limit(50);
-        if (allData && allData.length > 0) return allData.map(mapMenu);
-    }
-    
     return (data || []).map(mapMenu);
 };
 
 export const addProductToCloud = async (item: MenuItem, branchId: string) => {
+    // Map kembali nama kategori ke ID angka sebelum simpan ke DB (opsional, tapi disarankan)
+    const catMap: Record<string, number> = { "Bakso": 1, "Mie Ayam": 2, "Tambahan": 3, "Makanan": 4, "Kriuk": 5, "Minuman": 6 };
+    const catId = catMap[item.category] || 1;
+
     const { error } = await supabase.from('menu').upsert({
-        id: item.id || Date.now(),
+        id: item.id && item.id > 1000 ? item.id : Date.now(),
         branch_id: branchId,
         name: item.name,
         price: item.price,
-        category: item.category,
+        category: catId,
         image_url: item.imageUrl,
         stock: item.stock,
         min_stock: item.minStock
@@ -119,7 +135,9 @@ export const deleteProductFromCloud = async (id: number) => {
 export const getCategoriesFromCloud = async () => {
     const { data, error } = await supabase.from('categories').select('*').order('name', { ascending: true });
     if (error) handleError(error, 'getCategories');
-    return (data || []).map(c => c.name);
+    // Jika tabel categories di DB kosong, gunakan default agar UI tidak kosong
+    if (!data || data.length === 0) return ['Bakso', 'Mie Ayam', 'Tambahan', 'Kriuk', 'Minuman'];
+    return data.map(c => c.name);
 };
 
 export const addCategoryToCloud = async (name: string) => {
