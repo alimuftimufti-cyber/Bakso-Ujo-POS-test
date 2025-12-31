@@ -44,7 +44,6 @@ const LandingPage = ({ onSelectMode, branchName, slogan, isStoreOpen }: any) => 
   <div className="min-h-screen bg-orange-50 flex flex-col items-center justify-center p-6 text-center relative overflow-hidden">
     <div className="absolute -top-24 -left-24 w-64 h-64 bg-orange-200/50 rounded-full blur-3xl"></div>
     
-    {/* TOMBOL ADMIN TERSEMBUNYI DI POJOK KANAN ATAS - SEKARANG LEBIH AMAN */}
     <button 
         onClick={() => onSelectMode('admin')} 
         className="absolute top-4 right-4 w-12 h-12 flex items-center justify-center text-orange-900/5 hover:text-orange-900/20 transition-all z-50 rounded-full"
@@ -67,18 +66,18 @@ const LandingPage = ({ onSelectMode, branchName, slogan, isStoreOpen }: any) => 
       </div>
     </div>
     
-    <div className="mt-12 text-[10px] font-bold text-orange-200 uppercase tracking-[0.3em]">Smart POS v2.1</div>
+    <div className="mt-12 text-[10px] font-bold text-orange-200 uppercase tracking-[0.3em]">Smart POS v2.2</div>
   </div>
 );
 
-const DatabaseErrorView = () => (
+const DatabaseErrorView = ({ message }: { message?: string }) => (
     <div className="min-h-screen bg-white flex items-center justify-center p-8 text-center">
         <div className="max-w-md">
             <div className="w-20 h-20 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-6 text-3xl font-black">!</div>
             <h2 className="text-2xl font-black text-gray-900 mb-4 uppercase">Database Belum Siap</h2>
             <p className="text-gray-600 mb-8 leading-relaxed">
-                Aplikasi mendeteksi bahwa <strong>tabel database belum dibuat</strong> di akun Supabase Anda (Error 404). <br/><br/>
-                Silakan buka <strong>Supabase Dashboard &gt; SQL Editor</strong> dan jalankan kode SQL Schema yang telah disediakan untuk membuat tabel <code>menu</code>, <code>users</code>, dan lainnya.
+                {message || "Aplikasi mendeteksi bahwa tabel database belum dibuat lengkap di akun Supabase Anda."} <br/><br/>
+                Silakan buka <strong>Supabase Dashboard &gt; SQL Editor</strong> dan jalankan kode SQL Schema yang telah disediakan.
             </p>
             <button onClick={() => window.location.reload()} className="bg-gray-900 text-white px-8 py-3 rounded-xl font-bold">Segarkan Halaman</button>
         </div>
@@ -92,7 +91,6 @@ const App: React.FC = () => {
     const [activeBranchId, setActiveBranchId] = useState('pusat');
     const [currentUser, setCurrentUser] = useState<User | null>(null);
 
-    // Data States
     const [storeProfile, setStoreProfile] = useState<StoreProfile>(defaultStoreProfile);
     const [menu, setMenu] = useState<MenuItem[]>([]);
     const [categories, setCategories] = useState<Category[]>([]);
@@ -105,27 +103,42 @@ const App: React.FC = () => {
 
     const [isDatabaseReady, setIsDatabaseReady] = useState<boolean | null>(null);
     const [isGlobalLoading, setIsGlobalLoading] = useState(true);
-    const [dbError, setDbError] = useState(false);
+    const [dbErrorMessage, setDbErrorMessage] = useState<string | null>(null);
 
     const refreshAllData = useCallback(async () => {
         try {
-            const [p, m, i, u, cat, tb, sh] = await Promise.all([
-                getStoreProfileFromCloud(activeBranchId),
-                getMenuFromCloud(activeBranchId),
-                getIngredientsFromCloud(activeBranchId),
-                getUsersFromCloud(activeBranchId),
-                getCategoriesFromCloud(),
-                getTablesFromCloud(activeBranchId),
-                getActiveShiftFromCloud(activeBranchId)
-            ]);
+            // Kita coba fetch satu per satu agar tahu mana yang error
+            const p = await getStoreProfileFromCloud(activeBranchId).catch(() => null);
             if (p) setStoreProfile(p);
-            setMenu(m); setIngredients(i); setUsers(u); setCategories(cat); setTables(tb); setActiveShift(sh);
-            if (sh) { const ex = await getExpensesFromCloud(sh.id); setExpenses(ex); }
-            setDbError(false);
+
+            const m = await getMenuFromCloud(activeBranchId);
+            setMenu(m);
+
+            const i = await getIngredientsFromCloud(activeBranchId);
+            setIngredients(i);
+
+            const u = await getUsersFromCloud(activeBranchId);
+            setUsers(u);
+
+            const cat = await getCategoriesFromCloud();
+            setCategories(cat);
+
+            const tb = await getTablesFromCloud(activeBranchId);
+            setTables(tb);
+
+            const sh = await getActiveShiftFromCloud(activeBranchId);
+            setActiveShift(sh);
+
+            if (sh) { 
+                const ex = await getExpensesFromCloud(sh.id); 
+                setExpenses(ex); 
+            }
+            setDbErrorMessage(null);
         } catch (err: any) { 
             console.error("Refresh error:", err);
-            if (err.message?.includes('404') || err.message?.includes('not find the table')) {
-                setDbError(true);
+            // Jika tabel penting tidak ditemukan
+            if (err.message?.includes('not find the table') || err.message?.includes('404')) {
+                setDbErrorMessage(`Tabel '${err.details || 'tidak dikenal'}' tidak ditemukan. Pastikan skema SQL sudah dijalankan.`);
             }
         }
         finally { setIsGlobalLoading(false); }
@@ -135,28 +148,26 @@ const App: React.FC = () => {
         const init = async () => {
             const ok = await checkConnection();
             setIsDatabaseReady(ok);
-            await refreshAllData();
+            if (ok) await refreshAllData();
+            else setIsGlobalLoading(false);
         };
         init();
     }, [refreshAllData]);
 
     useEffect(() => {
-        if (!isDatabaseReady || dbError) return;
+        if (!isDatabaseReady || dbErrorMessage) return;
         const unsubTables = subscribeToTables(activeBranchId, setTables);
         const unsubOrders = subscribeToOrders(activeBranchId, (newOrders) => setOrders(newOrders));
         const unsubShifts = subscribeToShifts(activeBranchId, setActiveShift);
         return () => { unsubTables(); unsubOrders(); unsubShifts(); };
-    }, [activeBranchId, isDatabaseReady, dbError]);
+    }, [activeBranchId, isDatabaseReady, dbErrorMessage]);
 
     const handleLogin = (pin: string) => {
         if (users.length === 0) {
-            alert("Data user tidak ditemukan. Pastikan tabel 'users' di Supabase sudah terisi.");
+            alert("Tidak ada data user. Pastikan tabel 'users' sudah berisi data admin.");
             return false;
         }
-
-        // PERBAIKAN PIN: Cast ke String agar PIN dengan angka nol di depan (0123) tidak error
         const user = users.find(u => String(u.pin) === String(pin));
-        
         if (user) {
             setCurrentUser(user);
             setIsLoggedIn(true);
@@ -164,7 +175,7 @@ const App: React.FC = () => {
             else setView('pos');
             return true;
         }
-        alert("PIN Salah! Silakan hubungi Owner.");
+        alert("PIN Salah! Default Admin adalah 1234.");
         return false;
     };
 
@@ -214,7 +225,7 @@ const App: React.FC = () => {
 
     if (isGlobalLoading) return <div className="h-screen flex items-center justify-center bg-orange-50"><div className="animate-spin rounded-full h-14 w-14 border-t-4 border-orange-600 border-b-4"></div></div>;
     
-    if (dbError) return <DatabaseErrorView />;
+    if (dbErrorMessage) return <DatabaseErrorView message={dbErrorMessage} />;
 
     return (
         <AppContext.Provider value={contextValue}>
@@ -229,7 +240,7 @@ const App: React.FC = () => {
                             <div className="fixed inset-0 bg-gray-900/95 flex items-center justify-center z-50 p-4 backdrop-blur-md">
                                 <div className="bg-white p-10 rounded-[3rem] shadow-2xl max-w-sm w-full text-center border-t-8 border-orange-600 animate-scale-in">
                                     <h2 className="text-2xl font-black mb-2 uppercase tracking-widest text-gray-800">Login Kasir</h2>
-                                    <p className="text-gray-400 text-xs font-bold mb-8">Masukkan PIN Keamanan</p>
+                                    <p className="text-gray-400 text-xs font-bold mb-8">Gunakan PIN Admin (Default: 1234)</p>
                                     <input 
                                         type="password" 
                                         placeholder="••••" 
@@ -238,7 +249,7 @@ const App: React.FC = () => {
                                         autoFocus 
                                         inputMode="numeric"
                                     />
-                                    <button onClick={() => setAppMode('landing')} className="text-sm font-bold text-gray-400 hover:text-orange-600 uppercase tracking-widest">Batalkan</button>
+                                    <button onClick={() => setAppMode('landing')} className="text-sm font-bold text-gray-400 hover:text-orange-600 uppercase tracking-widest">Kembali</button>
                                 </div>
                             </div>
                         ) : (
@@ -254,7 +265,7 @@ const App: React.FC = () => {
                                         <button onClick={() => setView('kitchen')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-bold transition-all ${view === 'kitchen' ? 'bg-orange-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><SidebarIcons.Kitchen /> Dapur</button>
                                         <button onClick={() => setView('inventory')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-bold transition-all ${view === 'inventory' ? 'bg-orange-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><SidebarIcons.Inventory /> Stok Gudang</button>
                                         <button onClick={() => setView('report')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-bold transition-all ${view === 'report' ? 'bg-orange-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><SidebarIcons.Report /> Laporan</button>
-                                        <button onClick={() => setView('settings')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-bold transition-all ${view === 'settings' ? 'bg-orange-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><SidebarIcons.Settings /> Pengaturan</button>
+                                        <button onClick={() => setView('settings')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-bold transition-all ${view === 'settings' ? 'bg-orange-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><SidebarIcons.Settings /> Pengaturan Meja</button>
                                     </nav>
                                     <div className="p-4 border-t border-slate-800">
                                         <button onClick={() => { setIsLoggedIn(false); setAppMode('landing'); }} className="w-full flex items-center gap-3 px-4 py-3.5 text-red-400 font-bold hover:bg-red-500/10 rounded-xl transition-all"><SidebarIcons.Logout /> Keluar</button>
