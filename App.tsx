@@ -236,10 +236,26 @@ const App: React.FC = () => {
              addOrderToCloud(order);
              return order;
         },
+        updateOrder: (id, cart, dv, dt, ot) => {
+             const subtotal = cart.reduce((s, i) => s + i.price * i.quantity, 0);
+             updateOrderInCloud(id, { items: cart, discountValue: dv, discountType: dt, orderType: ot, subtotal });
+        },
         updateOrderStatus: (id, status) => updateOrderInCloud(id, { status }),
         payForOrder: (o, m) => { updateOrderInCloud(o.id, { isPaid: true, paymentMethod: m }); return o; },
+        voidOrder: (order) => updateOrderInCloud(order.id, { status: 'cancelled' }),
+        splitOrder: (original, itemsToMove) => {
+            const remainingItems = original.items.map(item => {
+                const moved = itemsToMove.find(m => m.id === item.id);
+                if (moved) return { ...item, quantity: item.quantity - moved.quantity };
+                return item;
+            }).filter(i => i.quantity > 0);
+            const remainingSubtotal = remainingItems.reduce((s, i) => s + i.price * i.quantity, 0);
+            updateOrderInCloud(original.id, { items: remainingItems, subtotal: remainingSubtotal });
+            const newOrder: Order = { ...original, id: Date.now().toString(), items: itemsToMove, sequentialId: undefined, status: 'pending', isPaid: false, createdAt: Date.now() };
+            addOrderToCloud(newOrder);
+        },
         addExpense: async (d, a) => { if(activeShift) await addExpenseToCloud({ id: Date.now(), shiftId: activeShift.id, description: d, amount: a, date: Date.now() }); },
-        setView, setTables, setUsers: () => {}, clockIn: async () => {}, clockOut: async () => {}, splitOrder: () => {}, voidOrder: () => {}, refreshOrders: refreshAllData, deleteExpense: () => {}, deleteAndResetShift: () => {}, requestPassword: (t, c) => c(), 
+        setView, setTables, setUsers: () => {}, clockIn: async () => {}, clockOut: async () => {}, refreshOrders: refreshAllData, deleteExpense: () => {}, deleteAndResetShift: () => {}, requestPassword: (t, c) => c(), 
         printerDevice: null, isPrinting: false, connectToPrinter: async () => {}, disconnectPrinter: async () => {}, previewReceipt: () => {}, printOrderToDevice: async () => {}, printShiftToDevice: async () => {}, printOrderViaBrowser: () => {},
         customerSubmitOrder: async (cart, name) => {
             const order: Order = { id: Date.now().toString(), customerName: name, items: cart, total: cart.reduce((s, i) => s + i.price * i.quantity, 0), subtotal: 0, discount: 0, discountType: 'percent', discountValue: 0, taxAmount: 0, serviceChargeAmount: 0, status: 'pending', createdAt: Date.now(), isPaid: false, shiftId: activeShift?.id || '', orderType: 'Dine In', branchId: activeBranchId };
