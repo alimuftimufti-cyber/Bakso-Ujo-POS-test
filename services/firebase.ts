@@ -9,8 +9,7 @@ const handleError = (error: any, context: string) => {
 
 // --- MAPPING HELPERS ---
 const mapMenu = (item: any): MenuItem => {
-    // Database menggunakan INT4 (angka), UI menggunakan Nama Kategori (string).
-    // Kita konversi ID kategori menjadi nama agar sesuai dengan filter di POS.
+    // Database menggunakan INT4/NUMERIC, UI menggunakan Nama Kategori (string).
     let cat = String(item.category); 
     let categoryName = 'Lainnya';
 
@@ -20,7 +19,7 @@ const mapMenu = (item: any): MenuItem => {
     else if (cat === "4") categoryName = "Makanan";
     else if (cat === "5") categoryName = "Kriuk";
     else if (cat === "6") categoryName = "Minuman";
-    else if (isNaN(Number(cat))) categoryName = item.category; // Jika sudah berupa teks
+    else if (isNaN(Number(cat))) categoryName = item.category;
 
     return {
         id: Number(item.id),
@@ -98,7 +97,6 @@ export const updateStoreProfileInCloud = async (profile: StoreProfile) => {
 
 // --- MENU & CATEGORIES ---
 export const getMenuFromCloud = async (branchId: string) => {
-    // Ambil semua menu yang aktif dan sesuai branch_id 'pusat'
     const { data, error } = await supabase
         .from('menu')
         .select('*')
@@ -110,7 +108,6 @@ export const getMenuFromCloud = async (branchId: string) => {
 };
 
 export const addProductToCloud = async (item: MenuItem, branchId: string) => {
-    // Map kembali nama kategori ke ID angka sebelum simpan ke DB (opsional, tapi disarankan)
     const catMap: Record<string, number> = { "Bakso": 1, "Mie Ayam": 2, "Tambahan": 3, "Makanan": 4, "Kriuk": 5, "Minuman": 6 };
     const catId = catMap[item.category] || 1;
 
@@ -135,7 +132,6 @@ export const deleteProductFromCloud = async (id: number) => {
 export const getCategoriesFromCloud = async () => {
     const { data, error } = await supabase.from('categories').select('*').order('name', { ascending: true });
     if (error) handleError(error, 'getCategories');
-    // Jika tabel categories di DB kosong, gunakan default agar UI tidak kosong
     if (!data || data.length === 0) return ['Bakso', 'Mie Ayam', 'Tambahan', 'Kriuk', 'Minuman'];
     return data.map(c => c.name);
 };
