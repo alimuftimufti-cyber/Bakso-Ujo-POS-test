@@ -9,21 +9,21 @@ const handleError = (error: any, context: string) => {
 
 // --- MAPPING HELPERS ---
 const mapMenu = (item: any): MenuItem => ({
-    id: item.id,
-    name: item.name,
-    price: parseFloat(item.price),
-    category: item.category,
-    imageUrl: item.image_url,
-    stock: item.stock,
-    minStock: item.min_stock
+    id: Number(item.id),
+    name: item.name || '',
+    price: parseFloat(item.price || 0),
+    category: item.category || 'Umum',
+    imageUrl: item.image_url || '',
+    stock: item.stock !== null ? Number(item.stock) : undefined,
+    minStock: item.min_stock !== null ? Number(item.min_stock) : 5
 });
 
 const mapProfile = (p: any): StoreProfile => ({
-    branchId: p.branch_id,
-    name: p.name,
-    address: p.address,
-    slogan: p.slogan,
-    logo: p.logo,
+    branchId: p.branch_id || 'pusat',
+    name: p.name || 'Bakso Ujo',
+    address: p.address || '',
+    slogan: p.slogan || '',
+    logo: p.logo || '',
     taxRate: parseFloat(p.tax_rate || 0),
     enableTax: !!p.enable_tax,
     serviceChargeRate: parseFloat(p.service_charge_rate || 0),
@@ -37,21 +37,21 @@ const mapProfile = (p: any): StoreProfile => ({
 });
 
 const mapOrder = (o: any): Order => ({
-    id: o.id,
+    id: String(o.id),
     branchId: o.branch_id,
     shiftId: o.shift_id,
-    customerName: o.customer_name,
-    items: o.items, // JSONB auto maps to array
-    total: parseFloat(o.total),
+    customerName: o.customer_name || 'Pelanggan',
+    items: Array.isArray(o.items) ? o.items : [],
+    total: parseFloat(o.total || 0),
     discount: parseFloat(o.discount || 0),
-    status: o.status,
+    status: o.status || 'pending',
     isPaid: !!o.is_paid,
     paymentMethod: o.payment_method,
-    orderType: o.order_type,
-    createdAt: parseInt(o.created_at),
-    paidAt: o.paid_at ? parseInt(o.paid_at) : undefined,
+    orderType: o.order_type || 'Dine In',
+    createdAt: Number(o.created_at),
+    paidAt: o.paid_at ? Number(o.paid_at) : undefined,
     sequentialId: o.sequential_id,
-    subtotal: 0, // Calculated in UI
+    subtotal: 0,
     discountType: 'fixed',
     discountValue: 0,
     taxAmount: 0,
@@ -60,8 +60,8 @@ const mapOrder = (o: any): Order => ({
 
 // --- STORE PROFILE ---
 export const getStoreProfileFromCloud = async (branchId: string) => {
-    const { data, error } = await supabase.from('store_profiles').select('*').eq('branch_id', branchId).single();
-    if (error && error.code !== 'PGRST116') handleError(error, 'getStoreProfile');
+    const { data, error } = await supabase.from('store_profiles').select('*').eq('branch_id', branchId).maybeSingle();
+    if (error) handleError(error, 'getStoreProfile');
     return data ? mapProfile(data) : null;
 };
 
@@ -83,8 +83,17 @@ export const updateStoreProfileInCloud = async (profile: StoreProfile) => {
 
 // --- MENU & CATEGORIES ---
 export const getMenuFromCloud = async (branchId: string) => {
-    const { data, error } = await supabase.from('menu').select('*').eq('branch_id', branchId).order('name', { ascending: true });
+    // Kami mencoba mengambil data dengan filter branch_id, jika kosong kami coba ambil tanpa filter untuk membantu pemula yang lupa set branch_id
+    let query = supabase.from('menu').select('*').eq('branch_id', branchId);
+    let { data, error } = await query.order('name', { ascending: true });
+    
     if (error) handleError(error, 'getMenu');
+    
+    if (!data || data.length === 0) {
+        const { data: allData } = await supabase.from('menu').select('*').limit(50);
+        if (allData && allData.length > 0) return allData.map(mapMenu);
+    }
+    
     return (data || []).map(mapMenu);
 };
 
@@ -128,10 +137,10 @@ export const getUsersFromCloud = async (branchId: string) => {
     const { data, error } = await supabase.from('users').select('*').eq('branch_id', branchId);
     if (error) handleError(error, 'getUsers');
     return (data || []).map(u => ({
-        id: u.id,
+        id: String(u.id),
         name: u.name,
-        pin: u.pin,
-        attendancePin: u.attendance_pin,
+        pin: String(u.pin),
+        attendancePin: String(u.attendance_pin),
         role: u.role,
         branchId: u.branch_id
     }));
@@ -156,14 +165,14 @@ export const deleteUserFromCloud = async (id: string) => {
 
 // --- SHIFTS & ORDERS ---
 export const getActiveShiftFromCloud = async (branchId: string) => {
-    const { data, error } = await supabase.from('shifts').select('*').eq('branch_id', branchId).is('end_time', null).single();
-    if (error && error.code !== 'PGRST116') handleError(error, 'getActiveShift');
+    const { data, error } = await supabase.from('shifts').select('*').eq('branch_id', branchId).is('end_time', null).maybeSingle();
+    if (error) handleError(error, 'getActiveShift');
     return data ? {
         ...data,
-        start: parseInt(data.start_time),
-        end: data.end_time ? parseInt(data.end_time) : null,
-        revenue: parseFloat(data.revenue),
-        start_cash: parseFloat(data.start_cash)
+        start: Number(data.start_time),
+        end: data.end_time ? Number(data.end_time) : null,
+        revenue: parseFloat(data.revenue || 0),
+        start_cash: parseFloat(data.start_cash || 0)
     } : null;
 };
 
@@ -228,7 +237,7 @@ export const updateOrderInCloud = async (id: string, updates: any) => {
 export const getTablesFromCloud = async (branchId: string): Promise<Table[]> => {
     const { data, error } = await supabase.from('tables').select('*').eq('branch_id', branchId);
     if (error) handleError(error, 'getTables');
-    return (data || []).map(t => ({ id: t.id, number: t.table_number, qrCodeData: t.qr_payload }));
+    return (data || []).map(t => ({ id: String(t.id), number: t.table_number, qrCodeData: t.qr_payload }));
 };
 
 export const addTableToCloud = async (table: Table, branchId: string) => {
@@ -244,12 +253,12 @@ export const getIngredientsFromCloud = async (branchId: string) => {
     const { data, error } = await supabase.from('ingredients').select('*').eq('branch_id', branchId);
     if (error) handleError(error, 'getIngredients');
     return (data || []).map(i => ({
-        id: i.id,
+        id: String(i.id),
         name: i.name,
-        stock: parseFloat(i.stock),
-        unit: i.unit,
-        type: i.type,
-        minStock: i.min_stock
+        stock: parseFloat(i.stock || 0),
+        unit: i.unit || 'pcs',
+        type: i.type || 'other',
+        minStock: i.min_stock !== null ? Number(i.min_stock) : 5
     }));
 };
 
@@ -286,11 +295,11 @@ export const getExpensesFromCloud = async (shiftId: string) => {
     const { data, error } = await supabase.from('expenses').select('*').eq('shift_id', shiftId);
     if (error) handleError(error, 'getExpenses');
     return (data || []).map(e => ({
-        id: e.id,
+        id: Number(e.id),
         shiftId: e.shift_id,
         description: e.description,
-        amount: parseFloat(e.amount),
-        date: parseInt(e.created_at)
+        amount: parseFloat(e.amount || 0),
+        date: Number(e.created_at)
     }));
 };
 
