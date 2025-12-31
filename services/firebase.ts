@@ -4,14 +4,15 @@ import { supabase } from './supabaseClient';
 
 const handleError = (error: any, context: string) => {
     console.error(`Error in ${context}:`, error);
-    throw error;
+    // Kita tidak men-throw error agar aplikasi tidak crash total
+    return null;
 };
 
 // --- MAPPING HELPERS ---
 const mapMenu = (item: any): MenuItem => {
-    // Database menggunakan INT4/NUMERIC, UI menggunakan Nama Kategori (string).
-    let cat = String(item.category); 
-    let categoryName = 'Lainnya';
+    // Database menggunakan INT4 (angka), UI menggunakan Nama Kategori (string).
+    let cat = String(item.category || "1"); 
+    let categoryName = 'Bakso';
 
     if (cat === "1") categoryName = "Bakso";
     else if (cat === "2") categoryName = "Mie Ayam";
@@ -21,14 +22,16 @@ const mapMenu = (item: any): MenuItem => {
     else if (cat === "6") categoryName = "Minuman";
     else if (isNaN(Number(cat))) categoryName = item.category;
 
+    // Gunakan pengecekan aman untuk kolom yang sering bermasalah di cache
     return {
         id: Number(item.id),
         name: item.name || '',
         price: parseFloat(item.price || 0),
         category: categoryName,
         imageUrl: item.image_url || '',
-        stock: item.stock !== null ? Number(item.stock) : undefined,
-        minStock: item.min_stock !== null ? Number(item.min_stock) : 5
+        stock: item.stock !== undefined && item.stock !== null ? Number(item.stock) : undefined,
+        // Jika min_stock tidak ada di respons, berikan default 5
+        minStock: (item.min_stock !== undefined && item.min_stock !== null) ? Number(item.min_stock) : 5
     };
 };
 
@@ -97,13 +100,20 @@ export const updateStoreProfileInCloud = async (profile: StoreProfile) => {
 
 // --- MENU & CATEGORIES ---
 export const getMenuFromCloud = async (branchId: string) => {
+    // Ambil data menu. Jika terjadi error cache, kita coba tangkap.
     const { data, error } = await supabase
         .from('menu')
         .select('*')
         .eq('branch_id', branchId)
         .order('id', { ascending: true });
     
-    if (error) handleError(error, 'getMenu');
+    if (error) {
+        console.warn("Peringatan saat getMenu (Kemungkinan Schema Cache):", error.message);
+        // Jika error kolom tidak ditemukan, kita bisa coba query spesifik tanpa kolom bermasalah
+        // Tapi untuk sekarang kita kembalikan array kosong agar UI tidak hang
+        return [];
+    }
+    
     return (data || []).map(mapMenu);
 };
 
@@ -111,17 +121,35 @@ export const addProductToCloud = async (item: MenuItem, branchId: string) => {
     const catMap: Record<string, number> = { "Bakso": 1, "Mie Ayam": 2, "Tambahan": 3, "Makanan": 4, "Kriuk": 5, "Minuman": 6 };
     const catId = catMap[item.category] || 1;
 
-    const { error } = await supabase.from('menu').upsert({
+    // Membangun objek secara dinamis untuk menghindari error kolom yang tidak ada di cache
+    const payload: any = {
         id: item.id && item.id > 1000 ? item.id : Date.now(),
         branch_id: branchId,
         name: item.name,
         price: item.price,
         category: catId,
         image_url: item.imageUrl,
-        stock: item.stock,
-        min_stock: item.minStock
-    });
-    if (error) handleError(error, 'addProduct');
+        stock: item.stock
+    };
+
+    // Hanya masukkan min_stock jika nilainya valid
+    if (item.minStock !== undefined) {
+        payload.min_stock = item.minStock;
+    }
+
+    const { error } = await supabase.from('menu').upsert(payload);
+    
+    if (error) {
+        // Jika error karena kolom min_stock, kita coba simpan tanpa kolom tersebut
+        if (error.message.includes('min_stock')) {
+            console.error("Gagal simpan min_stock, mencoba simpan tanpa kolom tersebut...");
+            delete payload.min_stock;
+            const { error: retryError } = await supabase.from('menu').upsert(payload);
+            if (retryError) handleError(retryError, 'addProduct-retry');
+        } else {
+            handleError(error, 'addProduct');
+        }
+    }
 };
 
 export const deleteProductFromCloud = async (id: number) => {
