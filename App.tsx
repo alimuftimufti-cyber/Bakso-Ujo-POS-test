@@ -156,7 +156,9 @@ const App: React.FC = () => {
 
     useEffect(() => {
         if (!isDatabaseReady || dbErrorMessage) return;
-        const unsubTables = subscribeToTables(activeBranchId, setTables);
+        const unsubTables = subscribeToTables(activeBranchId, (newTables) => {
+            setTables(newTables);
+        });
         const unsubOrders = subscribeToOrders(activeBranchId, (newOrders) => setOrders(newOrders));
         const unsubShifts = subscribeToShifts(activeBranchId, setActiveShift);
         return () => { unsubTables(); unsubOrders(); unsubShifts(); };
@@ -187,9 +189,33 @@ const App: React.FC = () => {
         removeMenuItem: async (id) => { await deleteProductFromCloud(id); refreshAllData(); },
         addTable: async (num) => {
             const payload = btoa(`B:${activeBranchId}|T:${num}`);
-            await addTableToCloud({ id: Date.now().toString(), number: num, qrCodeData: payload }, activeBranchId);
+            const newTable = { id: Date.now().toString(), number: num, qrCodeData: payload };
+            
+            // Optimistic Update: Tambahkan ke UI dulu biar cepat
+            setTables(prev => [...prev, newTable]);
+            
+            // Simpan ke cloud
+            try {
+                await addTableToCloud(newTable, activeBranchId);
+            } catch (e) {
+                // Rollback jika gagal
+                setTables(prev => prev.filter(t => t.id !== newTable.id));
+                throw e;
+            }
         },
-        deleteTable: deleteTableFromCloud,
+        deleteTable: async (id) => {
+            // Optimistic Update: Hapus dari UI dulu
+            setTables(prev => prev.filter(t => t.id !== id));
+            
+            try {
+                await deleteTableFromCloud(id);
+            } catch (e) {
+                // Refresh data jika gagal agar sinkron kembali
+                const tb = await getTablesFromCloud(activeBranchId);
+                setTables(tb);
+                throw e;
+            }
+        },
         updateProductStock: updateProductStockInCloud,
         updateIngredientStock: updateIngredientStockInCloud,
         addUser: addUserToCloud, updateUser: updateUserInCloud, deleteUser: deleteUserFromCloud,
