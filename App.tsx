@@ -16,7 +16,8 @@ import {
     getStoreProfileFromCloud, updateStoreProfileInCloud, updateProductStockInCloud,
     getIngredientsFromCloud, addIngredientToCloud, deleteIngredientFromCloud, updateIngredientStockInCloud,
     subscribeToInventory, subscribeToExpenses,
-    getTablesFromCloud, addTableToCloud, deleteTableFromCloud, subscribeToTables
+    getTablesFromCloud, addTableToCloud, deleteTableFromCloud, subscribeToTables,
+    ensureDefaultBranch
 } from './services/firebase';
 import { checkConnection } from './services/supabaseClient'; 
 
@@ -107,7 +108,8 @@ const App: React.FC = () => {
 
     const refreshAllData = useCallback(async () => {
         try {
-            // Await critical data to ensure they load before closing spinner
+            await ensureDefaultBranch(); // Penting: Pastikan 'pusat' ada dulu
+            
             const [profileData, menuData, categoriesData, usersData, tablesData] = await Promise.all([
                 getStoreProfileFromCloud(activeBranchId).catch(() => null),
                 getMenuFromCloud(activeBranchId).catch(() => []),

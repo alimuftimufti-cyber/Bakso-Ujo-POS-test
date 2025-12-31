@@ -3,13 +3,22 @@ import { Table, Order, Shift, StoreProfile, MenuItem, Ingredient, Expense, Shift
 import { supabase } from './supabaseClient';
 
 const handleError = (error: any, context: string) => {
-    console.error(`Error in ${context}:`, error);
+    console.error(`🔴 Supabase Error [${context}]:`, error.message, error.details);
     return null;
+};
+
+// --- INITIALIZATION HELPER ---
+// Memastikan cabang 'pusat' ada agar tidak terjadi error Foreign Key
+export const ensureDefaultBranch = async () => {
+    const { data: branch } = await supabase.from('branches').select('id').eq('id', 'pusat').maybeSingle();
+    if (!branch) {
+        console.log("🟡 Cabang 'pusat' tidak ditemukan, membuat otomatis...");
+        await supabase.from('branches').insert({ id: 'pusat', name: 'Bakso Ujo Pusat' });
+    }
 };
 
 // --- MAPPING HELPERS ---
 const mapMenu = (item: any): MenuItem => {
-    // Database menggunakan INT4 (angka) atau string kategori
     let cat = String(item.category || "1"); 
     let categoryName = 'Bakso';
 
@@ -23,7 +32,7 @@ const mapMenu = (item: any): MenuItem => {
 
     return {
         id: Number(item.id),
-        name: item.name || '',
+        name: item.name || 'Produk Tanpa Nama',
         price: parseFloat(item.price || 0),
         category: categoryName,
         imageUrl: item.image_url || '',
@@ -80,6 +89,7 @@ export const getStoreProfileFromCloud = async (branchId: string) => {
 };
 
 export const updateStoreProfileInCloud = async (profile: StoreProfile) => {
+    await ensureDefaultBranch();
     const { error } = await supabase.from('store_profiles').upsert({
         branch_id: profile.branchId,
         name: profile.name,
@@ -97,22 +107,26 @@ export const updateStoreProfileInCloud = async (profile: StoreProfile) => {
 
 // --- MENU & CATEGORIES ---
 export const getMenuFromCloud = async (branchId: string) => {
-    const { data, error } = await supabase
-        .from('menu')
-        .select('*')
-        .eq('branch_id', branchId)
-        .order('id', { ascending: true });
+    // Upaya 1: Ambil semua kolom (Bisa gagal 400 jika cache schema bermasalah)
+    const { data, error } = await supabase.from('menu').select('*').eq('branch_id', branchId).order('id', { ascending: true });
     
     if (error) {
-        console.warn("Peringatan saat getMenu:", error.message);
-        return [];
+        console.warn("⚠️ Gagal mengambil menu lengkap, mencoba query alternatif...");
+        // Upaya 2: Ambil kolom dasar saja (Menghindari min_stock jika kolom itu penyebab error 400)
+        const { data: altData, error: altError } = await supabase.from('menu').select('id, name, price, category, image_url, stock').eq('branch_id', branchId);
+        if (altError) {
+            handleError(altError, 'getMenu-Fallback');
+            return [];
+        }
+        return (altData || []).map(mapMenu);
     }
     
     return (data || []).map(mapMenu);
 };
 
 export const addProductToCloud = async (item: MenuItem, branchId: string) => {
-    // Coba mapping ke ID kategori database jika kategorinya adalah nama statis
+    await ensureDefaultBranch();
+    
     const catMap: Record<string, number> = { "Bakso": 1, "Mie Ayam": 2, "Tambahan": 3, "Makanan": 4, "Kriuk": 5, "Minuman": 6 };
     const catValue = catMap[item.category] || item.category;
 
@@ -126,16 +140,19 @@ export const addProductToCloud = async (item: MenuItem, branchId: string) => {
         stock: item.stock
     };
 
-    if (item.minStock !== undefined) {
+    // Pastikan min_stock hanya dikirim jika tidak null
+    if (item.minStock !== undefined && item.minStock !== null) {
         payload.min_stock = item.minStock;
     }
 
     const { error } = await supabase.from('menu').upsert(payload);
     
     if (error) {
-        if (error.message.includes('min_stock')) {
+        if (error.message.includes('min_stock') || error.code === 'PGRST204') {
+            console.log("🔄 Retrying without min_stock due to schema cache...");
             delete payload.min_stock;
-            await supabase.from('menu').upsert(payload);
+            const { error: retryError } = await supabase.from('menu').upsert(payload);
+            if (retryError) handleError(retryError, 'addProduct-Final');
         } else {
             handleError(error, 'addProduct');
         }
@@ -148,7 +165,7 @@ export const deleteProductFromCloud = async (id: number) => {
 };
 
 export const getCategoriesFromCloud = async () => {
-    const { data, error } = await supabase.from('categories').select('*').order('name', { ascending: true });
+    const { data, error } = await supabase.from('categories').select('name').order('name', { ascending: true });
     if (error) handleError(error, 'getCategories');
     if (!data || data.length === 0) return ['Bakso', 'Mie Ayam', 'Tambahan', 'Makanan', 'Kriuk', 'Minuman'];
     return data.map(c => c.name);
@@ -179,6 +196,7 @@ export const getUsersFromCloud = async (branchId: string) => {
 };
 
 export const addUserToCloud = async (user: User) => {
+    await ensureDefaultBranch();
     const { error } = await supabase.from('users').upsert({
         id: user.id,
         branch_id: user.branchId || 'pusat',
@@ -209,6 +227,7 @@ export const getActiveShiftFromCloud = async (branchId: string) => {
 };
 
 export const startShiftInCloud = async (shift: Shift) => {
+    await ensureDefaultBranch();
     const { error } = await supabase.from('shifts').insert({
         id: shift.id,
         branch_id: shift.branchId,
@@ -239,6 +258,7 @@ export const closeShiftInCloud = async (summary: ShiftSummary) => {
 };
 
 export const addOrderToCloud = async (order: Order) => {
+    await ensureDefaultBranch();
     const { error } = await supabase.from('orders').insert({
         id: order.id,
         branch_id: order.branchId,
@@ -273,6 +293,7 @@ export const getTablesFromCloud = async (branchId: string): Promise<Table[]> => 
 };
 
 export const addTableToCloud = async (table: Table, branchId: string) => {
+    await ensureDefaultBranch();
     await supabase.from('tables').insert({ id: table.id, branch_id: branchId, table_number: table.number, qr_payload: table.qrCodeData });
 };
 
@@ -295,6 +316,7 @@ export const getIngredientsFromCloud = async (branchId: string) => {
 };
 
 export const addIngredientToCloud = async (item: Ingredient, branchId: string) => {
+    await ensureDefaultBranch();
     const { error } = await supabase.from('ingredients').upsert({
         id: item.id,
         branch_id: branchId,
