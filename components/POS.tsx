@@ -2,10 +2,104 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useAppContext } from '../types'; 
 import type { MenuItem, CartItem, Category, Order, OrderType, PaymentMethod } from '../types';
+// @ts-ignore
+import { Html5QrcodeScanner } from 'html5-qrcode';
 
 const formatRupiah = (number: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(number);
 
 const BEEP_URL = "https://actions.google.com/sounds/v1/alarms/beep_short.ogg"; 
+
+const QuickOrderUpdateModal = ({ order, menu, onClose, onUpdate, theme }: { order: Order, menu: MenuItem[], onClose: () => void, onUpdate: (items: CartItem[]) => void, theme: string }) => {
+    const [currentItems, setCurrentItems] = useState<CartItem[]>(order.items);
+    
+    // Filter item yang "Cepat Disajikan" (Tanpa proses masak, biasanya kategori Kriuk/Minuman)
+    const quickAddList = useMemo(() => {
+        return menu.filter(m => m.category === 'Kriuk' || m.category === 'Minuman');
+    }, [menu]);
+
+    const handleAddItem = (item: MenuItem) => {
+        setCurrentItems(prev => {
+            const existing = prev.find(i => i.id === item.id);
+            if (existing) {
+                return prev.map(i => i.id === item.id ? { ...i, quantity: i.quantity + 1 } : i);
+            }
+            return [...prev, { ...item, quantity: 1, note: '' }];
+        });
+    };
+
+    const updateQty = (id: number, delta: number) => {
+        setCurrentItems(prev => prev.map(i => i.id === id ? { ...i, quantity: Math.max(0, i.quantity + delta) } : i).filter(i => i.quantity > 0));
+    };
+
+    const total = currentItems.reduce((sum, i) => sum + (i.price * i.quantity), 0);
+
+    return (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center z-[80] p-4 animate-fade-in">
+            <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-4xl flex flex-col md:flex-row overflow-hidden max-h-[90vh] border border-white/20">
+                {/* Bagian Kiri: Daftar Item Saat Ini */}
+                <div className="w-full md:w-1/2 p-8 flex flex-col border-r border-gray-100 bg-gray-50/50">
+                    <div className="flex justify-between items-center mb-6">
+                        <div>
+                            <h3 className="text-2xl font-black text-gray-900 uppercase italic">Detail Pesanan</h3>
+                            <p className="text-xs text-gray-400 font-bold tracking-widest uppercase">#{order.sequentialId} - {order.customerName}</p>
+                        </div>
+                        <button onClick={onClose} className="text-gray-400 hover:text-gray-900 p-2">&times;</button>
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto pr-2 space-y-3 custom-scrollbar">
+                        {currentItems.map((item, idx) => (
+                            <div key={idx} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex justify-between items-center">
+                                <div>
+                                    <h4 className="font-bold text-gray-800 text-sm leading-tight">{item.name}</h4>
+                                    <p className="text-[10px] text-orange-600 font-black mt-0.5">{formatRupiah(item.price)}</p>
+                                </div>
+                                <div className="flex items-center gap-3 bg-gray-50 p-1 rounded-xl border">
+                                    <button onClick={() => updateQty(item.id, -1)} className="w-8 h-8 font-black text-red-500 bg-white rounded-lg shadow-sm">-</button>
+                                    <span className="font-black text-sm w-4 text-center">{item.quantity}</span>
+                                    <button onClick={() => updateQty(item.id, 1)} className="w-8 h-8 font-black text-green-600 bg-white rounded-lg shadow-sm">+</button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+
+                    <div className="mt-6 pt-6 border-t border-dashed border-gray-200">
+                        <div className="flex justify-between items-center mb-6 px-2">
+                            <span className="font-bold text-gray-400 uppercase tracking-widest text-xs">Total Akhir</span>
+                            <span className="text-2xl font-black text-orange-600 tracking-tighter">{formatRupiah(total)}</span>
+                        </div>
+                        <button onClick={() => onUpdate(currentItems)} className={`w-full bg-${theme}-600 text-white font-black py-4 rounded-2xl shadow-xl shadow-orange-100 uppercase tracking-widest active:scale-95 transition-all`}>SIMPAN PERUBAHAN</button>
+                    </div>
+                </div>
+
+                {/* Bagian Kanan: Tambah Cepat (Kriuk/Snack) */}
+                <div className="w-full md:w-1/2 p-8 bg-white flex flex-col">
+                    <h3 className="text-xl font-black text-gray-900 mb-6 flex items-center gap-2">
+                        <span className="bg-orange-600 w-2 h-6 rounded-full"></span>
+                        TAMBAH CEPAT (KRIUK)
+                    </h3>
+                    <div className="flex-1 overflow-y-auto custom-scrollbar">
+                        <div className="grid grid-cols-2 gap-4">
+                            {quickAddList.map(item => (
+                                <div 
+                                    key={item.id} 
+                                    onClick={() => handleAddItem(item)}
+                                    className="border-2 border-gray-50 p-3 rounded-2xl text-center hover:border-orange-500 hover:shadow-lg cursor-pointer transition-all active:scale-95 group"
+                                >
+                                    <div className="w-full aspect-square bg-gray-100 rounded-xl mb-2 overflow-hidden">
+                                        {item.imageUrl ? <img src={item.imageUrl} className="w-full h-full object-cover" alt={item.name} /> : <div className="w-full h-full flex items-center justify-center text-gray-300 font-bold">?</div>}
+                                    </div>
+                                    <h4 className="font-bold text-xs text-gray-700 line-clamp-1 group-hover:text-orange-600">{item.name}</h4>
+                                    <p className="text-[10px] font-black text-gray-400 mt-0.5">{formatRupiah(item.price)}</p>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                    <p className="text-[9px] text-gray-400 mt-6 font-bold uppercase text-center tracking-widest">Item di atas tidak masuk monitor dapur</p>
+                </div>
+            </div>
+        </div>
+    );
+};
 
 const SplitBillModal = ({ order, onClose, onSplit, theme }: { order: Order, onClose: () => void, onSplit: (items: CartItem[]) => void, theme: string }) => {
     const [splitItems, setSplitItems] = useState<{ [key: string]: number }>({});
@@ -34,7 +128,7 @@ const CustomerNameModal = ({ onConfirm, onCancel, theme, requireTable }: { onCon
         }
     }
     
-    return (<div className="fixed inset-0 bg-black/60 flex items-center justify-center z-40 p-4"><form onSubmit={handleSubmit} className="bg-white p-6 rounded-lg shadow-xl w-full max-w-sm"><h3 className="text-lg font-bold mb-4 text-gray-800">Identitas Pesanan</h3>
+    return (<div className="fixed inset-0 bg-black/60 flex items-center justify-center z-40 p-4"><form onSubmit={handleSubmit} className="bg-white p-6 rounded-lg shadow-xl w-full max-sm"><h3 className="text-lg font-bold mb-4 text-gray-800">Identitas Pesanan</h3>
     {requireTable && (
         <input type="text" value={table} onChange={e => setTable(e.target.value)} placeholder="Nomor Meja" className="w-full p-3 border rounded mb-4 font-bold text-center text-lg" autoFocus required />
     )}
@@ -42,41 +136,47 @@ const CustomerNameModal = ({ onConfirm, onCancel, theme, requireTable }: { onCon
 };
 
 const ScanQRModal = ({ onClose, onScan, theme }: { onClose: () => void, onScan: (data: string) => void, theme: string }) => {
-    const inputRef = useRef<HTMLInputElement>(null);
-    const [val, setVal] = useState('');
+    const scannerRef = useRef<Html5QrcodeScanner | null>(null);
 
     useEffect(() => {
-        if (inputRef.current) inputRef.current.focus();
+        scannerRef.current = new Html5QrcodeScanner(
+            "qr-reader", 
+            { fps: 10, qrbox: { width: 250, height: 250 }, rememberLastUsedCamera: true }, 
+            false
+        );
+
+        scannerRef.current.render((decodedText: string) => {
+            if (scannerRef.current) {
+                scannerRef.current.clear().then(() => {
+                    onScan(decodedText);
+                });
+            }
+        }, (err: any) => {
+            // Abaikan error scan gagal (terus mencari)
+        });
+
+        return () => {
+            if (scannerRef.current) {
+                scannerRef.current.clear().catch(e => console.log(e));
+            }
+        };
     }, []);
 
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        if (val.trim()) onScan(val);
-    };
-
     return (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[70] p-4 backdrop-blur-sm">
-            <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full animate-scale-in text-center">
-                <div className={`w-16 h-16 bg-${theme}-100 text-${theme}-600 rounded-full flex items-center justify-center mx-auto mb-4`}>
+        <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-[100] p-4 backdrop-blur-xl animate-fade-in">
+            <div className="bg-white rounded-[3rem] shadow-2xl p-10 max-w-lg w-full text-center relative overflow-hidden border border-white/20">
+                <button onClick={onClose} className="absolute top-6 right-8 text-gray-300 hover:text-gray-900 text-3xl font-light">&times;</button>
+                
+                <div className={`w-16 h-16 bg-${theme}-100 text-${theme}-600 rounded-full flex items-center justify-center mx-auto mb-6`}>
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" /></svg>
                 </div>
-                <h3 className="text-xl font-bold text-gray-800 mb-2">Scan QR Pesanan</h3>
-                <p className="text-sm text-gray-500 mb-6">Arahkan Scanner ke HP Pelanggan. Input otomatis aktif.</p>
+
+                <h3 className="text-2xl font-black text-gray-900 mb-2 uppercase italic">Scanner Kamera</h3>
+                <p className="text-sm text-gray-500 mb-8 font-medium">Arahkan kamera ke QR Code pesanan pelanggan.</p>
                 
-                <form onSubmit={handleSubmit}>
-                    <input 
-                        ref={inputRef}
-                        value={val}
-                        onChange={e => setVal(e.target.value)}
-                        className="w-full bg-gray-100 border-2 border-gray-300 rounded-xl p-4 text-center font-mono text-sm focus:border-black focus:ring-0 outline-none mb-4"
-                        placeholder="Klik disini & Scan..."
-                        autoFocus
-                    />
-                    <div className="flex gap-2">
-                        <button type="button" onClick={onClose} className="flex-1 bg-gray-200 text-gray-700 font-bold py-3 rounded-xl hover:bg-gray-300">Batal</button>
-                        <button type="submit" className={`flex-1 bg-${theme}-600 text-white font-bold py-3 rounded-xl hover:bg-${theme}-700 shadow-lg`}>Proses</button>
-                    </div>
-                </form>
+                <div id="qr-reader" className="overflow-hidden rounded-3xl border-4 border-gray-50 shadow-inner bg-black aspect-square mb-8"></div>
+                
+                <button onClick={onClose} className="w-full bg-gray-900 text-white font-black py-4 rounded-2xl hover:bg-black transition-all shadow-xl">BATALKAN</button>
             </div>
         </div>
     );
@@ -102,6 +202,7 @@ const POSView: React.FC = () => {
     const [isSplitOpen, setIsSplitOpen] = useState(false);
     const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
     const [isScanOpen, setIsScanOpen] = useState(false);
+    const [isQuickUpdateOpen, setIsQuickUpdateOpen] = useState(false);
 
     const [searchTerm, setSearchTerm] = useState('');
     const [pendingAction, setPendingAction] = useState<'save' | 'pay' | null>(null);
@@ -216,35 +317,25 @@ const POSView: React.FC = () => {
     };
 
     const handleQRScan = (rawData: string) => {
-        try {
-            const decoded = decodeURIComponent(rawData);
-            const parts = decoded.split('|');
-            if (parts[0] !== 'POS') throw new Error('Format QR tidak valid');
-            const customerName = parts[1];
-            const itemsString = parts[3];
-            const itemStrings = itemsString.split(',');
-            const newCart: CartItem[] = [];
-            itemStrings.forEach(str => {
-                const [idStr, qtyStr, note] = str.split(':');
-                const id = parseInt(idStr);
-                const qty = parseInt(qtyStr);
-                const menuItem = menu.find(m => m.id === id);
-                if (menuItem) {
-                    newCart.push({ ...menuItem, quantity: qty, note: note || '' });
-                }
-            });
-            if (newCart.length > 0) {
-                const newOrder = addOrder(newCart, customerName, 0, 'percent', 'Dine In');
-                if (newOrder) {
-                    setActiveOrder(newOrder);
-                    const audio = new Audio(BEEP_URL);
-                    audio.play().catch(() => {});
-                    alert(`Pesanan ${customerName} berhasil diterima!`);
-                }
-            }
+        // Cari order berdasarkan ID yang di-scan
+        const foundOrder = orders.find(o => o.id === rawData);
+        if (foundOrder) {
+            setActiveOrder(foundOrder);
             setIsScanOpen(false);
-        } catch (e) {
-            alert('Gagal membaca QR Code. Pastikan ini QR Pesanan yang benar.');
+            setIsQuickUpdateOpen(true); // Buka modal tambah snack otomatis
+            const audio = new Audio(BEEP_URL);
+            audio.play().catch(() => {});
+        } else {
+            alert('Pesanan tidak ditemukan. Pastikan QR valid.');
+        }
+    };
+
+    const handleQuickUpdate = (newItems: CartItem[]) => {
+        if (activeOrder) {
+            updateOrder(activeOrder.id, newItems, activeOrder.discountValue || 0, activeOrder.discountType || 'percent', activeOrder.orderType);
+            setIsQuickUpdateOpen(false);
+            // Refresh data cart lokal jika sedang dipilih
+            setCart(newItems);
         }
     };
 
@@ -286,6 +377,7 @@ const POSView: React.FC = () => {
             {isSplitOpen && activeOrder && <SplitBillModal order={activeOrder} onClose={() => setIsSplitOpen(false)} onSplit={(items) => { splitOrder(activeOrder, items); setIsSplitOpen(false); setActiveOrder(null); }} theme={theme} />}
             {isPaymentModalOpen && <PaymentModal total={totals.total} onClose={() => setIsPaymentModalOpen(false)} onPay={handlePayment} theme={theme} />}
             {isScanOpen && <ScanQRModal onClose={() => setIsScanOpen(false)} onScan={handleQRScan} theme={theme} />}
+            {isQuickUpdateOpen && activeOrder && <QuickOrderUpdateModal order={activeOrder} menu={menu} onClose={() => setIsQuickUpdateOpen(false)} onUpdate={handleQuickUpdate} theme={theme} />}
             {isLeftSidebarOpen && <div className="fixed inset-0 bg-black/50 z-20 lg:hidden" onClick={() => setIsLeftSidebarOpen(false)}></div>}
 
             {/* SIDEBAR ORDERS */}
