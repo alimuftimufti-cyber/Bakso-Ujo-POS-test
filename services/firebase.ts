@@ -275,31 +275,42 @@ export const addOrderToCloud = async (order: Order) => {
     if (itemsError) {
         handleError(itemsError, 'addOrder-Items');
     } else {
-        // Logika Pengurangan Stok
+        // Logika Pengurangan Stok Baru
         for (const item of order.items) {
-            // Ambil stok saat ini dari database
             const { data: currentProduct } = await supabase
                 .from('products')
                 .select('stock')
                 .eq('id', Number(item.id))
                 .single();
             
-            // Jika produk memiliki stok yang dikelola (stock !== null)
             if (currentProduct && currentProduct.stock !== null) {
                 const newStock = Math.max(0, currentProduct.stock - item.quantity);
-                await supabase
-                    .from('products')
-                    .update({ stock: newStock })
-                    .eq('id', Number(item.id));
+                await supabase.from('products').update({ stock: newStock }).eq('id', Number(item.id));
             }
         }
     }
 };
 
 export const updateOrderInCloud = async (id: string, updates: any) => {
-    // Update Items jika ada
+    // 1. Logika Update Items dan Stok (Jika ada perubahan items)
     if (updates.items) {
+        // A. Ambil item pesanan LAMA untuk dikembalikan stoknya
+        const { data: oldItems } = await supabase.from('order_items').select('*').eq('order_id', id);
+        
+        if (oldItems && oldItems.length > 0) {
+            for (const oldItem of oldItems) {
+                const { data: prod } = await supabase.from('products').select('stock').eq('id', oldItem.product_id).single();
+                if (prod && prod.stock !== null) {
+                    // Kembalikan stok lama
+                    await supabase.from('products').update({ stock: prod.stock + oldItem.quantity }).eq('id', oldItem.product_id);
+                }
+            }
+        }
+
+        // B. Hapus item lama dari database
         await supabase.from('order_items').delete().eq('order_id', id);
+
+        // C. Masukkan item baru
         const itemsToInsert = updates.items.map((item: CartItem) => ({
             order_id: id,
             product_id: Number(item.id),
@@ -309,11 +320,18 @@ export const updateOrderInCloud = async (id: string, updates: any) => {
             note: item.note
         }));
         await supabase.from('order_items').insert(itemsToInsert);
-        // Note: Untuk update stok pada pesanan yang di-edit, logika lebih kompleks biasanya 
-        // melibatkan perbandingan quantity lama vs baru. Untuk saat ini fokus di pesanan baru.
+
+        // D. Kurangi stok berdasarkan item BARU
+        for (const newItem of updates.items) {
+            const { data: prod } = await supabase.from('products').select('stock').eq('id', Number(newItem.id)).single();
+            if (prod && prod.stock !== null) {
+                const newStock = Math.max(0, prod.stock - newItem.quantity);
+                await supabase.from('products').update({ stock: newStock }).eq('id', Number(newItem.id));
+            }
+        }
     }
 
-    // Map UI ke Database
+    // 2. Map UI ke Database Header
     const dbUpdates: any = {};
     if (updates.customerName !== undefined) dbUpdates.customer_name = updates.customerName;
     if (updates.status !== undefined) dbUpdates.status = updates.status;
