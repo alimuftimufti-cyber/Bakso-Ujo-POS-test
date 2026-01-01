@@ -17,24 +17,11 @@ export const ensureDefaultBranch = async () => {
 
 // --- MAPPING HELPERS ---
 const mapMenu = (item: any): MenuItem => {
-    const catId = String(item.category_id || item.category || "1"); 
-    let categoryName = 'Bakso';
-
-    switch (catId) {
-        case "1": categoryName = "Bakso"; break;
-        case "2": categoryName = "Mie Ayam"; break;
-        case "3": categoryName = "Tambahan"; break;
-        case "4": categoryName = "Makanan"; break;
-        case "5": categoryName = "Kriuk"; break;
-        case "6": categoryName = "Minuman"; break;
-        default: categoryName = item.category_name || 'Bakso';
-    }
-
     return {
         id: Number(item.id),
         name: item.name || 'Produk Tanpa Nama',
         price: parseFloat(item.price || 0),
-        category: categoryName,
+        category: item.category || 'Bakso',
         imageUrl: item.image_url || '',
         stock: item.stock !== undefined && item.stock !== null ? Number(item.stock) : undefined,
         minStock: (item.min_stock !== undefined && item.min_stock !== null) ? Number(item.min_stock) : 5
@@ -60,35 +47,38 @@ const mapProfile = (p: any): StoreProfile => ({
 });
 
 const mapOrder = (o: any): Order => {
-    const items: CartItem[] = (o.order_items || []).map((oi: any) => ({
-        id: oi.product_id,
-        name: oi.product_name,
-        price: parseFloat(oi.price),
-        quantity: oi.quantity,
-        note: oi.note || '',
-        category: ''
-    }));
+    // Utamakan data dari order_items (relasional) jika ada, jika tidak gunakan fallback JSONB
+    const items: CartItem[] = (o.order_items && o.order_items.length > 0) 
+        ? o.order_items.map((oi: any) => ({
+            id: oi.product_id,
+            name: oi.product_name,
+            price: parseFloat(oi.price),
+            quantity: oi.quantity,
+            note: oi.note || '',
+            category: ''
+        }))
+        : (o.items || []);
 
     return {
         id: String(o.id),
         branchId: o.branch_id,
         shiftId: o.shift_id,
         customerName: o.customer_name || 'Pelanggan',
-        items: items.length > 0 ? items : (o.items || []),
+        items: items,
         total: parseFloat(o.total || 0),
-        subtotal: parseFloat(o.subtotal || 0),
+        subtotal: parseFloat(o.subtotal || 0), // fallback jika ditambahkan nanti
         discount: parseFloat(o.discount || 0),
         status: o.status || 'pending',
-        isPaid: o.payment_status === 'paid',
+        isPaid: !!o.is_paid,
         paymentMethod: o.payment_method,
-        orderType: o.type || 'Dine In',
+        orderType: o.order_type || 'Dine In',
         createdAt: Number(o.created_at),
         paidAt: o.paid_at ? Number(o.paid_at) : undefined,
         sequentialId: o.sequential_id,
         discountType: 'fixed',
         discountValue: 0,
-        taxAmount: parseFloat(o.tax || 0),
-        serviceChargeAmount: parseFloat(o.service || 0),
+        taxAmount: 0,
+        serviceChargeAmount: 0,
         orderSource: o.order_source || 'admin'
     };
 };
@@ -120,16 +110,14 @@ export const updateStoreProfileInCloud = async (profile: StoreProfile) => {
 // --- PRODUCTS & CATEGORIES ---
 export const getMenuFromCloud = async (branchId: string) => {
     const { data, error } = await supabase
-        .from('products') 
+        .from('menu') // Sesuai schema SQL
         .select('*')
         .eq('branch_id', branchId)
-        .eq('is_active', true) 
         .order('id', { ascending: true });
     
     if (error) {
         handleError(error, 'getMenu');
-        const { data: fallbackData } = await supabase.from('products').select('*').eq('branch_id', branchId);
-        return (fallbackData || []).map(mapMenu);
+        return [];
     }
     
     return (data || []).map(mapMenu);
@@ -137,27 +125,23 @@ export const getMenuFromCloud = async (branchId: string) => {
 
 export const addProductToCloud = async (item: MenuItem, branchId: string) => {
     await ensureDefaultBranch();
-    const catMap: Record<string, number> = { "Bakso": 1, "Mie Ayam": 2, "Tambahan": 3, "Makanan": 4, "Kriuk": 5, "Minuman": 6 };
-    const catValue = catMap[item.category] || 1;
-
     const payload: any = {
+        id: item.id,
         branch_id: branchId,
         name: item.name,
         price: item.price,
-        category_id: catValue,
+        category: item.category, // SQL menggunakan TEXT bukan category_id
         image_url: item.imageUrl,
         stock: item.stock,
-        is_active: true 
+        min_stock: item.minStock || 5
     };
-    if (item.id && item.id > 10000) payload.id = item.id;
-    if (item.minStock !== undefined) payload.min_stock = item.minStock;
 
-    const { error } = await supabase.from('products').upsert(payload);
+    const { error } = await supabase.from('menu').upsert(payload);
     if (error) handleError(error, 'addProduct');
 };
 
 export const deleteProductFromCloud = async (id: number) => {
-    const { error } = await supabase.from('products').update({ is_active: false }).eq('id', id);
+    const { error } = await supabase.from('menu').delete().eq('id', id);
     if (error) handleError(error, 'deleteProduct');
 };
 
@@ -230,19 +214,13 @@ export const startShiftInCloud = async (shift: Shift) => {
         branch_id: shift.branchId,
         start_time: shift.start,
         start_cash: shift.start_cash,
-        revenue: 0,
-        transactions_count: 0
+        revenue: 0
     });
     if (error) handleError(error, 'startShift');
 };
 
 export const updateShiftInCloud = async (id: string, updates: any) => {
-    const dbUpdates = { ...updates };
-    if (updates.transactions !== undefined) {
-        dbUpdates.transactions_count = updates.transactions;
-        delete dbUpdates.transactions;
-    }
-    const { error } = await supabase.from('shifts').update(dbUpdates).eq('id', id);
+    const { error } = await supabase.from('shifts').update(updates).eq('id', id);
     if (error) handleError(error, 'updateShift');
 };
 
@@ -253,8 +231,7 @@ export const closeShiftInCloud = async (summary: ShiftSummary) => {
         revenue: summary.revenue,
         cash_revenue: summary.cashRevenue,
         non_cash_revenue: summary.nonCashRevenue,
-        total_expenses: summary.totalExpenses,
-        transactions_count: summary.transactions
+        total_discount: summary.totalDiscount
     }).eq('id', summary.id);
     if (error) handleError(error, 'closeShift');
 };
@@ -262,23 +239,20 @@ export const closeShiftInCloud = async (summary: ShiftSummary) => {
 export const addOrderToCloud = async (order: Order) => {
     await ensureDefaultBranch();
     
-    // Header
+    // 1. Simpan Header Pesanan (Tabel: orders)
     const { error: orderError } = await supabase.from('orders').insert({
         id: order.id,
         branch_id: order.branchId,
         shift_id: order.shiftId,
         customer_name: order.customerName,
-        subtotal: order.subtotal || order.total,
+        items: order.items, // JSONB
         total: order.total,
         discount: order.discount,
-        tax: order.taxAmount,
-        service: order.serviceChargeAmount,
         status: order.status,
-        payment_status: order.isPaid ? 'paid' : 'unpaid',
-        type: order.orderType,
+        is_paid: order.isPaid,
+        order_type: order.orderType,
         created_at: order.createdAt,
-        order_source: order.orderSource || 'admin',
-        items: order.items // Simpan JSONB juga untuk fallback
+        order_source: order.orderSource || 'admin'
     });
 
     if (orderError) {
@@ -286,7 +260,7 @@ export const addOrderToCloud = async (order: Order) => {
         return;
     }
 
-    // Items
+    // 2. Simpan Detail Item (Tabel: order_items)
     const itemsToInsert = order.items.map(item => ({
         order_id: order.id,
         product_id: item.id,
@@ -301,13 +275,9 @@ export const addOrderToCloud = async (order: Order) => {
 };
 
 export const updateOrderInCloud = async (id: string, updates: any) => {
-    // 1. Tangani update relasional order_items jika ada daftar item baru
+    // 1. Update Detail Item jika ada perubahan di keranjang
     if (updates.items) {
-        // Hapus item lama
-        const { error: delError } = await supabase.from('order_items').delete().eq('order_id', id);
-        if (delError) console.warn("Gagal hapus order_items lama:", delError.message);
-
-        // Masukkan item baru
+        await supabase.from('order_items').delete().eq('order_id', id);
         const itemsToInsert = updates.items.map((item: CartItem) => ({
             order_id: id,
             product_id: item.id,
@@ -316,35 +286,23 @@ export const updateOrderInCloud = async (id: string, updates: any) => {
             quantity: item.quantity,
             note: item.note
         }));
-        
-        const { error: insError } = await supabase.from('order_items').insert(itemsToInsert);
-        if (insError) handleError(insError, 'updateOrder-SyncItems');
+        await supabase.from('order_items').insert(itemsToInsert);
     }
 
-    // 2. Siapkan objek data untuk tabel 'orders'
-    // Kita harus memetakan properti dari App.tsx (camelCase) ke kolom DB (snake_case)
-    // dan menghapus properti yang tidak ada di kolom tabel orders.
+    // 2. Map properti camelCase ke snake_case sesuai SQL
     const dbUpdates: any = {};
-
     if (updates.customerName !== undefined) dbUpdates.customer_name = updates.customerName;
     if (updates.status !== undefined) dbUpdates.status = updates.status;
-    if (updates.subtotal !== undefined) dbUpdates.subtotal = updates.subtotal;
     if (updates.total !== undefined) dbUpdates.total = updates.total;
     if (updates.discount !== undefined) dbUpdates.discount = updates.discount;
-    if (updates.taxAmount !== undefined) dbUpdates.tax = updates.taxAmount;
-    if (updates.serviceChargeAmount !== undefined) dbUpdates.service = updates.serviceChargeAmount;
-    if (updates.orderType !== undefined) dbUpdates.type = updates.orderType;
-    if (updates.orderSource !== undefined) dbUpdates.order_source = updates.orderSource;
-    if (updates.items !== undefined) dbUpdates.items = updates.items; // JSONB column
-
+    if (updates.orderType !== undefined) dbUpdates.order_type = updates.orderType;
+    if (updates.items !== undefined) dbUpdates.items = updates.items;
     if (updates.isPaid !== undefined) {
-        dbUpdates.payment_status = updates.isPaid ? 'paid' : 'unpaid';
+        dbUpdates.is_paid = updates.isPaid;
         if (updates.isPaid) dbUpdates.paid_at = Date.now();
     }
-    
     if (updates.paymentMethod !== undefined) dbUpdates.payment_method = updates.paymentMethod;
 
-    // Pastikan tidak mengirim properti kosong ke Supabase
     if (Object.keys(dbUpdates).length === 0) return;
 
     const { error } = await supabase.from('orders').update(dbUpdates).eq('id', id);
@@ -401,7 +359,7 @@ export const deleteIngredientFromCloud = async (id: string) => {
 };
 
 export const updateProductStockInCloud = async (id: number, stock: number) => {
-    const { error } = await supabase.from('products').update({ stock }).eq('id', id);
+    const { error } = await supabase.from('menu').update({ stock }).eq('id', id);
     if (error) handleError(error, 'updateProductStock');
 };
 
@@ -472,7 +430,7 @@ export const subscribeToShifts = (branchId: string, onUpdate: (shift: Shift | nu
 
 export const subscribeToInventory = (branchId: string, onUpdate: () => void) => {
     const channel = supabase.channel(`inventory-${branchId}`)
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, () => onUpdate())
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'menu' }, () => onUpdate())
     .on('postgres_changes', { event: '*', schema: 'public', table: 'ingredients' }, () => onUpdate())
     .subscribe();
     return () => supabase.removeChannel(channel);
