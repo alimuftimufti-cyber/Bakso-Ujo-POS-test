@@ -179,6 +179,19 @@ const App: React.FC = () => {
         };
     }, [activeBranchId, isDatabaseReady, dbErrorMessage]);
 
+    const calculateTotalsHelper = (cart: CartItem[], dv: number, dt: 'percent' | 'fixed') => {
+        const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+        let discount = dt === 'percent' ? (subtotal * dv / 100) : dv;
+        discount = Math.min(discount, subtotal);
+        const taxable = subtotal - discount;
+        
+        const service = storeProfile.enableServiceCharge ? taxable * (storeProfile.serviceChargeRate / 100) : 0;
+        const tax = storeProfile.enableTax ? (taxable + service) * (storeProfile.taxRate / 100) : 0;
+        const total = Math.round(taxable + service + tax);
+
+        return { subtotal, discount, tax, service, total };
+    };
+
     const handleLogin = (pin: string) => {
         if (users.length === 0) {
             alert("Tidak ada data user.");
@@ -231,13 +244,24 @@ const App: React.FC = () => {
             return summary;
         },
         addOrder: (cart, name, dv, dt, ot) => {
-             const order: Order = { id: Date.now().toString(), customerName: name, items: cart, total: cart.reduce((s, i) => s + i.price * i.quantity, 0), subtotal: 0, discount: 0, discountType: dt, discountValue: dv, taxAmount: 0, serviceChargeAmount: 0, status: 'pending', createdAt: Date.now(), isPaid: false, shiftId: activeShift?.id || '', orderType: ot, branchId: activeBranchId, orderSource: 'admin' };
+             const financial = calculateTotalsHelper(cart, dv, dt);
+             const order: Order = { id: Date.now().toString(), customerName: name, items: cart, total: financial.total, subtotal: financial.subtotal, discount: financial.discount, discountType: dt, discountValue: dv, taxAmount: financial.tax, serviceChargeAmount: financial.service, status: 'pending', createdAt: Date.now(), isPaid: false, shiftId: activeShift?.id || '', orderType: ot, branchId: activeBranchId, orderSource: 'admin' };
              addOrderToCloud(order);
              return order;
         },
         updateOrder: (id, cart, dv, dt, ot) => {
-             const subtotal = cart.reduce((s, i) => s + i.price * i.quantity, 0);
-             updateOrderInCloud(id, { items: cart, discountValue: dv, discountType: dt, orderType: ot, subtotal });
+             const financial = calculateTotalsHelper(cart, dv, dt);
+             updateOrderInCloud(id, { 
+                 items: cart, 
+                 discountValue: dv, 
+                 discountType: dt, 
+                 orderType: ot, 
+                 subtotal: financial.subtotal,
+                 discount: financial.discount,
+                 taxAmount: financial.tax,
+                 serviceChargeAmount: financial.service,
+                 total: financial.total
+             });
         },
         updateOrderStatus: (id, status) => updateOrderInCloud(id, { status }),
         payForOrder: (o, m) => { updateOrderInCloud(o.id, { isPaid: true, paymentMethod: m }); return o; },
@@ -248,16 +272,20 @@ const App: React.FC = () => {
                 if (moved) return { ...item, quantity: item.quantity - moved.quantity };
                 return item;
             }).filter(i => i.quantity > 0);
-            const remainingSubtotal = remainingItems.reduce((s, i) => s + i.price * i.quantity, 0);
-            updateOrderInCloud(original.id, { items: remainingItems, subtotal: remainingSubtotal });
-            const newOrder: Order = { ...original, id: Date.now().toString(), items: itemsToMove, sequentialId: undefined, status: 'pending', isPaid: false, createdAt: Date.now(), orderSource: original.orderSource };
+            
+            const financialOrig = calculateTotalsHelper(remainingItems, original.discountValue || 0, original.discountType || 'fixed');
+            updateOrderInCloud(original.id, { items: remainingItems, subtotal: financialOrig.subtotal, total: financialOrig.total });
+            
+            const financialNew = calculateTotalsHelper(itemsToMove, 0, 'fixed');
+            const newOrder: Order = { ...original, id: Date.now().toString(), items: itemsToMove, sequentialId: undefined, status: 'pending', isPaid: false, createdAt: Date.now(), orderSource: original.orderSource, total: financialNew.total, subtotal: financialNew.subtotal, discount: 0, taxAmount: financialNew.tax, serviceChargeAmount: financialNew.service };
             addOrderToCloud(newOrder);
         },
         addExpense: async (d, a) => { if(activeShift) await addExpenseToCloud({ id: Date.now(), shiftId: activeShift.id, description: d, amount: a, date: Date.now() }); },
         setView, setTables, setUsers: () => {}, clockIn: async () => {}, clockOut: async () => {}, refreshOrders: refreshAllData, deleteExpense: () => {}, deleteAndResetShift: () => {}, requestPassword: (t, c) => c(), 
         printerDevice: null, isPrinting: false, connectToPrinter: async () => {}, disconnectPrinter: async () => {}, previewReceipt: () => {}, printOrderToDevice: async () => {}, printShiftToDevice: async () => {}, printOrderViaBrowser: () => {},
         customerSubmitOrder: async (cart, name) => {
-            const order: Order = { id: Date.now().toString(), customerName: name, items: cart, total: cart.reduce((s, i) => s + i.price * i.quantity, 0), subtotal: 0, discount: 0, discountType: 'percent', discountValue: 0, taxAmount: 0, serviceChargeAmount: 0, status: 'pending', createdAt: Date.now(), isPaid: false, shiftId: activeShift?.id || '', orderType: 'Dine In', branchId: activeBranchId, orderSource: 'customer' };
+            const financial = calculateTotalsHelper(cart, 0, 'percent');
+            const order: Order = { id: Date.now().toString(), customerName: name, items: cart, total: financial.total, subtotal: financial.subtotal, discount: 0, discountType: 'percent', discountValue: 0, taxAmount: financial.tax, serviceChargeAmount: financial.service, status: 'pending', createdAt: Date.now(), isPaid: false, shiftId: activeShift?.id || '', orderType: 'Dine In', branchId: activeBranchId, orderSource: 'customer' };
             await addOrderToCloud(order);
             return order;
         }
@@ -278,7 +306,7 @@ const App: React.FC = () => {
                     <div className="h-full">
                         {!isLoggedIn ? (
                             <div className="fixed inset-0 bg-gray-900/95 flex items-center justify-center z-50 p-4 backdrop-blur-md">
-                                <div className="bg-white p-10 rounded-[3rem] shadow-2xl max-w-sm w-full text-center border-t-8 border-orange-600 animate-scale-in">
+                                <div className="bg-white p-10 rounded-[3rem] shadow-2xl max-sm w-full text-center border-t-8 border-orange-600 animate-scale-in">
                                     <h2 className="text-2xl font-black mb-2 uppercase tracking-widest text-gray-800">Login Kasir</h2>
                                     <p className="text-gray-400 text-xs font-bold mb-8">Gunakan PIN Admin</p>
                                     <input 

@@ -325,6 +325,10 @@ export const updateOrderInCloud = async (id: string, updates: any) => {
     if (updates.orderType) { dbUpdates.type = updates.orderType; delete dbUpdates.orderType; }
     if (updates.orderSource) { dbUpdates.order_source = updates.orderSource; delete dbUpdates.orderSource; }
     
+    // Keuangan mapping
+    if (updates.taxAmount !== undefined) { dbUpdates.tax = updates.taxAmount; delete dbUpdates.taxAmount; }
+    if (updates.serviceChargeAmount !== undefined) { dbUpdates.service = updates.serviceChargeAmount; delete dbUpdates.serviceChargeAmount; }
+    
     const { error } = await supabase.from('orders').update(dbUpdates).eq('id', id);
     if (error) handleError(error, 'updateOrder');
 };
