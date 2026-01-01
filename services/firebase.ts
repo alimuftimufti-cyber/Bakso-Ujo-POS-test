@@ -47,16 +47,17 @@ const mapProfile = (p: any): StoreProfile => ({
 });
 
 const mapOrder = (o: any): Order => {
+    // Sesuai gambar: order_items adalah tabel relasional
     const items: CartItem[] = (o.order_items && o.order_items.length > 0) 
         ? o.order_items.map((oi: any) => ({
-            id: oi.product_id,
+            id: Number(oi.product_id),
             name: oi.product_name,
             price: parseFloat(oi.price),
             quantity: oi.quantity,
             note: oi.note || '',
             category: ''
         }))
-        : (o.items || []);
+        : [];
 
     return {
         id: String(o.id),
@@ -67,17 +68,17 @@ const mapOrder = (o: any): Order => {
         total: parseFloat(o.total || 0),
         subtotal: parseFloat(o.subtotal || 0),
         discount: parseFloat(o.discount || 0),
+        taxAmount: parseFloat(o.tax || 0),
+        serviceChargeAmount: parseFloat(o.service || 0),
         status: o.status || 'pending',
-        isPaid: !!o.is_paid,
+        isPaid: o.payment_status === 'Paid', // Mapping text ke boolean UI
         paymentMethod: o.payment_method,
-        orderType: o.order_type || 'Dine In',
+        orderType: o.type || 'Dine In', // Sesuai gambar: kolom 'type'
         createdAt: Number(o.created_at),
-        paidAt: o.paid_at ? Number(o.paid_at) : undefined,
+        paidAt: o.completed_at ? Number(o.completed_at) : undefined,
         sequentialId: o.sequential_id,
         discountType: 'fixed',
         discountValue: 0,
-        taxAmount: 0,
-        serviceChargeAmount: 0,
         orderSource: o.order_source || 'admin'
     };
 };
@@ -237,17 +238,22 @@ export const closeShiftInCloud = async (summary: ShiftSummary) => {
 
 export const addOrderToCloud = async (order: Order) => {
     await ensureDefaultBranch();
+    
+    // 1. Simpan Header (Tabel: orders)
+    // Penyesuaian nama kolom sesuai gambar ERD
     const { error: orderError } = await supabase.from('orders').insert({
         id: order.id,
         branch_id: order.branchId,
-        shift_id: order.shiftId,
+        shift_id: order.shiftId || null,
         customer_name: order.customerName,
-        items: order.items, 
-        total: order.total,
-        discount: order.discount,
+        type: order.orderType, // Gambar: 'type'
         status: order.status,
-        is_paid: order.isPaid,
-        order_type: order.orderType,
+        payment_status: order.isPaid ? 'Paid' : 'Unpaid', // Gambar: 'payment_status'
+        subtotal: order.subtotal, // Kolom numeric di gambar
+        discount: order.discount,
+        tax: order.taxAmount, // Kolom numeric di gambar
+        service: order.serviceChargeAmount, // Kolom numeric di gambar
+        total: order.total,
         created_at: order.createdAt,
         order_source: order.orderSource || 'admin'
     });
@@ -257,9 +263,10 @@ export const addOrderToCloud = async (order: Order) => {
         return;
     }
 
+    // 2. Simpan Detail (Tabel: order_items)
     const itemsToInsert = order.items.map(item => ({
         order_id: order.id,
-        product_id: item.id,
+        product_id: Number(item.id),
         product_name: item.name,
         price: item.price,
         quantity: item.quantity,
@@ -271,11 +278,12 @@ export const addOrderToCloud = async (order: Order) => {
 };
 
 export const updateOrderInCloud = async (id: string, updates: any) => {
+    // Update Items jika ada
     if (updates.items) {
         await supabase.from('order_items').delete().eq('order_id', id);
         const itemsToInsert = updates.items.map((item: CartItem) => ({
             order_id: id,
-            product_id: item.id,
+            product_id: Number(item.id),
             product_name: item.name,
             price: item.price,
             quantity: item.quantity,
@@ -284,16 +292,19 @@ export const updateOrderInCloud = async (id: string, updates: any) => {
         await supabase.from('order_items').insert(itemsToInsert);
     }
 
+    // Map UI ke Database (Sesuai gambar)
     const dbUpdates: any = {};
     if (updates.customerName !== undefined) dbUpdates.customer_name = updates.customerName;
     if (updates.status !== undefined) dbUpdates.status = updates.status;
     if (updates.total !== undefined) dbUpdates.total = updates.total;
+    if (updates.subtotal !== undefined) dbUpdates.subtotal = updates.subtotal;
     if (updates.discount !== undefined) dbUpdates.discount = updates.discount;
-    if (updates.orderType !== undefined) dbUpdates.order_type = updates.orderType;
-    if (updates.items !== undefined) dbUpdates.items = updates.items;
+    if (updates.taxAmount !== undefined) dbUpdates.tax = updates.taxAmount;
+    if (updates.serviceChargeAmount !== undefined) dbUpdates.service = updates.serviceChargeAmount;
+    if (updates.orderType !== undefined) dbUpdates.type = updates.orderType;
     if (updates.isPaid !== undefined) {
-        dbUpdates.is_paid = updates.isPaid;
-        if (updates.isPaid) dbUpdates.paid_at = Date.now();
+        dbUpdates.payment_status = updates.isPaid ? 'Paid' : 'Unpaid';
+        if (updates.isPaid) dbUpdates.completed_at = Date.now();
     }
     if (updates.paymentMethod !== undefined) dbUpdates.payment_method = updates.paymentMethod;
 
