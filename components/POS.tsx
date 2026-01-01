@@ -40,7 +40,7 @@ const QuickOrderUpdateModal = ({ order, menu, onClose, onUpdate, theme }: { orde
                 <div className="w-full md:w-1/2 p-8 flex flex-col border-r border-gray-100 bg-gray-50/50">
                     <div className="flex justify-between items-center mb-6">
                         <div>
-                            <h3 className="text-2xl font-black text-gray-900 uppercase italic">Detail Pesanan</h3>
+                            <h3 className="text-2xl font-black text-gray-900 uppercase italic">Update Pesanan</h3>
                             <p className="text-xs text-gray-400 font-bold tracking-widest uppercase">#{order.sequentialId} - {order.customerName}</p>
                         </div>
                         <button onClick={onClose} className="text-gray-400 hover:text-gray-900 p-2">&times;</button>
@@ -60,14 +60,20 @@ const QuickOrderUpdateModal = ({ order, menu, onClose, onUpdate, theme }: { orde
                                 </div>
                             </div>
                         ))}
+                        {currentItems.length === 0 && <p className="text-center text-gray-400 py-10 italic">Pesanan kosong</p>}
                     </div>
 
                     <div className="mt-6 pt-6 border-t border-dashed border-gray-200">
                         <div className="flex justify-between items-center mb-6 px-2">
-                            <span className="font-bold text-gray-400 uppercase tracking-widest text-xs">Total Akhir</span>
+                            <span className="font-bold text-gray-400 uppercase tracking-widest text-xs">Total Estimasi</span>
                             <span className="text-2xl font-black text-orange-600 tracking-tighter">{formatRupiah(total)}</span>
                         </div>
-                        <button onClick={() => onUpdate(currentItems)} className={`w-full bg-${theme}-600 text-white font-black py-4 rounded-2xl shadow-xl shadow-orange-100 uppercase tracking-widest active:scale-95 transition-all`}>SIMPAN PERUBAHAN</button>
+                        <button 
+                            onClick={() => onUpdate(currentItems)} 
+                            className={`w-full bg-${theme}-600 text-white font-black py-4 rounded-2xl shadow-xl shadow-orange-100 uppercase tracking-widest active:scale-95 transition-all`}
+                        >
+                            SIMPAN PERUBAHAN
+                        </button>
                     </div>
                 </div>
 
@@ -288,7 +294,28 @@ const POSView: React.FC = () => {
 
     const updateCart = (id: number, qty: number, note?: string) => { if (isReadOnly) return; setCart(prev => prev.map(i => i.id === id ? { ...i, quantity: qty, note: note !== undefined ? note : i.note } : i).filter(i => i.quantity > 0)); };
 
-    const handleAction = (action: 'save' | 'pay') => { if (cart.length === 0) return; if (activeOrder) { updateOrder(activeOrder.id, cart, discountVal, discountType, orderType); if (action === 'pay') { setIsPaymentModalOpen(true); } else { setActiveOrder(null); setCart([]); } } else { setPendingAction(action); setNameModalOpen(true); } };
+    const handleAction = (action: 'save' | 'pay') => { 
+        if (cart.length === 0) return; 
+        
+        if (activeOrder) { 
+            // PROSES UPDATE: Jika order sudah ada, langsung kirim data keranjang terbaru ke database
+            updateOrder(activeOrder.id, cart, discountVal, discountType, orderType); 
+            
+            if (action === 'pay') { 
+                setIsPaymentModalOpen(true); 
+            } else { 
+                // Jika hanya update (tombol Simpan/Update ditekan), bersihkan keranjang setelah berhasil
+                setActiveOrder(null); 
+                setCart([]); 
+                alert("Pesanan berhasil diperbarui!");
+            } 
+        } else { 
+            // PESANAN BARU: Minta nama pelanggan dulu
+            setPendingAction(action); 
+            setNameModalOpen(true); 
+        } 
+    };
+    
     const handleNameConfirm = (name: string) => { let newOrder: Order | null = null; if (pendingAction === 'save') { addOrder(cart, name, discountVal, discountType, orderType); setActiveOrder(null); setCart([]); setDiscountVal(0); setOrderType('Dine In'); } else if (pendingAction === 'pay') { newOrder = addOrder(cart, name, discountVal, discountType, orderType); if(newOrder) { setActiveOrder(newOrder); setIsPaymentModalOpen(true); } } setPendingAction(null); setNameModalOpen(false); };
     const handlePayment = (method: PaymentMethod) => { if (activeOrder) { const finalOrder = { ...activeOrder, items: cart, total: totals.total, discount: totals.discount, taxAmount: totals.tax, serviceChargeAmount: totals.service }; const paidOrder = payForOrder(finalOrder, method); if(paidOrder) { setActiveOrder(paidOrder); } setIsPaymentModalOpen(false); } };
     const handleCompleteOrder = (order: Order) => { updateOrderStatus(order.id, 'completed'); setActiveOrder(null); setCart([]); };
@@ -339,10 +366,12 @@ const POSView: React.FC = () => {
 
     const handleQuickUpdate = (newItems: CartItem[]) => {
         if (activeOrder) {
+            // LAKUKAN UPDATE LANGSUNG KE DATABASE
             updateOrder(activeOrder.id, newItems, activeOrder.discountValue || 0, activeOrder.discountType || 'percent', activeOrder.orderType);
             setIsQuickUpdateOpen(false);
-            // Refresh data cart lokal jika sedang dipilih
+            // Refresh data cart lokal agar sinkron dengan sidebar
             setCart(newItems);
+            alert("Pesanan berhasil diperbarui!");
         }
     };
 
@@ -557,7 +586,12 @@ const POSView: React.FC = () => {
 
                     {!isReadOnly ? (
                         <div className="grid grid-cols-2 gap-3 mt-4">
-                            <button onClick={() => handleAction('save')} className={`bg-gray-800 text-white py-3 rounded-xl font-bold hover:bg-gray-900 text-sm shadow-md`}>Simpan</button>
+                            <button 
+                                onClick={() => handleAction('save')} 
+                                className={`bg-gray-800 text-white py-3 rounded-xl font-bold hover:bg-gray-900 text-sm shadow-md transition-all ${activeOrder ? 'ring-2 ring-orange-500 bg-gray-900' : ''}`}
+                            >
+                                {activeOrder ? 'Update Pesanan' : 'Simpan Pesanan'}
+                            </button>
                             <button onClick={() => handleAction('pay')} className={`bg-${theme}-600 text-white py-3 rounded-xl font-bold hover:bg-${theme}-700 text-sm shadow-md`}>Bayar</button>
                             {activeOrder && (
                                 <>
