@@ -47,7 +47,6 @@ const mapProfile = (p: any): StoreProfile => ({
 });
 
 const mapOrder = (o: any): Order => {
-    // Utamakan data dari order_items (relasional) jika ada, jika tidak gunakan fallback JSONB
     const items: CartItem[] = (o.order_items && o.order_items.length > 0) 
         ? o.order_items.map((oi: any) => ({
             id: oi.product_id,
@@ -66,7 +65,7 @@ const mapOrder = (o: any): Order => {
         customerName: o.customer_name || 'Pelanggan',
         items: items,
         total: parseFloat(o.total || 0),
-        subtotal: parseFloat(o.subtotal || 0), // fallback jika ditambahkan nanti
+        subtotal: parseFloat(o.subtotal || 0),
         discount: parseFloat(o.discount || 0),
         status: o.status || 'pending',
         isPaid: !!o.is_paid,
@@ -110,7 +109,7 @@ export const updateStoreProfileInCloud = async (profile: StoreProfile) => {
 // --- PRODUCTS & CATEGORIES ---
 export const getMenuFromCloud = async (branchId: string) => {
     const { data, error } = await supabase
-        .from('menu') // Sesuai schema SQL
+        .from('products') 
         .select('*')
         .eq('branch_id', branchId)
         .order('id', { ascending: true });
@@ -130,18 +129,18 @@ export const addProductToCloud = async (item: MenuItem, branchId: string) => {
         branch_id: branchId,
         name: item.name,
         price: item.price,
-        category: item.category, // SQL menggunakan TEXT bukan category_id
+        category: item.category, 
         image_url: item.imageUrl,
         stock: item.stock,
         min_stock: item.minStock || 5
     };
 
-    const { error } = await supabase.from('menu').upsert(payload);
+    const { error } = await supabase.from('products').upsert(payload);
     if (error) handleError(error, 'addProduct');
 };
 
 export const deleteProductFromCloud = async (id: number) => {
-    const { error } = await supabase.from('menu').delete().eq('id', id);
+    const { error } = await supabase.from('products').delete().eq('id', id);
     if (error) handleError(error, 'deleteProduct');
 };
 
@@ -238,14 +237,12 @@ export const closeShiftInCloud = async (summary: ShiftSummary) => {
 
 export const addOrderToCloud = async (order: Order) => {
     await ensureDefaultBranch();
-    
-    // 1. Simpan Header Pesanan (Tabel: orders)
     const { error: orderError } = await supabase.from('orders').insert({
         id: order.id,
         branch_id: order.branchId,
         shift_id: order.shiftId,
         customer_name: order.customerName,
-        items: order.items, // JSONB
+        items: order.items, 
         total: order.total,
         discount: order.discount,
         status: order.status,
@@ -260,7 +257,6 @@ export const addOrderToCloud = async (order: Order) => {
         return;
     }
 
-    // 2. Simpan Detail Item (Tabel: order_items)
     const itemsToInsert = order.items.map(item => ({
         order_id: order.id,
         product_id: item.id,
@@ -275,7 +271,6 @@ export const addOrderToCloud = async (order: Order) => {
 };
 
 export const updateOrderInCloud = async (id: string, updates: any) => {
-    // 1. Update Detail Item jika ada perubahan di keranjang
     if (updates.items) {
         await supabase.from('order_items').delete().eq('order_id', id);
         const itemsToInsert = updates.items.map((item: CartItem) => ({
@@ -289,7 +284,6 @@ export const updateOrderInCloud = async (id: string, updates: any) => {
         await supabase.from('order_items').insert(itemsToInsert);
     }
 
-    // 2. Map properti camelCase ke snake_case sesuai SQL
     const dbUpdates: any = {};
     if (updates.customerName !== undefined) dbUpdates.customer_name = updates.customerName;
     if (updates.status !== undefined) dbUpdates.status = updates.status;
@@ -359,7 +353,7 @@ export const deleteIngredientFromCloud = async (id: string) => {
 };
 
 export const updateProductStockInCloud = async (id: number, stock: number) => {
-    const { error } = await supabase.from('menu').update({ stock }).eq('id', id);
+    const { error } = await supabase.from('products').update({ stock }).eq('id', id);
     if (error) handleError(error, 'updateProductStock');
 };
 
@@ -430,7 +424,7 @@ export const subscribeToShifts = (branchId: string, onUpdate: (shift: Shift | nu
 
 export const subscribeToInventory = (branchId: string, onUpdate: () => void) => {
     const channel = supabase.channel(`inventory-${branchId}`)
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'menu' }, () => onUpdate())
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, () => onUpdate())
     .on('postgres_changes', { event: '*', schema: 'public', table: 'ingredients' }, () => onUpdate())
     .subscribe();
     return () => supabase.removeChannel(channel);
