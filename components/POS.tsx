@@ -9,13 +9,14 @@ const formatRupiah = (number: number) => new Intl.NumberFormat('id-ID', { style:
 
 const BEEP_URL = "https://actions.google.com/sounds/v1/alarms/beep_short.ogg"; 
 
-const QuickOrderUpdateModal = ({ order, menu, onClose, onUpdate, theme }: { order: Order, menu: MenuItem[], onClose: () => void, onUpdate: (items: CartItem[]) => void, theme: string }) => {
+const QuickOrderUpdateModal = ({ order, menu, onClose, onUpdate, onPay, theme }: { order: Order, menu: MenuItem[], onClose: () => void, onUpdate: (items: CartItem[]) => void, onPay: (items: CartItem[]) => void, theme: string }) => {
     const [currentItems, setCurrentItems] = useState<CartItem[]>(order.items);
+    const [searchTerm, setSearchTerm] = useState('');
     
-    // Filter item yang "Cepat Disajikan" (Tanpa proses masak, biasanya kategori Kriuk/Minuman)
-    const quickAddList = useMemo(() => {
-        return menu.filter(m => m.category === 'Kriuk' || m.category === 'Minuman');
-    }, [menu]);
+    // Tampilkan SEMUA item dari menu tanpa filter kategori
+    const fullMenuList = useMemo(() => {
+        return menu.filter(m => m.name.toLowerCase().includes(searchTerm.toLowerCase()));
+    }, [menu, searchTerm]);
 
     const handleAddItem = (item: MenuItem) => {
         setCurrentItems(prev => {
@@ -35,21 +36,21 @@ const QuickOrderUpdateModal = ({ order, menu, onClose, onUpdate, theme }: { orde
 
     return (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center z-[80] p-4 animate-fade-in">
-            <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-4xl flex flex-col md:flex-row overflow-hidden max-h-[90vh] border border-white/20">
-                {/* Bagian Kiri: Daftar Item Saat Ini */}
-                <div className="w-full md:w-1/2 p-8 flex flex-col border-r border-gray-100 bg-gray-50/50">
-                    <div className="flex justify-between items-center mb-6">
-                        <div>
-                            <h3 className="text-2xl font-black text-gray-900 uppercase italic">Update Pesanan</h3>
-                            <p className="text-xs text-gray-400 font-bold tracking-widest uppercase">#{order.sequentialId} - {order.customerName}</p>
-                        </div>
-                        <button onClick={onClose} className="text-gray-400 hover:text-gray-900 p-2">&times;</button>
+            <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-5xl flex flex-col md:flex-row overflow-hidden max-h-[90vh] border border-white/20">
+                {/* Tombol Close Pojok Kanan Atas (Floating) */}
+                <button onClick={onClose} className="absolute top-6 right-6 bg-white/20 hover:bg-white/40 text-white w-12 h-12 rounded-full flex items-center justify-center text-3xl font-light z-[90] transition-all">&times;</button>
+
+                {/* Bagian Kiri: Ringkasan Pesanan Aktif */}
+                <div className="w-full md:w-5/12 p-8 flex flex-col border-r border-gray-100 bg-gray-50/50">
+                    <div className="mb-6">
+                        <h3 className="text-2xl font-black text-gray-900 uppercase italic">Isi Pesanan</h3>
+                        <p className="text-xs text-gray-400 font-bold tracking-widest uppercase">#{order.sequentialId} - {order.customerName}</p>
                     </div>
 
                     <div className="flex-1 overflow-y-auto pr-2 space-y-3 custom-scrollbar">
                         {currentItems.map((item, idx) => (
                             <div key={idx} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex justify-between items-center">
-                                <div>
+                                <div className="flex-1 mr-4">
                                     <h4 className="font-bold text-gray-800 text-sm leading-tight">{item.name}</h4>
                                     <p className="text-[10px] text-orange-600 font-black mt-0.5">{formatRupiah(item.price)}</p>
                                 </div>
@@ -60,47 +61,68 @@ const QuickOrderUpdateModal = ({ order, menu, onClose, onUpdate, theme }: { orde
                                 </div>
                             </div>
                         ))}
-                        {currentItems.length === 0 && <p className="text-center text-gray-400 py-10 italic">Pesanan kosong</p>}
+                        {currentItems.length === 0 && <p className="text-center text-gray-400 py-10 italic">Keranjang kosong</p>}
                     </div>
 
                     <div className="mt-6 pt-6 border-t border-dashed border-gray-200">
                         <div className="flex justify-between items-center mb-6 px-2">
-                            <span className="font-bold text-gray-400 uppercase tracking-widest text-xs">Total Estimasi</span>
-                            <span className="text-2xl font-black text-orange-600 tracking-tighter">{formatRupiah(total)}</span>
+                            <span className="font-bold text-gray-400 uppercase tracking-widest text-xs">Total Akhir</span>
+                            <span className="text-3xl font-black text-orange-600 tracking-tighter">{formatRupiah(total)}</span>
                         </div>
-                        <button 
-                            onClick={() => onUpdate(currentItems)} 
-                            className={`w-full bg-${theme}-600 text-white font-black py-4 rounded-2xl shadow-xl shadow-orange-100 uppercase tracking-widest active:scale-95 transition-all`}
-                        >
-                            SIMPAN PERUBAHAN
-                        </button>
+                        
+                        <div className="grid grid-cols-1 gap-3">
+                            <button 
+                                onClick={() => onPay(currentItems)} 
+                                className="w-full bg-green-600 text-white font-black py-4 rounded-2xl shadow-xl shadow-green-100 uppercase tracking-widest active:scale-95 transition-all flex items-center justify-center gap-2"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4 4a2 2 0 00-2 2v4a2 2 0 002 2V6h10a2 2 0 00-2-2H4zm2 6a2 2 0 012-2h8a2 2 0 012 2v4a2 2 0 01-2 2H8a2 2 0 01-2-2v-4zm6 4a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" /></svg>
+                                BAYAR SEKARANG
+                            </button>
+                            <button 
+                                onClick={() => onUpdate(currentItems)} 
+                                className={`w-full bg-gray-900 text-white font-black py-4 rounded-2xl shadow-xl uppercase tracking-widest active:scale-95 transition-all`}
+                            >
+                                SIMPAN SAJA
+                            </button>
+                        </div>
                     </div>
                 </div>
 
-                {/* Bagian Kanan: Tambah Cepat (Kriuk/Snack) */}
-                <div className="w-full md:w-1/2 p-8 bg-white flex flex-col">
-                    <h3 className="text-xl font-black text-gray-900 mb-6 flex items-center gap-2">
-                        <span className="bg-orange-600 w-2 h-6 rounded-full"></span>
-                        TAMBAH CEPAT (KRIUK)
-                    </h3>
-                    <div className="flex-1 overflow-y-auto custom-scrollbar">
-                        <div className="grid grid-cols-2 gap-4">
-                            {quickAddList.map(item => (
+                {/* Bagian Kanan: Galeri Semua Menu */}
+                <div className="w-full md:w-7/12 p-8 bg-white flex flex-col">
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
+                        <h3 className="text-xl font-black text-gray-900 flex items-center gap-2">
+                            <span className={`bg-${theme}-600 w-2 h-6 rounded-full`}></span>
+                            PILIH TAMBAHAN MENU
+                        </h3>
+                        <div className="relative w-full sm:w-64">
+                            <input 
+                                type="text" 
+                                placeholder="Cari..." 
+                                value={searchTerm}
+                                onChange={e => setSearchTerm(e.target.value)}
+                                className="w-full bg-gray-100 border-none rounded-full py-2 px-4 text-xs font-bold outline-none focus:ring-2 focus:ring-orange-200"
+                            />
+                        </div>
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto custom-scrollbar pr-2">
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 pb-4">
+                            {fullMenuList.map(item => (
                                 <div 
                                     key={item.id} 
                                     onClick={() => handleAddItem(item)}
-                                    className="border-2 border-gray-50 p-3 rounded-2xl text-center hover:border-orange-500 hover:shadow-lg cursor-pointer transition-all active:scale-95 group"
+                                    className="border-2 border-gray-50 p-3 rounded-2xl text-center hover:border-orange-500 hover:shadow-lg cursor-pointer transition-all active:scale-95 group flex flex-col items-center"
                                 >
-                                    <div className="w-full aspect-square bg-gray-100 rounded-xl mb-2 overflow-hidden">
-                                        {item.imageUrl ? <img src={item.imageUrl} className="w-full h-full object-cover" alt={item.name} /> : <div className="w-full h-full flex items-center justify-center text-gray-300 font-bold">?</div>}
+                                    <div className="w-full aspect-square bg-gray-100 rounded-xl mb-2 overflow-hidden shadow-inner">
+                                        {item.imageUrl ? <img src={item.imageUrl} className="w-full h-full object-cover group-hover:scale-110 transition-transform" alt={item.name} /> : <div className="w-full h-full flex items-center justify-center text-gray-300 font-bold">?</div>}
                                     </div>
-                                    <h4 className="font-bold text-xs text-gray-700 line-clamp-1 group-hover:text-orange-600">{item.name}</h4>
+                                    <h4 className="font-bold text-[11px] text-gray-700 line-clamp-1 group-hover:text-orange-600">{item.name}</h4>
                                     <p className="text-[10px] font-black text-gray-400 mt-0.5">{formatRupiah(item.price)}</p>
                                 </div>
                             ))}
                         </div>
                     </div>
-                    <p className="text-[9px] text-gray-400 mt-6 font-bold uppercase text-center tracking-widest">Item di atas tidak masuk monitor dapur</p>
                 </div>
             </div>
         </div>
@@ -116,7 +138,7 @@ const SplitBillModal = ({ order, onClose, onSplit, theme }: { order: Order, onCl
 };
 
 const PaymentModal = ({ total, onClose, onPay, theme }: { total: number, onClose: () => void, onPay: (method: PaymentMethod) => void, theme: string }) => {
-    return (<div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[60] p-4"><div className="bg-white rounded-xl shadow-2xl p-6 max-w-sm w-full animate-scale-in"><h3 className="text-xl font-bold mb-2 text-center">Pilih Metode Bayar</h3><p className={`text-center text-2xl font-bold text-${theme}-600 mb-6`}>{formatRupiah(total)}</p><div className="grid grid-cols-1 gap-3"><button onClick={() => onPay('Tunai')} className={`flex items-center justify-center p-4 border-2 border-gray-100 hover:border-${theme}-500 rounded-lg font-bold text-lg hover:bg-${theme}-50 transition-all`}>💵 Tunai</button><button onClick={() => onPay('QRIS')} className={`flex items-center justify-center p-4 border-2 border-gray-100 hover:border-${theme}-500 rounded-lg font-bold text-lg hover:bg-${theme}-50 transition-all`}>📷 QRIS</button><button onClick={() => onPay('Debit')} className={`flex items-center justify-center p-4 border-2 border-gray-100 hover:border-${theme}-500 rounded-lg font-bold text-lg hover:bg-${theme}-50 transition-all`}>💳 Debit / EDC</button></div><button onClick={onClose} className="w-full mt-6 py-3 text-gray-500 font-semibold hover:bg-gray-100 rounded-lg">Batal</button></div></div>)
+    return (<div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4"><div className="bg-white rounded-xl shadow-2xl p-6 max-w-sm w-full animate-scale-in"><h3 className="text-xl font-bold mb-2 text-center">Pilih Metode Bayar</h3><p className={`text-center text-2xl font-bold text-${theme}-600 mb-6`}>{formatRupiah(total)}</p><div className="grid grid-cols-1 gap-3"><button onClick={() => onPay('Tunai')} className={`flex items-center justify-center p-4 border-2 border-gray-100 hover:border-${theme}-500 rounded-lg font-bold text-lg hover:bg-${theme}-50 transition-all`}>💵 Tunai</button><button onClick={() => onPay('QRIS')} className={`flex items-center justify-center p-4 border-2 border-gray-100 hover:border-${theme}-500 rounded-lg font-bold text-lg hover:bg-${theme}-50 transition-all`}>📷 QRIS</button><button onClick={() => onPay('Debit')} className={`flex items-center justify-center p-4 border-2 border-gray-100 hover:border-${theme}-500 rounded-lg font-bold text-lg hover:bg-${theme}-50 transition-all`}>💳 Debit / EDC</button></div><button onClick={onClose} className="w-full mt-6 py-3 text-gray-500 font-semibold hover:bg-gray-100 rounded-lg">Batal</button></div></div>)
 }
 
 const CustomerNameModal = ({ onConfirm, onCancel, theme, requireTable }: { onConfirm: (name: string) => void, onCancel: () => void, theme: string, requireTable: boolean }) => {
@@ -158,7 +180,7 @@ const ScanQRModal = ({ onClose, onScan, theme }: { onClose: () => void, onScan: 
                 });
             }
         }, (err: any) => {
-            // Abaikan error scan gagal (terus mencari)
+            // Abaikan error scan gagal
         });
 
         return () => {
@@ -298,19 +320,16 @@ const POSView: React.FC = () => {
         if (cart.length === 0) return; 
         
         if (activeOrder) { 
-            // PROSES UPDATE: Jika order sudah ada, langsung kirim data keranjang terbaru ke database
             updateOrder(activeOrder.id, cart, discountVal, discountType, orderType); 
             
             if (action === 'pay') { 
                 setIsPaymentModalOpen(true); 
             } else { 
-                // Jika hanya update (tombol Simpan/Update ditekan), bersihkan keranjang setelah berhasil
                 setActiveOrder(null); 
                 setCart([]); 
                 alert("Pesanan berhasil diperbarui!");
             } 
         } else { 
-            // PESANAN BARU: Minta nama pelanggan dulu
             setPendingAction(action); 
             setNameModalOpen(true); 
         } 
@@ -344,10 +363,8 @@ const POSView: React.FC = () => {
     };
 
     const handleQRScan = (rawData: string) => {
-        // Cari order berdasarkan ID yang di-scan
         const foundOrder = orders.find(o => o.id === rawData);
         if (foundOrder) {
-            // CEK STATUS: Jika sudah bayar atau selesai, jangan buka modal
             if (foundOrder.isPaid || foundOrder.status === 'completed') {
                 alert('Pesanan ini sudah selesai atau sudah dibayar.');
                 setIsScanOpen(false);
@@ -356,7 +373,7 @@ const POSView: React.FC = () => {
 
             setActiveOrder(foundOrder);
             setIsScanOpen(false);
-            setIsQuickUpdateOpen(true); // Buka modal tambah snack otomatis
+            setIsQuickUpdateOpen(true); 
             const audio = new Audio(BEEP_URL);
             audio.play().catch(() => {});
         } else {
@@ -366,12 +383,22 @@ const POSView: React.FC = () => {
 
     const handleQuickUpdate = (newItems: CartItem[]) => {
         if (activeOrder) {
-            // LAKUKAN UPDATE LANGSUNG KE DATABASE
             updateOrder(activeOrder.id, newItems, activeOrder.discountValue || 0, activeOrder.discountType || 'percent', activeOrder.orderType);
             setIsQuickUpdateOpen(false);
-            // Refresh data cart lokal agar sinkron dengan sidebar
             setCart(newItems);
             alert("Pesanan berhasil diperbarui!");
+        }
+    };
+
+    const handleQuickPay = (newItems: CartItem[]) => {
+        if (activeOrder) {
+            // 1. Simpan perubahan ke database dulu
+            updateOrder(activeOrder.id, newItems, activeOrder.discountValue || 0, activeOrder.discountType || 'percent', activeOrder.orderType);
+            // 2. Update state lokal
+            setCart(newItems);
+            // 3. Tutup modal update dan buka modal pembayaran
+            setIsQuickUpdateOpen(false);
+            setIsPaymentModalOpen(true);
         }
     };
 
@@ -413,7 +440,7 @@ const POSView: React.FC = () => {
             {isSplitOpen && activeOrder && <SplitBillModal order={activeOrder} onClose={() => setIsSplitOpen(false)} onSplit={(items) => { splitOrder(activeOrder, items); setIsSplitOpen(false); setActiveOrder(null); }} theme={theme} />}
             {isPaymentModalOpen && <PaymentModal total={totals.total} onClose={() => setIsPaymentModalOpen(false)} onPay={handlePayment} theme={theme} />}
             {isScanOpen && <ScanQRModal onClose={() => setIsScanOpen(false)} onScan={handleQRScan} theme={theme} />}
-            {isQuickUpdateOpen && activeOrder && <QuickOrderUpdateModal order={activeOrder} menu={menu} onClose={() => setIsQuickUpdateOpen(false)} onUpdate={handleQuickUpdate} theme={theme} />}
+            {isQuickUpdateOpen && activeOrder && <QuickOrderUpdateModal order={activeOrder} menu={menu} onClose={() => setIsQuickUpdateOpen(false)} onUpdate={handleQuickUpdate} onPay={handleQuickPay} theme={theme} />}
             {isLeftSidebarOpen && <div className="fixed inset-0 bg-black/50 z-20 lg:hidden" onClick={() => setIsLeftSidebarOpen(false)}></div>}
 
             {/* SIDEBAR ORDERS */}
