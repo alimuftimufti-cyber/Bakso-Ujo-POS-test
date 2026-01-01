@@ -51,8 +51,8 @@ const mapOrder = (o: any): Order => {
         ? o.order_items.map((oi: any) => ({
             id: Number(oi.product_id),
             name: oi.product_name,
-            price: parseFloat(oi.price),
-            quantity: oi.quantity,
+            price: parseFloat(oi.price || 0),
+            quantity: oi.quantity || 0,
             note: oi.note || '',
             category: ''
         }))
@@ -81,6 +81,25 @@ const mapOrder = (o: any): Order => {
         orderSource: o.order_source || 'admin'
     };
 };
+
+const mapShiftSummary = (s: any): ShiftSummary => ({
+    id: String(s.id),
+    branchId: s.branch_id,
+    start: Number(s.start_time),
+    end: s.end_time ? Number(s.end_time) : undefined,
+    start_cash: parseFloat(s.start_cash || 0),
+    closingCash: parseFloat(s.closing_cash || 0),
+    revenue: parseFloat(s.revenue || 0),
+    cashRevenue: parseFloat(s.cash_revenue || 0),
+    nonCashRevenue: parseFloat(s.non_cash_revenue || 0),
+    transactions: parseInt(s.transactions_count || 0),
+    totalDiscount: parseFloat(s.total_discount || 0),
+    cashDifference: parseFloat(s.closing_cash || 0) - (parseFloat(s.start_cash || 0) + parseFloat(s.cash_revenue || 0)),
+    totalExpenses: 0, // Akan dihitung di App logic
+    netRevenue: parseFloat(s.revenue || 0),
+    averageKitchenTime: 0,
+    expectedCash: parseFloat(s.start_cash || 0) + parseFloat(s.cash_revenue || 0)
+});
 
 // --- STORE PROFILE ---
 export const getStoreProfileFromCloud = async (branchId: string) => {
@@ -206,6 +225,21 @@ export const getActiveShiftFromCloud = async (branchId: string) => {
     } : null;
 };
 
+export const getCompletedShiftsFromCloud = async (branchId: string) => {
+    const { data, error } = await supabase
+        .from('shifts')
+        .select('*')
+        .eq('branch_id', branchId)
+        .not('end_time', 'is', null)
+        .order('end_time', { ascending: false });
+    
+    if (error) {
+        handleError(error, 'getCompletedShifts');
+        return [];
+    }
+    return (data || []).map(mapShiftSummary);
+};
+
 export const startShiftInCloud = async (shift: Shift) => {
     await ensureDefaultBranch();
     const { error } = await supabase.from('shifts').insert({
@@ -230,7 +264,8 @@ export const closeShiftInCloud = async (summary: ShiftSummary) => {
         revenue: summary.revenue,
         cash_revenue: summary.cashRevenue,
         non_cash_revenue: summary.nonCashRevenue,
-        total_discount: summary.totalDiscount
+        total_discount: summary.totalDiscount,
+        transactions_count: summary.transactions
     }).eq('id', summary.id);
     if (error) handleError(error, 'closeShift');
 };
@@ -491,6 +526,5 @@ export const subscribeToExpenses = (shiftId: string, onUpdate: (expenses: Expens
 export const getBranchesFromCloud = async () => [];
 export const addBranchToCloud = async (b: any) => {};
 export const deleteBranchFromCloud = async (id: string) => {};
-export const getCompletedShiftsFromCloud = async (b: string) => [];
 export const deleteExpenseFromCloud = async (id: number) => {};
 export const updateUserInCloud = async (u: any) => {};

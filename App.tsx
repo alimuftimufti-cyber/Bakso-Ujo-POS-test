@@ -100,6 +100,7 @@ const App: React.FC = () => {
     const [tables, setTables] = useState<Table[]>([]);
     const [orders, setOrders] = useState<Order[]>([]);
     const [activeShift, setActiveShift] = useState<Shift | null>(null);
+    const [completedShifts, setCompletedShifts] = useState<ShiftSummary[]>([]);
     const [expenses, setExpenses] = useState<Expense[]>([]);
 
     const [isDatabaseReady, setIsDatabaseReady] = useState<boolean | null>(null);
@@ -110,12 +111,13 @@ const App: React.FC = () => {
         try {
             await ensureDefaultBranch();
             
-            const [profileData, menuData, categoriesData, usersData, tablesData] = await Promise.all([
+            const [profileData, menuData, categoriesData, usersData, tablesData, histShifts] = await Promise.all([
                 getStoreProfileFromCloud(activeBranchId).catch(() => null),
                 getMenuFromCloud(activeBranchId).catch(() => []),
                 getCategoriesFromCloud().catch(() => []),
                 getUsersFromCloud(activeBranchId).catch(() => []),
-                getTablesFromCloud(activeBranchId).catch(() => [])
+                getTablesFromCloud(activeBranchId).catch(() => []),
+                getCompletedShiftsFromCloud(activeBranchId).catch(() => [])
             ]);
 
             if (profileData) setStoreProfile(profileData);
@@ -123,6 +125,7 @@ const App: React.FC = () => {
             setCategories(categoriesData);
             setUsers(usersData);
             setTables(tablesData);
+            setCompletedShifts(histShifts);
             
             const sh = await getActiveShiftFromCloud(activeBranchId).catch(() => null);
             setActiveShift(sh);
@@ -210,7 +213,7 @@ const App: React.FC = () => {
     };
 
     const contextValue: AppContextType = {
-        menu, categories, orders, expenses, activeShift, completedShifts: [], storeProfile, ingredients, tables, branches: [], users, currentUser, attendanceRecords: [], kitchenAlarmTime: 600, kitchenAlarmSound: 'beep', isStoreOpen: !!activeShift, isShiftLoading: isGlobalLoading,
+        menu, categories, orders, expenses, activeShift, completedShifts, storeProfile, ingredients, tables, branches: [], users, currentUser, attendanceRecords: [], kitchenAlarmTime: 600, kitchenAlarmSound: 'beep', isStoreOpen: !!activeShift, isShiftLoading: isGlobalLoading,
         setMenu, setCategories, setStoreProfile: (p: any) => { setStoreProfile(p); updateStoreProfileInCloud(p); },
         setKitchenAlarmTime: () => {}, setKitchenAlarmSound: () => {}, addCategory: addCategoryToCloud, deleteCategory: deleteCategoryFromCloud, setIngredients,
         saveMenuItem: async (i) => { await addProductToCloud(i, activeBranchId); },
@@ -238,20 +241,66 @@ const App: React.FC = () => {
         },
         closeShift: (cash) => {
             if (!activeShift) return null;
-            const summary: ShiftSummary = { ...activeShift, end: Date.now(), closingCash: cash, cashDifference: 0, totalExpenses: 0, netRevenue: 0, averageKitchenTime: 0, expectedCash: 0 };
+            
+            // AGREGASI DATA PESANAN UNTUK SHIFT INI
+            const shiftOrders = orders.filter(o => String(o.shiftId) === String(activeShift.id) && o.isPaid && o.status !== 'cancelled');
+            const cashRevenue = shiftOrders.filter(o => o.paymentMethod === 'Tunai').reduce((sum, o) => sum + (o.total || 0), 0);
+            const nonCashRevenue = shiftOrders.filter(o => o.paymentMethod !== 'Tunai').reduce((sum, o) => sum + (o.total || 0), 0);
+            const totalRevenue = cashRevenue + nonCashRevenue;
+            const totalDiscount = shiftOrders.reduce((sum, o) => sum + (o.discount || 0), 0);
+            const totalExpenses = expenses.filter(e => String(e.shiftId) === String(activeShift.id)).reduce((sum, e) => sum + (e.amount || 0), 0);
+            
+            const expectedCash = activeShift.start_cash + cashRevenue - totalExpenses;
+            const difference = cash - expectedCash;
+
+            const summary: ShiftSummary = { 
+                ...activeShift, 
+                end: Date.now(), 
+                closingCash: cash, 
+                cashDifference: difference, 
+                revenue: totalRevenue,
+                cashRevenue,
+                nonCashRevenue,
+                totalDiscount,
+                transactions: shiftOrders.length,
+                totalExpenses, 
+                netRevenue: totalRevenue - totalExpenses, 
+                averageKitchenTime: 0, 
+                expectedCash 
+            };
+
             closeShiftInCloud(summary);
             setActiveShift(null);
+            setCompletedShifts(prev => [summary, ...prev]);
             return summary;
         },
-        addOrder: (cart, name, dv, dt, ot) => {
+        addOrder: async (cart, name, dv, dt, ot) => {
              const financial = calculateTotalsHelper(cart, dv, dt);
-             const order: Order = { id: Date.now().toString(), customerName: name, items: cart, total: financial.total, subtotal: financial.subtotal, discount: financial.discount, discountType: dt, discountValue: dv, taxAmount: financial.tax, serviceChargeAmount: financial.service, status: 'pending', createdAt: Date.now(), isPaid: false, shiftId: activeShift?.id || '', orderType: ot, branchId: activeBranchId, orderSource: 'admin' };
-             addOrderToCloud(order);
+             const order: Order = { 
+                 id: Date.now().toString(), 
+                 customerName: name, 
+                 items: cart, 
+                 total: financial.total, 
+                 subtotal: financial.subtotal, 
+                 discount: financial.discount, 
+                 discountType: dt, 
+                 discountValue: dv, 
+                 taxAmount: financial.tax, 
+                 serviceChargeAmount: financial.service, 
+                 status: 'pending', 
+                 createdAt: Date.now(), 
+                 isPaid: false, 
+                 shiftId: activeShift?.id || '', 
+                 orderType: ot, 
+                 branchId: activeBranchId, 
+                 orderSource: 'admin' 
+             };
+             await addOrderToCloud(order);
              return order;
         },
-        updateOrder: (id, cart, dv, dt, ot) => {
+        updateOrder: async (id, cart, dv, dt, ot) => {
              const financial = calculateTotalsHelper(cart, dv, dt);
-             updateOrderInCloud(id, { 
+             await updateOrderInCloud(id, { 
                  items: cart, 
                  discountValue: dv, 
                  discountType: dt, 

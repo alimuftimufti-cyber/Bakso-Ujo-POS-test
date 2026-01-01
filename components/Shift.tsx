@@ -86,8 +86,8 @@ const CloseShiftModal = ({ onConfirm, onCancel, activeShift, expenses, storeProf
     const [closingCash, setClosingCash] = useState('');
     
     const shiftOrders = orders.filter(o => String(o.shiftId) === String(activeShift.id) && o.isPaid && o.status !== 'cancelled');
-    const cashRevenue = shiftOrders.filter(o => o.paymentMethod === 'Tunai').reduce((sum, o) => sum + o.total, 0);
-    const nonCashRevenue = shiftOrders.filter(o => o.paymentMethod !== 'Tunai').reduce((sum, o) => sum + o.total, 0);
+    const cashRevenue = shiftOrders.filter(o => o.paymentMethod === 'Tunai').reduce((sum, o) => sum + (o.total || 0), 0);
+    const nonCashRevenue = shiftOrders.filter(o => o.paymentMethod !== 'Tunai').reduce((sum, o) => sum + (o.total || 0), 0);
     const totalRevenue = cashRevenue + nonCashRevenue;
 
     const startCash = activeShift.start_cash;
@@ -361,12 +361,12 @@ const ShiftView: React.FC = () => {
     }
 
     const shiftOrders = orders.filter(o => String(o.shiftId) === String(activeShift.id) && o.isPaid && o.status !== 'cancelled');
-    const cashRevenue = shiftOrders.filter(o => o.paymentMethod === 'Tunai').reduce((sum, o) => sum + o.total, 0);
-    const nonCashRevenue = shiftOrders.filter(o => o.paymentMethod !== 'Tunai').reduce((sum, o) => sum + o.total, 0);
+    const cashRevenue = shiftOrders.filter(o => o.paymentMethod === 'Tunai').reduce((sum, o) => sum + (o.total || 0), 0);
+    const nonCashRevenue = shiftOrders.filter(o => o.paymentMethod !== 'Tunai').reduce((sum, o) => sum + (o.total || 0), 0);
     const totalRevenue = cashRevenue + nonCashRevenue;
 
     const currentExpenses = expenses.filter(e => String(e.shiftId) === String(activeShift.id));
-    const totalExpenses = currentExpenses.reduce((sum, e) => sum + e.amount, 0);
+    const totalExpenses = currentExpenses.reduce((sum, e) => sum + (e.amount || 0), 0);
     
     return (
         <>
@@ -489,23 +489,23 @@ const ShiftSummaryDisplay = ({ summary }: { summary: ShiftSummary }) => {
             <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100">
                  <div className="flex justify-between items-center mb-1">
                     <span className="text-sm font-bold text-gray-500">Total Omzet</span>
-                    <span className="text-xl font-black text-gray-900">{formatRupiah(summary.revenue)}</span>
+                    <span className="text-xl font-black text-gray-900">{formatRupiah(summary.revenue || 0)}</span>
                  </div>
                  <div className="flex justify-between items-center text-xs text-gray-400 font-bold uppercase tracking-widest">
-                    <span>{summary.transactions} Transaksi</span>
+                    <span>{summary.transactions || 0} Transaksi</span>
                  </div>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
                 <div className="bg-green-50 p-4 rounded-2xl border border-green-100">
                      <span className="text-[10px] font-black text-green-600 uppercase block mb-1 tracking-widest">Selisih Kas</span>
-                     <span className={`text-lg font-black ${summary.cashDifference === 0 ? 'text-green-700' : 'text-red-600'}`}>
-                        {summary.cashDifference && summary.cashDifference > 0 ? '+' : ''}{formatRupiah(summary.cashDifference || 0)}
+                     <span className={`text-lg font-black ${(summary.cashDifference || 0) === 0 ? 'text-green-700' : 'text-red-600'}`}>
+                        {(summary.cashDifference || 0) > 0 ? '+' : ''}{formatRupiah(summary.cashDifference || 0)}
                      </span>
                 </div>
                  <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100">
                      <span className="text-[10px] font-black text-blue-600 uppercase block mb-1 tracking-widest">Non-Tunai</span>
-                     <span className="text-lg font-black text-blue-700">{formatRupiah(summary.nonCashRevenue)}</span>
+                     <span className="text-lg font-black text-blue-700">{formatRupiah(summary.nonCashRevenue || 0)}</span>
                 </div>
             </div>
         </div>
