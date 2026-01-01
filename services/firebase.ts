@@ -74,7 +74,7 @@ const mapOrder = (o: any): Order => {
         branchId: o.branch_id,
         shiftId: o.shift_id,
         customerName: o.customer_name || 'Pelanggan',
-        items: items,
+        items: items.length > 0 ? items : (o.items || []),
         total: parseFloat(o.total || 0),
         subtotal: parseFloat(o.subtotal || 0),
         discount: parseFloat(o.discount || 0),
@@ -277,7 +277,8 @@ export const addOrderToCloud = async (order: Order) => {
         payment_status: order.isPaid ? 'paid' : 'unpaid',
         type: order.orderType,
         created_at: order.createdAt,
-        order_source: order.orderSource || 'admin'
+        order_source: order.orderSource || 'admin',
+        items: order.items // Simpan JSONB juga untuk fallback
     });
 
     if (orderError) {
@@ -300,10 +301,13 @@ export const addOrderToCloud = async (order: Order) => {
 };
 
 export const updateOrderInCloud = async (id: string, updates: any) => {
-    const dbUpdates: any = { ...updates };
-    
+    // 1. Tangani update relasional order_items jika ada daftar item baru
     if (updates.items) {
-        await supabase.from('order_items').delete().eq('order_id', id);
+        // Hapus item lama
+        const { error: delError } = await supabase.from('order_items').delete().eq('order_id', id);
+        if (delError) console.warn("Gagal hapus order_items lama:", delError.message);
+
+        // Masukkan item baru
         const itemsToInsert = updates.items.map((item: CartItem) => ({
             order_id: id,
             product_id: item.id,
@@ -312,25 +316,39 @@ export const updateOrderInCloud = async (id: string, updates: any) => {
             quantity: item.quantity,
             note: item.note
         }));
-        await supabase.from('order_items').insert(itemsToInsert);
-        delete dbUpdates.items;
+        
+        const { error: insError } = await supabase.from('order_items').insert(itemsToInsert);
+        if (insError) handleError(insError, 'updateOrder-SyncItems');
     }
 
-    if (updates.customerName) { dbUpdates.customer_name = updates.customerName; delete dbUpdates.customerName; }
-    if (updates.isPaid !== undefined) { 
-        dbUpdates.payment_status = updates.isPaid ? 'paid' : 'unpaid'; 
-        delete dbUpdates.isPaid; 
+    // 2. Siapkan objek data untuk tabel 'orders'
+    // Kita harus memetakan properti dari App.tsx (camelCase) ke kolom DB (snake_case)
+    // dan menghapus properti yang tidak ada di kolom tabel orders.
+    const dbUpdates: any = {};
+
+    if (updates.customerName !== undefined) dbUpdates.customer_name = updates.customerName;
+    if (updates.status !== undefined) dbUpdates.status = updates.status;
+    if (updates.subtotal !== undefined) dbUpdates.subtotal = updates.subtotal;
+    if (updates.total !== undefined) dbUpdates.total = updates.total;
+    if (updates.discount !== undefined) dbUpdates.discount = updates.discount;
+    if (updates.taxAmount !== undefined) dbUpdates.tax = updates.taxAmount;
+    if (updates.serviceChargeAmount !== undefined) dbUpdates.service = updates.serviceChargeAmount;
+    if (updates.orderType !== undefined) dbUpdates.type = updates.orderType;
+    if (updates.orderSource !== undefined) dbUpdates.order_source = updates.orderSource;
+    if (updates.items !== undefined) dbUpdates.items = updates.items; // JSONB column
+
+    if (updates.isPaid !== undefined) {
+        dbUpdates.payment_status = updates.isPaid ? 'paid' : 'unpaid';
+        if (updates.isPaid) dbUpdates.paid_at = Date.now();
     }
-    if (updates.paymentMethod) { dbUpdates.payment_method = updates.paymentMethod; delete dbUpdates.paymentMethod; }
-    if (updates.orderType) { dbUpdates.type = updates.orderType; delete dbUpdates.orderType; }
-    if (updates.orderSource) { dbUpdates.order_source = updates.orderSource; delete dbUpdates.orderSource; }
     
-    // Keuangan mapping
-    if (updates.taxAmount !== undefined) { dbUpdates.tax = updates.taxAmount; delete dbUpdates.taxAmount; }
-    if (updates.serviceChargeAmount !== undefined) { dbUpdates.service = updates.serviceChargeAmount; delete dbUpdates.serviceChargeAmount; }
-    
+    if (updates.paymentMethod !== undefined) dbUpdates.payment_method = updates.paymentMethod;
+
+    // Pastikan tidak mengirim properti kosong ke Supabase
+    if (Object.keys(dbUpdates).length === 0) return;
+
     const { error } = await supabase.from('orders').update(dbUpdates).eq('id', id);
-    if (error) handleError(error, 'updateOrder');
+    if (error) handleError(error, 'updateOrder-Header');
 };
 
 // --- TABLES ---
