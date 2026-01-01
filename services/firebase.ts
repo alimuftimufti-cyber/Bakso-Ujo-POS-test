@@ -47,7 +47,6 @@ const mapProfile = (p: any): StoreProfile => ({
 });
 
 const mapOrder = (o: any): Order => {
-    // Sesuai gambar: order_items adalah tabel relasional
     const items: CartItem[] = (o.order_items && o.order_items.length > 0) 
         ? o.order_items.map((oi: any) => ({
             id: Number(oi.product_id),
@@ -71,9 +70,9 @@ const mapOrder = (o: any): Order => {
         taxAmount: parseFloat(o.tax || 0),
         serviceChargeAmount: parseFloat(o.service || 0),
         status: o.status || 'pending',
-        isPaid: o.payment_status === 'Paid', // Mapping text ke boolean UI
+        isPaid: o.payment_status === 'Paid',
         paymentMethod: o.payment_method,
-        orderType: o.type || 'Dine In', // Sesuai gambar: kolom 'type'
+        orderType: o.type || 'Dine In',
         createdAt: Number(o.created_at),
         paidAt: o.completed_at ? Number(o.completed_at) : undefined,
         sequentialId: o.sequential_id,
@@ -240,19 +239,18 @@ export const addOrderToCloud = async (order: Order) => {
     await ensureDefaultBranch();
     
     // 1. Simpan Header (Tabel: orders)
-    // Penyesuaian nama kolom sesuai gambar ERD
     const { error: orderError } = await supabase.from('orders').insert({
         id: order.id,
         branch_id: order.branchId,
         shift_id: order.shiftId || null,
         customer_name: order.customerName,
-        type: order.orderType, // Gambar: 'type'
+        type: order.orderType,
         status: order.status,
-        payment_status: order.isPaid ? 'Paid' : 'Unpaid', // Gambar: 'payment_status'
-        subtotal: order.subtotal, // Kolom numeric di gambar
+        payment_status: order.isPaid ? 'Paid' : 'Unpaid',
+        subtotal: order.subtotal,
         discount: order.discount,
-        tax: order.taxAmount, // Kolom numeric di gambar
-        service: order.serviceChargeAmount, // Kolom numeric di gambar
+        tax: order.taxAmount,
+        service: order.serviceChargeAmount,
         total: order.total,
         created_at: order.createdAt,
         order_source: order.orderSource || 'admin'
@@ -263,7 +261,7 @@ export const addOrderToCloud = async (order: Order) => {
         return;
     }
 
-    // 2. Simpan Detail (Tabel: order_items)
+    // 2. Simpan Detail (Tabel: order_items) & KURANGI STOK PRODUK
     const itemsToInsert = order.items.map(item => ({
         order_id: order.id,
         product_id: Number(item.id),
@@ -274,7 +272,28 @@ export const addOrderToCloud = async (order: Order) => {
     }));
 
     const { error: itemsError } = await supabase.from('order_items').insert(itemsToInsert);
-    if (itemsError) handleError(itemsError, 'addOrder-Items');
+    if (itemsError) {
+        handleError(itemsError, 'addOrder-Items');
+    } else {
+        // Logika Pengurangan Stok
+        for (const item of order.items) {
+            // Ambil stok saat ini dari database
+            const { data: currentProduct } = await supabase
+                .from('products')
+                .select('stock')
+                .eq('id', Number(item.id))
+                .single();
+            
+            // Jika produk memiliki stok yang dikelola (stock !== null)
+            if (currentProduct && currentProduct.stock !== null) {
+                const newStock = Math.max(0, currentProduct.stock - item.quantity);
+                await supabase
+                    .from('products')
+                    .update({ stock: newStock })
+                    .eq('id', Number(item.id));
+            }
+        }
+    }
 };
 
 export const updateOrderInCloud = async (id: string, updates: any) => {
@@ -290,9 +309,11 @@ export const updateOrderInCloud = async (id: string, updates: any) => {
             note: item.note
         }));
         await supabase.from('order_items').insert(itemsToInsert);
+        // Note: Untuk update stok pada pesanan yang di-edit, logika lebih kompleks biasanya 
+        // melibatkan perbandingan quantity lama vs baru. Untuk saat ini fokus di pesanan baru.
     }
 
-    // Map UI ke Database (Sesuai gambar)
+    // Map UI ke Database
     const dbUpdates: any = {};
     if (updates.customerName !== undefined) dbUpdates.customer_name = updates.customerName;
     if (updates.status !== undefined) dbUpdates.status = updates.status;
