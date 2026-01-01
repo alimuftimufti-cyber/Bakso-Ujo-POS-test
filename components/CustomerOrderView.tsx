@@ -61,61 +61,117 @@ const DigitalReceipt = ({ order, onExit, theme }: { order: Order, onExit: () => 
     };
 
     const handleCloseAttempt = () => {
-        if (confirm("Ingin keluar? Pastikan sudah simpan struk.")) {
+        if (confirm("Ingin keluar? Status pesanan tidak akan terpantau lagi.")) {
             onExit();
         }
     };
 
     // UI Status Mapper
-    const getStatusInfo = () => {
-        if (liveOrder.status === 'cancelled') return { label: 'PESANAN DIBATALKAN', color: 'bg-red-600' };
-        if (liveOrder.status === 'completed') return { label: 'PESANAN SELESAI', color: 'bg-blue-600' };
-        if (liveOrder.status === 'ready' || liveOrder.status === 'serving') return { label: 'PESANAN SIAP DISAJIKAN!', color: 'bg-green-600 animate-bounce' };
-        if (liveOrder.isPaid) return { label: 'SEDANG DIMASAK', color: 'bg-orange-500' };
-        return { label: 'MENUNGGU PEMBAYARAN DI KASIR', color: 'bg-gray-700' };
+    const getStatusConfig = () => {
+        switch (liveOrder.status) {
+            case 'pending': 
+                return { label: 'MENUNGGU ANTRIAN DAPUR', color: 'bg-slate-600', icon: '🕒', step: 1 };
+            case 'ready': 
+                return { label: 'PESANAN SEDANG DIMASAK', color: 'bg-orange-500 animate-pulse', icon: '🔥', step: 2 };
+            case 'serving': 
+                return { label: 'PESANAN SIAP DISAJIKAN!', color: 'bg-green-600 animate-bounce', icon: '✅', step: 3 };
+            case 'completed': 
+                return { label: 'PESANAN SELESAI', color: 'bg-blue-600', icon: '⭐', step: 4 };
+            case 'cancelled': 
+                return { label: 'PESANAN DIBATALKAN', color: 'bg-red-600', icon: '❌', step: 0 };
+            default: 
+                return { label: 'MEMPROSES...', color: 'bg-gray-400', icon: '⌛', step: 1 };
+        }
     };
 
-    const statusInfo = getStatusInfo();
+    const status = getStatusConfig();
 
     return (
-        <div className="fixed inset-0 bg-slate-900 z-[100] flex flex-col items-center font-mono overflow-hidden">
-            {/* Real-time Status Header */}
-            <div className={`w-full ${statusInfo.color} text-white p-4 text-center font-black text-sm tracking-widest shadow-xl z-10 transition-colors duration-500`}>
-                {statusInfo.label}
+        <div className="fixed inset-0 bg-slate-900 z-[100] flex flex-col items-center font-sans overflow-hidden">
+            {/* 1. Header Status Real-time */}
+            <div className={`w-full ${status.color} text-white p-5 text-center shadow-xl z-10 transition-colors duration-500`}>
+                <div className="flex items-center justify-center gap-3">
+                    <span className="text-2xl">{status.icon}</span>
+                    <span className="font-black text-sm tracking-widest uppercase">{status.label}</span>
+                </div>
+            </div>
+
+            {/* 2. Progres Tracker (Visual) */}
+            <div className="w-full bg-slate-800 px-6 py-4 border-b border-white/5 flex justify-between items-center">
+                {[1, 2, 3].map((s) => (
+                    <div key={s} className="flex flex-col items-center flex-1 relative">
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs z-10 transition-all duration-500 ${status.step >= s ? 'bg-orange-500 text-white scale-110 shadow-lg shadow-orange-500/50' : 'bg-slate-700 text-slate-500'}`}>
+                            {s === 1 ? '👨‍🍳' : s === 2 ? '🔥' : '🍲'}
+                        </div>
+                        <span className={`text-[8px] mt-2 font-bold uppercase tracking-tighter ${status.step >= s ? 'text-orange-400' : 'text-slate-600'}`}>
+                            {s === 1 ? 'Antri' : s === 2 ? 'Masak' : 'Siap'}
+                        </span>
+                        {s < 3 && <div className={`absolute top-4 left-1/2 w-full h-[2px] -z-0 ${status.step > s ? 'bg-orange-500' : 'bg-slate-700'}`}></div>}
+                    </div>
+                ))}
             </div>
 
             <div className="flex-1 w-full overflow-y-auto py-6 px-4 flex flex-col items-center custom-scrollbar">
-                <div id="receipt-inner-content" ref={receiptRef} className="bg-white w-full max-w-sm rounded-sm shadow-2xl p-6 text-gray-900 border-t-8 border-orange-600 relative flex flex-col items-center mb-8 h-auto shrink-0">
+                <div id="receipt-inner-content" ref={receiptRef} className="bg-white w-full max-w-sm rounded-2xl shadow-2xl p-6 text-gray-900 border-t-8 border-orange-600 relative flex flex-col items-center mb-8 h-auto shrink-0 animate-scale-in">
                     <div className="text-center mb-6 w-full">
-                        <h2 className="text-2xl font-black uppercase tracking-tighter mb-1">BAKSO UJO</h2>
-                        <p className="text-[10px] opacity-70">STRUK PESANAN MANDIRI</p>
-                        <div className="border-b-2 border-dashed border-gray-300 my-4"></div>
-                        <div className="flex justify-between text-[10px] font-bold"><span>WAKTU:</span><span>{new Date(order.createdAt).toLocaleString('id-ID')}</span></div>
-                        <div className="flex justify-between text-[10px] font-bold"><span>STATUS:</span><span className="font-black underline uppercase">{liveOrder.status}</span></div>
+                        <h2 className="text-2xl font-black uppercase tracking-tighter mb-1 italic">BAKSO UJO</h2>
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">ID: {order.id.slice(-8)}</p>
+                        <div className="border-b-2 border-dashed border-gray-200 my-4"></div>
+                        <div className="flex justify-between text-[10px] font-bold">
+                            <span className="text-gray-400 uppercase">Waktu Pesan</span>
+                            <span>{new Date(order.createdAt).toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'})}</span>
+                        </div>
+                        <div className="flex justify-between text-[10px] font-bold mt-1">
+                            <span className="text-gray-400 uppercase">Meja / Nama</span>
+                            <span>{liveOrder.customerName}</span>
+                        </div>
                     </div>
                     
-                    <div className="bg-gray-50 p-4 rounded-xl mb-6 border-2 border-gray-100 flex flex-col items-center">
-                        <img src={qrUrl} alt="Order QR" className="w-48 h-48 mb-2 mix-blend-multiply" crossOrigin="anonymous" />
-                        <p className="text-[10px] font-black uppercase text-orange-600 tracking-widest">Tunjukkan ke Kasir</p>
+                    <div className="bg-gray-50 p-4 rounded-2xl mb-6 border-2 border-gray-100 flex flex-col items-center w-full">
+                        <img src={qrUrl} alt="Order QR" className="w-40 h-40 mb-2 mix-blend-multiply" crossOrigin="anonymous" />
+                        <p className="text-[9px] font-black uppercase text-gray-400 tracking-widest text-center">Scan di kasir jika ingin bayar tunai</p>
                     </div>
 
-                    <div className="w-full text-sm space-y-4 mb-8">
+                    <div className="w-full space-y-4 mb-8">
+                        <h4 className="text-[10px] font-black text-gray-400 uppercase border-b pb-1">Daftar Pesanan</h4>
                         {order.items.map((item, idx) => (
-                            <div key={idx} className="flex flex-col border-b border-gray-50 pb-2">
-                                <div className="flex justify-between font-bold items-start"><span className="flex-1 pr-4">{item.quantity}x {item.name}</span><span>{formatRupiah(item.price * item.quantity)}</span></div>
-                                {item.note && <p className="text-[10px] italic text-red-500 font-bold ml-2 mt-1">Catatan: {item.note}</p>}
+                            <div key={idx} className="flex flex-col">
+                                <div className="flex justify-between items-start">
+                                    <div className="flex-1 pr-4">
+                                        <div className="flex items-center gap-2">
+                                            <span className="font-black text-sm text-gray-800">{item.quantity}x</span>
+                                            <span className="font-bold text-sm text-gray-700">{item.name}</span>
+                                        </div>
+                                        {item.note && (
+                                            <div className="bg-red-50 text-red-600 text-[10px] font-bold px-2 py-1 rounded mt-1 inline-block italic">
+                                                Note: {item.note}
+                                            </div>
+                                        )}
+                                    </div>
+                                    <span className="font-black text-sm text-gray-900">{formatRupiah(item.price * item.quantity)}</span>
+                                </div>
                             </div>
                         ))}
                     </div>
-                    <div className="w-full border-t-2 border-black border-double pt-4 mb-6">
-                        <div className="flex justify-between text-xl font-black"><span>TOTAL</span><span>{formatRupiah(order.total)}</span></div>
+
+                    <div className="w-full border-t-2 border-black pt-4 mb-4">
+                        <div className="flex justify-between text-xl font-black italic">
+                            <span>TOTAL</span>
+                            <span className="text-orange-600">{formatRupiah(order.total)}</span>
+                        </div>
                     </div>
-                    <p className="text-[8px] text-gray-400 text-center italic mt-4">Simpan struk ini sebagai bukti pesanan Anda.</p>
+                    
+                    <div className="w-full bg-orange-50 p-3 rounded-xl text-center">
+                        <p className="text-[10px] font-bold text-orange-800 uppercase tracking-wide">Status Pembayaran</p>
+                        <p className={`font-black text-xs mt-0.5 ${liveOrder.isPaid ? 'text-green-600' : 'text-orange-600'}`}>
+                            {liveOrder.isPaid ? '✅ SUDAH LUNAS' : '⌛ BELUM DIBAYAR'}
+                        </p>
+                    </div>
                 </div>
                 
                 <div className="w-full max-w-sm flex flex-col gap-3 shrink-0 pb-10">
                     <button onClick={() => saveAsPDF(false)} disabled={isDownloading} className="w-full bg-white/10 hover:bg-white/20 text-white font-black py-4 rounded-2xl border-2 border-white/20 transition-all flex items-center justify-center gap-3 disabled:opacity-50">
-                        {isDownloading ? 'MENYIAPKAN...' : 'SIMPAN KE HP (PDF)'}
+                        {isDownloading ? 'MENYIAPKAN...' : '💾 SIMPAN STRUK (PDF)'}
                     </button>
                     <button onClick={handleCloseAttempt} className="w-full bg-orange-600 hover:bg-orange-700 text-white font-black py-4 rounded-2xl shadow-2xl transition-all active:scale-95">KEMBALI KE MENU</button>
                 </div>
@@ -125,7 +181,7 @@ const DigitalReceipt = ({ order, onExit, theme }: { order: Order, onExit: () => 
 };
 
 const CustomerOrderView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
-    const { menu, categories, customerSubmitOrder, storeProfile, isStoreOpen } = useAppContext();
+    const { menu, categories, customerSubmitOrder, isStoreOpen } = useAppContext();
     const [cart, setCart] = useState<CartItem[]>([]);
     const [customerName, setCustomerName] = useState('');
     const [tableNumber, setTableNumber] = useState('');
@@ -134,7 +190,6 @@ const CustomerOrderView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     const [submittedOrder, setSubmittedOrder] = useState<Order | null>(null);
     const [activeCategory, setActiveCategory] = useState('All');
 
-    // DETEKSI OTOMATIS NOMOR MEJA SAAT MOUNT
     useEffect(() => {
         const params = new URLSearchParams(window.location.search);
         const q = params.get('q');
@@ -148,9 +203,7 @@ const CustomerOrderView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                     const [k, v] = p.split(':');
                     if (k === 'T') setTableNumber(v);
                 });
-            } catch (e) {
-                console.error("Gagal dekripsi data meja:", e);
-            }
+            } catch (e) { console.error(e); }
         } else if (table) {
             setTableNumber(table);
         }
@@ -190,9 +243,10 @@ const CustomerOrderView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     if (!isStoreOpen) {
         return (
             <div className="min-h-[100dvh] bg-orange-50 flex flex-col items-center justify-center p-8 text-center">
+                <div className="w-24 h-24 bg-red-100 rounded-full flex items-center justify-center mb-6 text-4xl">😴</div>
                 <h2 className="text-3xl font-black mb-4 uppercase italic">Kedai Sedang Tutup</h2>
-                <p className="mb-8 text-gray-500">Mohon maaf, kami belum menerima pesanan saat ini.</p>
-                <button onClick={onBack} className="bg-gray-900 text-white px-8 py-3 rounded-2xl font-black">Kembali</button>
+                <p className="mb-8 text-gray-500 font-medium">Mohon maaf, kasir kami sedang istirahat. Silakan kembali lagi nanti.</p>
+                <button onClick={onBack} className="bg-gray-900 text-white px-8 py-4 rounded-2xl font-black shadow-lg">KEMBALI KE BERANDA</button>
             </div>
         );
     }
@@ -200,27 +254,35 @@ const CustomerOrderView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     if (submittedOrder) return <DigitalReceipt order={submittedOrder} onExit={onBack} theme="orange" />;
 
     return (
-        <div className="flex flex-col h-[100dvh] bg-orange-50 overflow-hidden">
-            <header className="bg-white border-b px-4 py-4 flex items-center gap-3 sticky top-0 z-20">
-                <button onClick={onBack} className="p-2 -ml-2 text-gray-400"><svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg></button>
-                <h1 className="font-black text-xl uppercase italic">Self Order</h1>
+        <div className="flex flex-col h-[100dvh] bg-orange-50 overflow-hidden font-sans">
+            <header className="bg-white border-b px-4 py-4 flex items-center justify-between sticky top-0 z-20 shadow-sm">
+                <div className="flex items-center gap-2">
+                    <button onClick={onBack} className="p-2 -ml-2 text-gray-400 hover:text-orange-600 transition-colors">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M15 19l-7-7 7-7" /></svg>
+                    </button>
+                    <h1 className="font-black text-xl uppercase italic tracking-tighter">Self Order</h1>
+                </div>
+                <div className="bg-orange-100 text-orange-700 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border border-orange-200">
+                    Meja: {tableNumber || '??'}
+                </div>
             </header>
 
-            <div className="bg-white px-4 py-2 border-b flex gap-2 overflow-x-auto whitespace-nowrap no-scrollbar">
-                <button onClick={() => setActiveCategory('All')} className={`px-5 py-2 rounded-full text-xs font-black transition-all ${activeCategory === 'All' ? `bg-orange-600 text-white shadow-md` : 'bg-gray-100 text-gray-500'}`}>SEMUA</button>
-                {categories.map(cat => <button key={cat} onClick={() => setActiveCategory(cat)} className={`px-5 py-2 rounded-full text-xs font-black transition-all ${activeCategory === cat ? `bg-orange-600 text-white shadow-md` : 'bg-gray-100 text-gray-500'}`}>{cat.toUpperCase()}</button>)}
+            <div className="bg-white px-4 py-3 border-b flex gap-2 overflow-x-auto whitespace-nowrap no-scrollbar">
+                <button onClick={() => setActiveCategory('All')} className={`px-5 py-2 rounded-full text-[10px] font-black transition-all border-2 ${activeCategory === 'All' ? `bg-orange-600 text-white border-orange-600 shadow-lg` : 'bg-gray-50 text-gray-400 border-gray-100'}`}>SEMUA</button>
+                {categories.map(cat => <button key={cat} onClick={() => setActiveCategory(cat)} className={`px-5 py-2 rounded-full text-[10px] font-black transition-all border-2 ${activeCategory === cat ? `bg-orange-600 text-white border-orange-600 shadow-lg` : 'bg-gray-50 text-gray-400 border-gray-100'}`}>{cat.toUpperCase()}</button>)}
             </div>
 
             <main className="flex-1 overflow-y-auto p-4 pb-32">
                 <div className="grid grid-cols-2 gap-4">
                     {filteredMenu.map(item => (
-                        <div key={item.id} onClick={() => addToCart(item)} className="bg-white rounded-[1.5rem] shadow-sm border p-1 overflow-hidden active:scale-95 transition-all">
-                            <div className="h-32 bg-gray-100 rounded-[1.2rem] overflow-hidden">
-                                {item.imageUrl ? <img src={item.imageUrl} className="w-full h-full object-cover" alt={item.name} /> : <div className="w-full h-full flex items-center justify-center text-gray-300 font-black">?</div>}
+                        <div key={item.id} onClick={() => addToCart(item)} className="bg-white rounded-3xl shadow-sm border p-1 overflow-hidden active:scale-95 transition-all group">
+                            <div className="h-36 bg-gray-100 rounded-[1.4rem] overflow-hidden relative">
+                                {item.imageUrl ? <img src={item.imageUrl} className="w-full h-full object-cover transition-transform group-hover:scale-110" alt={item.name} /> : <div className="w-full h-full flex items-center justify-center text-gray-300 font-black">?</div>}
+                                {item.stock !== undefined && item.stock <= 5 && item.stock > 0 && <span className="absolute top-2 right-2 bg-red-500 text-white text-[8px] font-black px-2 py-0.5 rounded-full">SISA {item.stock}</span>}
                             </div>
                             <div className="p-3">
-                                <h3 className="font-bold text-gray-800 text-sm line-clamp-2 leading-tight mb-1">{item.name}</h3>
-                                <p className="text-orange-600 font-black text-sm mt-1">{formatRupiah(item.price)}</p>
+                                <h3 className="font-bold text-gray-800 text-sm line-clamp-2 leading-tight h-10">{item.name}</h3>
+                                <p className="text-orange-600 font-black text-base mt-1">{formatRupiah(item.price)}</p>
                             </div>
                         </div>
                     ))}
@@ -228,66 +290,87 @@ const CustomerOrderView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
             </main>
 
             {cartCount > 0 && !isCartOpen && (
-                <div className="fixed bottom-6 left-6 right-6 z-40">
-                    <button onClick={() => setIsCartOpen(true)} className="w-full bg-orange-600 text-white p-4 rounded-2xl shadow-2xl flex justify-between items-center ring-4 ring-white transition-all transform active:scale-95">
-                        <div className="flex items-center gap-3"><span className="bg-white/20 px-2 py-1 rounded-lg font-black">{cartCount}</span><span className="font-black text-lg">{formatRupiah(cartTotal)}</span></div>
-                        <span className="font-bold text-sm">LIHAT PESANAN →</span>
+                <div className="fixed bottom-6 left-6 right-6 z-40 animate-slide-in-up">
+                    <button onClick={() => setIsCartOpen(true)} className="w-full bg-gray-900 text-white p-5 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.3)] flex justify-between items-center ring-4 ring-white transition-all transform active:scale-95">
+                        <div className="flex items-center gap-3">
+                            <div className="bg-orange-600 w-10 h-10 rounded-xl flex items-center justify-center font-black text-lg">{cartCount}</div>
+                            <div className="text-left">
+                                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-none">Total Belanja</p>
+                                <p className="font-black text-lg leading-none mt-1">{formatRupiah(cartTotal)}</p>
+                            </div>
+                        </div>
+                        <span className="font-black text-xs uppercase tracking-widest bg-white/10 px-4 py-2 rounded-lg">Review →</span>
                     </button>
                 </div>
             )}
 
             {isCartOpen && (
-                <div className="fixed inset-0 bg-black/60 z-[60] flex flex-col justify-end animate-fade-in">
-                    <div className="bg-white rounded-t-[2.5rem] max-h-[90vh] flex flex-col animate-slide-in-up">
-                        <div className="p-6 border-b flex justify-between items-center">
-                            <h2 className="text-2xl font-black uppercase italic tracking-tighter">Konfirmasi Pesanan</h2>
-                            <button onClick={() => setIsCartOpen(false)} className="bg-gray-100 p-2 rounded-full w-10 h-10 flex items-center justify-center font-bold text-xl shadow-inner">&times;</button>
+                <div className="fixed inset-0 bg-black/70 z-[60] flex flex-col justify-end animate-fade-in backdrop-blur-sm">
+                    <div className="bg-white rounded-t-[2.5rem] max-h-[90vh] flex flex-col animate-slide-in-up shadow-2xl">
+                        <div className="p-6 border-b flex justify-between items-center bg-gray-50/50 rounded-t-[2.5rem]">
+                            <h2 className="text-2xl font-black uppercase italic tracking-tighter flex items-center gap-2">
+                                <span className="bg-orange-600 w-2 h-8 rounded-full"></span>
+                                Cek Pesanan
+                            </h2>
+                            <button onClick={() => setIsCartOpen(false)} className="bg-white p-2 rounded-full w-10 h-10 flex items-center justify-center font-bold text-xl shadow-md border">&times;</button>
                         </div>
+                        
                         <div className="flex-1 overflow-y-auto p-6 space-y-6">
                             {cart.map(item => (
-                                <div key={item.id} className="bg-gray-50 p-4 rounded-2xl border border-gray-100 shadow-sm">
-                                    <div className="flex justify-between items-start mb-3">
+                                <div key={item.id} className="bg-white p-4 rounded-3xl border-2 border-gray-100 shadow-sm transition-all hover:border-orange-200">
+                                    <div className="flex justify-between items-start mb-4">
                                         <div className="flex-1">
-                                            <h4 className="font-bold text-gray-800 leading-tight">{item.name}</h4>
-                                            <p className="text-xs text-orange-600 font-bold mt-1">{formatRupiah(item.price)}</p>
+                                            <h4 className="font-bold text-gray-800 text-base leading-tight">{item.name}</h4>
+                                            <p className="text-xs text-orange-600 font-black mt-1">{formatRupiah(item.price)}</p>
                                         </div>
-                                        <div className="flex items-center gap-3 bg-white p-1 rounded-xl shadow-sm border">
-                                            <button onClick={() => updateQty(item.id, -1)} className="w-8 h-8 font-black text-red-500 active:bg-red-50 rounded-lg">-</button>
-                                            <span className="font-black text-sm w-4 text-center">{item.quantity}</span>
-                                            <button onClick={() => updateQty(item.id, 1)} className="w-8 h-8 font-black text-green-600 active:bg-green-50 rounded-lg">+</button>
+                                        <div className="flex items-center gap-4 bg-gray-50 p-1.5 rounded-2xl border shadow-inner">
+                                            <button onClick={() => updateQty(item.id, -1)} className="w-9 h-9 font-black text-red-500 bg-white shadow-sm rounded-xl active:bg-red-50">-</button>
+                                            <span className="font-black text-base w-5 text-center">{item.quantity}</span>
+                                            <button onClick={() => updateQty(item.id, 1)} className="w-9 h-9 font-black text-green-600 bg-white shadow-sm rounded-xl active:bg-green-50">+</button>
                                         </div>
                                     </div>
-                                    {/* Kolom Catatan per Item */}
-                                    <div className="mt-2">
+                                    
+                                    <div className="relative group">
+                                        <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-orange-500 transition-colors">
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                                        </div>
                                         <input 
                                             type="text" 
-                                            placeholder="Tambah catatan (contoh: pedas, dsb)..." 
+                                            placeholder="Catatan: pedas / tanpa sayur..." 
                                             value={item.note || ''} 
                                             onChange={e => updateNote(item.id, e.target.value)}
-                                            className="w-full bg-white border-b-2 border-gray-200 text-xs p-2 focus:border-orange-500 outline-none rounded-t-lg transition-all italic"
+                                            className="w-full bg-gray-50 border-2 border-transparent border-b-gray-200 text-xs pl-9 pr-4 py-3 rounded-xl focus:bg-orange-50/50 focus:border-orange-200 outline-none transition-all font-bold italic text-gray-600"
                                         />
                                     </div>
                                 </div>
                             ))}
-                            <div className="space-y-4 mt-6 pt-4 border-t border-dashed border-gray-200">
-                                <div>
-                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 mb-1 block">Data Pemesan</label>
-                                    <input value={customerName} onChange={e => setCustomerName(e.target.value)} className="w-full bg-gray-100 p-4 rounded-xl font-bold border-2 border-transparent focus:bg-white focus:border-orange-500 transition-all outline-none" placeholder="Nama Lengkap" />
+
+                            <div className="grid grid-cols-2 gap-4 mt-6 pt-6 border-t border-dashed border-gray-200">
+                                <div className="col-span-1">
+                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 mb-2 block">Identitas</label>
+                                    <input value={customerName} onChange={e => setCustomerName(e.target.value)} className="w-full bg-gray-50 p-4 rounded-2xl font-bold border-2 border-gray-100 focus:bg-white focus:border-orange-500 transition-all outline-none shadow-inner" placeholder="Nama Anda" />
                                 </div>
-                                <div>
-                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 mb-1 block">Meja</label>
-                                    <input value={tableNumber} onChange={e => setTableNumber(e.target.value)} type="text" className="w-full bg-gray-100 p-4 rounded-xl font-bold border-2 border-transparent focus:bg-white focus:border-orange-500 transition-all outline-none" placeholder="Nomor Meja" />
+                                <div className="col-span-1">
+                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 mb-2 block">Nomor Meja</label>
+                                    <input value={tableNumber} onChange={e => setTableNumber(e.target.value)} type="text" className="w-full bg-gray-50 p-4 rounded-2xl font-black text-center border-2 border-gray-100 focus:bg-white focus:border-orange-500 transition-all outline-none shadow-inner text-xl" placeholder="00" />
                                 </div>
                             </div>
                         </div>
-                        <div className="p-6 bg-white border-t shadow-[0_-10px_20px_rgba(0,0,0,0.05)]">
-                            <div className="flex justify-between items-center mb-6">
-                                <span className="text-gray-400 font-bold">TOTAL BAYAR</span>
-                                <span className="text-3xl font-black text-orange-600">{formatRupiah(cartTotal)}</span>
+
+                        <div className="p-8 bg-white border-t-2 border-gray-50 shadow-[0_-20px_40px_rgba(0,0,0,0.05)]">
+                            <div className="flex justify-between items-center mb-8 px-2">
+                                <span className="text-gray-400 font-bold uppercase tracking-widest text-sm">Estimasi Bayar</span>
+                                <span className="text-3xl font-black text-orange-600 tracking-tighter">{formatRupiah(cartTotal)}</span>
                             </div>
-                            <button onClick={handleSubmit} disabled={isSubmitting || !customerName || !tableNumber} className="w-full bg-orange-600 text-white font-black py-5 rounded-[1.5rem] shadow-xl uppercase tracking-widest active:scale-95 disabled:bg-gray-300 disabled:shadow-none transition-all">
-                                {isSubmitting ? 'MENGIRIM PESANAN...' : 'PESAN SEKARANG'}
+                            <button onClick={handleSubmit} disabled={isSubmitting || !customerName || !tableNumber} className="w-full bg-orange-600 text-white font-black py-5 rounded-[2rem] shadow-2xl shadow-orange-200 uppercase tracking-widest active:scale-95 disabled:bg-gray-300 disabled:shadow-none transition-all flex items-center justify-center gap-3">
+                                {isSubmitting ? (
+                                    <>
+                                        <div className="w-5 h-5 border-4 border-white/30 border-t-white rounded-full animate-spin"></div>
+                                        <span>MENGIRIM...</span>
+                                    </>
+                                ) : 'PESAN & LIHAT PROGRES'}
                             </button>
+                            <p className="text-[9px] text-gray-400 text-center mt-4 font-bold uppercase tracking-widest">Pesanan akan masuk antrian dapur setelah dikirim</p>
                         </div>
                     </div>
                 </div>
