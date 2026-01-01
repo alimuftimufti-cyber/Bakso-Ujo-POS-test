@@ -320,6 +320,13 @@ const POSView: React.FC = () => {
         // Cari order berdasarkan ID yang di-scan
         const foundOrder = orders.find(o => o.id === rawData);
         if (foundOrder) {
+            // CEK STATUS: Jika sudah bayar atau selesai, jangan buka modal
+            if (foundOrder.isPaid || foundOrder.status === 'completed') {
+                alert('Pesanan ini sudah selesai atau sudah dibayar.');
+                setIsScanOpen(false);
+                return;
+            }
+
             setActiveOrder(foundOrder);
             setIsScanOpen(false);
             setIsQuickUpdateOpen(true); // Buka modal tambah snack otomatis
