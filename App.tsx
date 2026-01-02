@@ -1,7 +1,8 @@
 
+import { Table, Order, Shift, StoreProfile, MenuItem, Ingredient, Expense, ShiftSummary, User, CartItem, OrderSource } from './types';
 import React, { useState, useEffect, Suspense, useCallback, useRef } from 'react';
 import { AppContext } from './types'; 
-import type { MenuItem, Order, Shift, CartItem, Category, StoreProfile, AppContextType, ShiftSummary, Expense, OrderType, Ingredient, User, View, AppMode, Table, Branch, PaymentMethod, OrderStatus } from './types';
+import type { Category, AppContextType, OrderType, View, AppMode, Branch, PaymentMethod, OrderStatus } from './types';
 import { defaultStoreProfile } from './data';
 
 // CLOUD SERVICES
@@ -111,13 +112,14 @@ const App: React.FC = () => {
         try {
             await ensureDefaultBranch();
             
-            const [profileData, menuData, categoriesData, usersData, tablesData, histShifts] = await Promise.all([
+            const [profileData, menuData, categoriesData, usersData, tablesData, histShifts, ingredientData] = await Promise.all([
                 getStoreProfileFromCloud(activeBranchId).catch(() => null),
                 getMenuFromCloud(activeBranchId).catch(() => []),
                 getCategoriesFromCloud().catch(() => []),
                 getUsersFromCloud(activeBranchId).catch(() => []),
                 getTablesFromCloud(activeBranchId).catch(() => []),
-                getCompletedShiftsFromCloud(activeBranchId).catch(() => [])
+                getCompletedShiftsFromCloud(activeBranchId).catch(() => []),
+                getIngredientsFromCloud(activeBranchId).catch(() => []) // TAMBAHKAN INI
             ]);
 
             if (profileData) setStoreProfile(profileData);
@@ -126,6 +128,7 @@ const App: React.FC = () => {
             setUsers(usersData);
             setTables(tablesData);
             setCompletedShifts(histShifts);
+            setIngredients(ingredientData); // SIMPAN KE STATE
             
             const sh = await getActiveShiftFromCloud(activeBranchId).catch(() => null);
             setActiveShift(sh);
