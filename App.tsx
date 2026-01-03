@@ -1,5 +1,5 @@
 
-import { Table, Order, Shift, StoreProfile, MenuItem, Ingredient, Expense, ShiftSummary, User, CartItem, OrderSource } from './types';
+import { Table, Order, Shift, StoreProfile, MenuItem, Ingredient, Expense, ShiftSummary, User, CartItem, OrderSource, AttendanceRecord } from './types';
 import React, { useState, useEffect, Suspense, useCallback, useRef } from 'react';
 import { AppContext } from './types'; 
 import type { Category, AppContextType, OrderType, View, AppMode, Branch, PaymentMethod, OrderStatus } from './types';
@@ -18,7 +18,8 @@ import {
     getIngredientsFromCloud, addIngredientToCloud, deleteIngredientFromCloud, updateIngredientStockInCloud,
     subscribeToInventory, subscribeToExpenses,
     getTablesFromCloud, addTableToCloud, deleteTableFromCloud, subscribeToTables,
-    ensureDefaultBranch
+    ensureDefaultBranch,
+    saveAttendanceToCloud, updateAttendanceInCloud, getAttendanceRecordsFromCloud, uploadSelfieToCloud
 } from './services/firebase';
 import { checkConnection } from './services/supabaseClient'; 
 
@@ -30,6 +31,7 @@ const ShiftView = React.lazy(() => import('./components/Shift'));
 const ReportView = React.lazy(() => import('./components/Report'));
 const InventoryView = React.lazy(() => import('./components/InventoryView'));
 const CustomerOrderView = React.lazy(() => import('./components/CustomerOrderView'));
+const AttendanceView = React.lazy(() => import('./components/AttendanceView'));
 
 // Icons
 const SidebarIcons = {
@@ -42,12 +44,12 @@ const SidebarIcons = {
     Logout: () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
 };
 
-const LandingPage = ({ onSelectMode, branchName, slogan, isStoreOpen }: any) => (
+const LandingPage = ({ onOpenPanel, branchName, slogan, isStoreOpen }: any) => (
   <div className="min-h-screen bg-orange-50 flex flex-col items-center justify-center p-6 text-center relative overflow-hidden">
     <div className="absolute -top-24 -left-24 w-64 h-64 bg-orange-200/50 rounded-full blur-3xl"></div>
     
     <button 
-        onClick={() => onSelectMode('admin')} 
+        onClick={onOpenPanel} 
         className="absolute top-4 right-4 w-12 h-12 flex items-center justify-center text-orange-900/5 hover:text-orange-900/20 transition-all z-50 rounded-full"
         title="Admin Panel"
     >
@@ -63,7 +65,7 @@ const LandingPage = ({ onSelectMode, branchName, slogan, isStoreOpen }: any) => 
       <p className="text-gray-500 mb-12 font-bold text-lg italic leading-tight">"{slogan || 'Nikmatnya Asli, Bikin Nagih!'}"</p>
       
       <div className="space-y-4">
-        <button onClick={() => onSelectMode('customer')} className="w-full p-8 bg-orange-600 rounded-[2.5rem] text-white font-black text-3xl shadow-2xl hover:scale-[1.02] active:scale-95 transition-all border-b-8 border-orange-800">PESAN SEKARANG</button>
+        <button onClick={() => window.location.href='?appMode=customer'} className="w-full p-8 bg-orange-600 rounded-[2.5rem] text-white font-black text-3xl shadow-2xl hover:scale-[1.02] active:scale-95 transition-all border-b-8 border-orange-800">PESAN SEKARANG</button>
         {!isStoreOpen && <p className="text-red-500 text-xs font-bold uppercase tracking-widest animate-pulse mt-4">Maaf, Kedai Sedang Tutup</p>}
       </div>
     </div>
@@ -92,6 +94,7 @@ const App: React.FC = () => {
     const [isLoggedIn, setIsLoggedIn] = useState(false);
     const [activeBranchId, setActiveBranchId] = useState('pusat');
     const [currentUser, setCurrentUser] = useState<User | null>(null);
+    const [authChoice, setAuthChoice] = useState<'none' | 'choice' | 'login_admin' | 'login_attendance'>('none');
 
     const [storeProfile, setStoreProfile] = useState<StoreProfile>(defaultStoreProfile);
     const [menu, setMenu] = useState<MenuItem[]>([]);
@@ -103,6 +106,7 @@ const App: React.FC = () => {
     const [activeShift, setActiveShift] = useState<Shift | null>(null);
     const [completedShifts, setCompletedShifts] = useState<ShiftSummary[]>([]);
     const [expenses, setExpenses] = useState<Expense[]>([]);
+    const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
 
     const [isDatabaseReady, setIsDatabaseReady] = useState<boolean | null>(null);
     const [isGlobalLoading, setIsGlobalLoading] = useState(true);
@@ -112,14 +116,15 @@ const App: React.FC = () => {
         try {
             await ensureDefaultBranch();
             
-            const [profileData, menuData, categoriesData, usersData, tablesData, histShifts, ingredientData] = await Promise.all([
+            const [profileData, menuData, categoriesData, usersData, tablesData, histShifts, ingredientData, attenData] = await Promise.all([
                 getStoreProfileFromCloud(activeBranchId).catch(() => null),
                 getMenuFromCloud(activeBranchId).catch(() => []),
                 getCategoriesFromCloud().catch(() => []),
                 getUsersFromCloud(activeBranchId).catch(() => []),
                 getTablesFromCloud(activeBranchId).catch(() => []),
                 getCompletedShiftsFromCloud(activeBranchId).catch(() => []),
-                getIngredientsFromCloud(activeBranchId).catch(() => []) 
+                getIngredientsFromCloud(activeBranchId).catch(() => []),
+                getAttendanceRecordsFromCloud(activeBranchId).catch(() => [])
             ]);
 
             if (profileData) setStoreProfile(profileData);
@@ -129,6 +134,7 @@ const App: React.FC = () => {
             setTables(tablesData);
             setCompletedShifts(histShifts);
             setIngredients(ingredientData); 
+            setAttendanceRecords(attenData);
             
             const sh = await getActiveShiftFromCloud(activeBranchId).catch(() => null);
             setActiveShift(sh);
@@ -153,7 +159,7 @@ const App: React.FC = () => {
             setIsDatabaseReady(ok);
             if (ok) {
                 const params = new URLSearchParams(window.location.search);
-                if (params.has('q') || params.has('table')) {
+                if (params.has('q') || params.has('table') || params.get('appMode') === 'customer') {
                     setAppMode('customer');
                 }
                 await refreshAllData();
@@ -198,15 +204,13 @@ const App: React.FC = () => {
         return { subtotal, discount, tax, service, total };
     };
 
-    const handleLogin = (pin: string) => {
-        if (users.length === 0) {
-            alert("Tidak ada data user.");
-            return false;
-        }
+    const handleLoginAdmin = (pin: string) => {
         const user = users.find(u => String(u.pin) === String(pin));
         if (user) {
             setCurrentUser(user);
             setIsLoggedIn(true);
+            setAppMode('admin');
+            setAuthChoice('none');
             if (user.role === 'kitchen') setView('kitchen');
             else setView('pos');
             return true;
@@ -215,14 +219,26 @@ const App: React.FC = () => {
         return false;
     };
 
+    const handleLoginAttendance = (pin: string) => {
+        const user = users.find(u => String(u.attendancePin) === String(pin));
+        if (user) {
+            setCurrentUser(user);
+            setAppMode('attendance');
+            setAuthChoice('none');
+            return true;
+        }
+        alert("PIN Absen Salah!");
+        return false;
+    };
+
     const contextValue: AppContextType = {
-        menu, categories, orders, expenses, activeShift, completedShifts, storeProfile, ingredients, tables, branches: [], users, currentUser, attendanceRecords: [], kitchenAlarmTime: 600, kitchenAlarmSound: 'beep', isStoreOpen: !!activeShift, isShiftLoading: isGlobalLoading,
+        menu, categories, orders, expenses, activeShift, completedShifts, storeProfile, ingredients, tables, branches: [], users, currentUser, attendanceRecords, kitchenAlarmTime: 600, kitchenAlarmSound: 'beep', isStoreOpen: !!activeShift, isShiftLoading: isGlobalLoading,
         setMenu, setCategories, setStoreProfile: (p: any) => { setStoreProfile(p); updateStoreProfileInCloud(p); },
         setKitchenAlarmTime: () => {}, setKitchenAlarmSound: () => {}, addCategory: addCategoryToCloud, deleteCategory: deleteCategoryFromCloud, setIngredients,
-        saveMenuItem: async (i) => { await addProductToCloud(i, activeBranchId); },
-        removeMenuItem: async (id) => { await deleteProductFromCloud(id); },
-        saveIngredient: async (ing) => { await addIngredientToCloud(ing, activeBranchId); },
-        removeIngredient: async (id) => { await deleteIngredientFromCloud(id); },
+        saveMenuItem: async (i) => { await addProductToCloud(i, activeBranchId); await refreshAllData(); },
+        removeMenuItem: async (id) => { await deleteProductFromCloud(id); await refreshAllData(); },
+        saveIngredient: async (ing) => { await addIngredientToCloud(ing, activeBranchId); await refreshAllData(); },
+        removeIngredient: async (id) => { await deleteIngredientFromCloud(id); await refreshAllData(); },
         addTable: async (num) => {
             const payload = btoa(`B:${activeBranchId}|T:${num}`);
             const newTable = { id: Date.now().toString(), number: num, qrCodeData: payload };
@@ -233,12 +249,12 @@ const App: React.FC = () => {
             setTables(prev => prev.filter(t => t.id !== id));
             try { await deleteTableFromCloud(id); } catch (e) { const tb = await getTablesFromCloud(activeBranchId); setTables(tb); throw e; }
         },
-        updateProductStock: updateProductStockInCloud,
-        updateIngredientStock: updateIngredientStockInCloud,
+        updateProductStock: async (id, stock) => { await updateProductStockInCloud(id, stock); await refreshAllData(); },
+        updateIngredientStock: async (id, stock) => { await updateIngredientStockInCloud(id, stock); await refreshAllData(); },
         addUser: async (u) => { await addUserToCloud({...u, branchId: activeBranchId}); await refreshAllData(); }, 
         updateUser: async (u) => { await updateUserInCloud(u); await refreshAllData(); }, 
         deleteUser: async (id) => { await deleteUserFromCloud(id); await refreshAllData(); },
-        loginUser: handleLogin, logout: () => { setIsLoggedIn(false); setAppMode('landing'); },
+        loginUser: (pin) => handleLoginAdmin(pin), logout: () => { setIsLoggedIn(false); setAppMode('landing'); setCurrentUser(null); },
         startShift: async (cash) => {
             const newS: Shift = { id: Date.now().toString(), start: Date.now(), start_cash: cash, revenue: 0, transactions: 0, cashRevenue: 0, nonCashRevenue: 0, totalDiscount: 0, branchId: activeBranchId };
             await startShiftInCloud(newS);
@@ -328,7 +344,27 @@ const App: React.FC = () => {
             addOrderToCloud(newOrder);
         },
         addExpense: async (d, a) => { if(activeShift) await addExpenseToCloud({ id: Date.now(), shiftId: activeShift.id, description: d, amount: a, date: Date.now() }); },
-        setView, setTables, setUsers: () => {}, clockIn: async () => {}, clockOut: async () => {}, refreshOrders: refreshAllData, deleteExpense: () => {}, deleteAndResetShift: () => {}, requestPassword: (t, c) => c(), 
+        setView, setTables, setUsers: () => {}, 
+        clockIn: async (userId, userName, photoUrl, location) => {
+            const record: AttendanceRecord = {
+                id: Date.now().toString(),
+                userId,
+                userName,
+                date: new Date().toISOString().split('T')[0],
+                clockInTime: Date.now(),
+                status: 'Present',
+                branchId: activeBranchId,
+                photoUrl,
+                location
+            };
+            await saveAttendanceToCloud(record);
+            await refreshAllData();
+        },
+        clockOut: async (recordId) => {
+            await updateAttendanceInCloud(recordId, { clockOutTime: Date.now(), status: 'Completed' });
+            await refreshAllData();
+        },
+        refreshOrders: refreshAllData, deleteExpense: () => {}, deleteAndResetShift: () => {}, requestPassword: (t, c) => c(), 
         printerDevice: null, isPrinting: false, connectToPrinter: async () => {}, disconnectPrinter: async () => {}, previewReceipt: () => {}, printOrderToDevice: async () => {}, printShiftToDevice: async () => {}, printOrderViaBrowser: () => {},
         customerSubmitOrder: async (cart, name) => {
             const financial = calculateTotalsHelper(cart, 0, 'percent');
@@ -339,63 +375,114 @@ const App: React.FC = () => {
     } as any;
 
     if (isGlobalLoading) return <div className="h-screen flex items-center justify-center bg-orange-50"><div className="animate-spin rounded-full h-14 w-14 border-t-4 border-orange-600 border-b-4"></div></div>;
-    
     if (dbErrorMessage) return <DatabaseErrorView message={dbErrorMessage} />;
 
     return (
         <AppContext.Provider value={contextValue}>
             <div className="h-full w-full bg-gray-50">
-                {appMode === 'landing' && <LandingPage onSelectMode={setAppMode} branchName={storeProfile.name} logo={storeProfile.logo} slogan={storeProfile.slogan} isStoreOpen={!!activeShift} />}
-                {appMode === 'customer' && <Suspense fallback={null}><CustomerOrderView onBack={() => setAppMode('landing')} /></Suspense>}
-                {appMode === 'admin' && (
-                    <div className="h-full">
-                        {!isLoggedIn ? (
-                            <div className="fixed inset-0 bg-gray-900/95 flex items-center justify-center z-50 p-4 backdrop-blur-md">
-                                <div className="bg-white p-10 rounded-[3rem] shadow-2xl max-sm w-full text-center border-t-8 border-orange-600 animate-scale-in">
-                                    <h2 className="text-2xl font-black mb-2 uppercase tracking-widest text-gray-800">Login Kasir</h2>
-                                    <p className="text-gray-400 text-xs font-bold mb-8">Gunakan PIN Admin</p>
-                                    <input 
-                                        type="password" 
-                                        placeholder="••••" 
-                                        className="w-full bg-orange-50 border-2 border-orange-100 rounded-2xl p-4 text-center text-4xl tracking-[0.5em] font-bold focus:border-orange-500 outline-none mb-6" 
-                                        onChange={(e) => { if(e.target.value.length >= 4) handleLogin(e.target.value); }} 
-                                        autoFocus 
-                                        inputMode="numeric"
-                                    />
-                                    <button onClick={() => setAppMode('landing')} className="text-sm font-bold text-gray-400 hover:text-orange-600 uppercase tracking-widest">Kembali</button>
-                                </div>
+                {appMode === 'landing' && (
+                    <LandingPage 
+                        onOpenPanel={() => setAuthChoice('choice')} 
+                        branchName={storeProfile.name} 
+                        logo={storeProfile.logo} 
+                        slogan={storeProfile.slogan} 
+                        isStoreOpen={!!activeShift} 
+                    />
+                )}
+                
+                {/* PILIHAN MENU AKSES */}
+                {authChoice === 'choice' && (
+                    <div className="fixed inset-0 bg-gray-900/95 flex items-center justify-center z-[100] p-4 backdrop-blur-md animate-fade-in">
+                        <div className="bg-white p-10 rounded-[3rem] shadow-2xl max-w-md w-full text-center border-t-8 border-orange-600">
+                             <h2 className="text-2xl font-black mb-2 uppercase tracking-widest text-gray-800">Pilih Akses</h2>
+                             <p className="text-gray-400 text-xs font-bold mb-8 uppercase tracking-widest">Silakan pilih menu tujuan</p>
+                             <div className="grid grid-cols-1 gap-4">
+                                 <button onClick={() => setAuthChoice('login_attendance')} className="p-6 bg-blue-50 border-2 border-blue-100 rounded-[2rem] hover:border-blue-600 transition-all group flex flex-col items-center gap-3">
+                                     <div className="w-12 h-12 bg-blue-600 text-white rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform"><svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" /></svg></div>
+                                     <span className="font-black text-blue-900 uppercase tracking-widest">Absensi Staff</span>
+                                 </button>
+                                 <button onClick={() => setAuthChoice('login_admin')} className="p-6 bg-orange-50 border-2 border-orange-100 rounded-[2rem] hover:border-orange-600 transition-all group flex flex-col items-center gap-3">
+                                     <div className="w-12 h-12 bg-orange-600 text-white rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform"><svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 0 0-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 0 0-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 0 0-2.573-1.066-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 0 0-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 0 0 1.066 2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><circle cx="12" cy="12" r="3" /></svg></div>
+                                     <span className="font-black text-orange-900 uppercase tracking-widest">Admin Panel</span>
+                                 </button>
+                                 <button onClick={() => setAuthChoice('none')} className="text-sm font-bold text-gray-400 hover:text-red-500 uppercase tracking-widest mt-4">Tutup</button>
+                             </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* LOGIN ADMIN */}
+                {authChoice === 'login_admin' && (
+                    <div className="fixed inset-0 bg-gray-900/95 flex items-center justify-center z-[100] p-4 backdrop-blur-md">
+                        <div className="bg-white p-10 rounded-[3rem] shadow-2xl max-sm w-full text-center border-t-8 border-orange-600 animate-scale-in">
+                            <h2 className="text-2xl font-black mb-2 uppercase tracking-widest text-gray-800">Admin Login</h2>
+                            <p className="text-gray-400 text-xs font-bold mb-8 uppercase tracking-widest">Masukkan PIN Login</p>
+                            <input 
+                                type="password" 
+                                placeholder="••••" 
+                                className="w-full bg-orange-50 border-2 border-orange-100 rounded-2xl p-4 text-center text-4xl tracking-[0.5em] font-bold focus:border-orange-500 outline-none mb-6" 
+                                onChange={(e) => { if(e.target.value.length >= 4) handleLoginAdmin(e.target.value); }} 
+                                autoFocus 
+                                inputMode="numeric"
+                            />
+                            <button onClick={() => setAuthChoice('choice')} className="text-sm font-bold text-gray-400 hover:text-orange-600 uppercase tracking-widest">Kembali</button>
+                        </div>
+                    </div>
+                )}
+
+                {/* LOGIN ATTENDANCE */}
+                {authChoice === 'login_attendance' && (
+                    <div className="fixed inset-0 bg-gray-900/95 flex items-center justify-center z-[100] p-4 backdrop-blur-md">
+                        <div className="bg-white p-10 rounded-[3rem] shadow-2xl max-sm w-full text-center border-t-8 border-blue-600 animate-scale-in">
+                            <h2 className="text-2xl font-black mb-2 uppercase tracking-widest text-gray-800">Staff Absensi</h2>
+                            <p className="text-gray-400 text-xs font-bold mb-8 uppercase tracking-widest">Masukkan PIN Absensi</p>
+                            <input 
+                                type="password" 
+                                placeholder="••••" 
+                                className="w-full bg-blue-50 border-2 border-blue-100 rounded-2xl p-4 text-center text-4xl tracking-[0.5em] font-bold focus:border-blue-500 outline-none mb-6" 
+                                onChange={(e) => { if(e.target.value.length >= 4) handleLoginAttendance(e.target.value); }} 
+                                autoFocus 
+                                inputMode="numeric"
+                            />
+                            <button onClick={() => setAuthChoice('choice')} className="text-sm font-bold text-gray-400 hover:text-blue-600 uppercase tracking-widest">Kembali</button>
+                        </div>
+                    </div>
+                )}
+
+                {appMode === 'customer' && <Suspense fallback={null}><CustomerOrderView onBack={() => { window.location.href='/'; }} /></Suspense>}
+                {appMode === 'attendance' && <Suspense fallback={null}><AttendanceView isKioskMode onBack={() => { setAppMode('landing'); setCurrentUser(null); }} /></Suspense>}
+                
+                {appMode === 'admin' && isLoggedIn && (
+                    <div className="flex h-screen overflow-hidden bg-slate-900">
+                        <aside className="w-64 bg-slate-900 border-r border-slate-800 hidden md:flex flex-col shadow-2xl">
+                            <div className="p-8 border-b border-slate-800">
+                                <h2 className="font-black text-white text-2xl uppercase italic tracking-tighter">Bakso Ujo</h2>
+                                <p className="text-[10px] font-bold text-orange-500 uppercase tracking-widest mt-1">Terminal Kasir</p>
                             </div>
-                        ) : (
-                            <div className="flex h-screen overflow-hidden bg-slate-900">
-                                <aside className="w-64 bg-slate-900 border-r border-slate-800 hidden md:flex flex-col shadow-2xl">
-                                    <div className="p-8 border-b border-slate-800">
-                                        <h2 className="font-black text-white text-2xl uppercase italic tracking-tighter">Bakso Ujo</h2>
-                                        <p className="text-[10px] font-bold text-orange-500 uppercase tracking-widest mt-1">Terminal Kasir</p>
-                                    </div>
-                                    <nav className="flex-1 p-4 space-y-2">
-                                        <button onClick={() => setView('pos')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-bold transition-all ${view === 'pos' ? 'bg-orange-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><SidebarIcons.Pos /> Kasir (POS)</button>
-                                        <button onClick={() => setView('shift')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-bold transition-all ${view === 'shift' ? 'bg-orange-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><SidebarIcons.Shift /> Keuangan</button>
-                                        <button onClick={() => setView('kitchen')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-bold transition-all ${view === 'kitchen' ? 'bg-orange-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><SidebarIcons.Kitchen /> Dapur</button>
-                                        <button onClick={() => setView('inventory')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-bold transition-all ${view === 'inventory' ? 'bg-orange-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><SidebarIcons.Inventory /> Stok Gudang</button>
-                                        <button onClick={() => setView('report')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-bold transition-all ${view === 'report' ? 'bg-orange-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><SidebarIcons.Report /> Laporan</button>
-                                        <button onClick={() => setView('settings')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-bold transition-all ${view === 'settings' ? 'bg-orange-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><SidebarIcons.Settings /> Pengaturan Sistem</button>
-                                    </nav>
-                                    <div className="p-4 border-t border-slate-800">
-                                        <button onClick={() => { setIsLoggedIn(false); setAppMode('landing'); }} className="w-full flex items-center gap-3 px-4 py-3.5 text-red-400 font-bold hover:bg-red-500/10 rounded-xl transition-all"><SidebarIcons.Logout /> Keluar</button>
-                                    </div>
-                                </aside>
-                                <main className="flex-1 overflow-hidden bg-white">
-                                    <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-500"></div></div>}>
-                                        {view === 'pos' && <POSView />}
-                                        {view === 'kitchen' && <KitchenView />}
-                                        {view === 'settings' && <SettingsView />}
-                                        {view === 'shift' && <ShiftView />}
-                                        {view === 'report' && <ReportView />}
-                                        {view === 'inventory' && <InventoryView />}
-                                    </Suspense>
-                                </main>
+                            <nav className="flex-1 p-4 space-y-2">
+                                <button onClick={() => setView('pos')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-bold transition-all ${view === 'pos' ? 'bg-orange-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><SidebarIcons.Pos /> Kasir (POS)</button>
+                                <button onClick={() => setView('shift')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-bold transition-all ${view === 'shift' ? 'bg-orange-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><SidebarIcons.Shift /> Keuangan</button>
+                                <button onClick={() => setView('kitchen')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-bold transition-all ${view === 'kitchen' ? 'bg-orange-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><SidebarIcons.Kitchen /> Dapur</button>
+                                <button onClick={() => setView('inventory')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-bold transition-all ${view === 'inventory' ? 'bg-orange-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><SidebarIcons.Inventory /> Stok Gudang</button>
+                                <button onClick={() => setView('report')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-bold transition-all ${view === 'report' ? 'bg-orange-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><SidebarIcons.Report /> Laporan</button>
+                                <button onClick={() => setView('attendance')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-bold transition-all ${view === 'attendance' ? 'bg-orange-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" /></svg> Absensi</button>
+                                <button onClick={() => setView('settings')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-bold transition-all ${view === 'settings' ? 'bg-orange-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><SidebarIcons.Settings /> Pengaturan Sistem</button>
+                            </nav>
+                            <div className="p-4 border-t border-slate-800">
+                                <button onClick={() => { setIsLoggedIn(false); setAppMode('landing'); setCurrentUser(null); }} className="w-full flex items-center gap-3 px-4 py-3.5 text-red-400 font-bold hover:bg-red-500/10 rounded-xl transition-all"><SidebarIcons.Logout /> Keluar</button>
                             </div>
-                        )}
+                        </aside>
+                        <main className="flex-1 overflow-hidden bg-white">
+                            <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-500"></div></div>}>
+                                {view === 'pos' && <POSView />}
+                                {view === 'kitchen' && <KitchenView />}
+                                {view === 'settings' && <SettingsView />}
+                                {view === 'shift' && <ShiftView />}
+                                {view === 'report' && <ReportView />}
+                                {view === 'inventory' && <InventoryView />}
+                                {view === 'attendance' && <AttendanceView />}
+                            </Suspense>
+                        </main>
                     </div>
                 )}
             </div>

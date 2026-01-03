@@ -58,7 +58,8 @@ declare global {
 // --- CORE TYPES ---
 export type Category = string;
 export type ThemeColor = 'orange' | 'red' | 'blue' | 'green' | 'purple' | 'slate' | 'pink';
-export type AppMode = 'landing' | 'admin' | 'customer';
+// FIX: Added 'attendance' to AppMode to resolve type mismatches in App.tsx
+export type AppMode = 'landing' | 'admin' | 'customer' | 'attendance';
 
 // UPDATED: More detailed ingredient types
 export type IngredientType = 'raw' | 'spice' | 'packaging' | 'equipment' | 'other';

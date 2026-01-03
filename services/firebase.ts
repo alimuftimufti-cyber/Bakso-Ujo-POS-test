@@ -1,5 +1,5 @@
 
-import { Table, Order, Shift, StoreProfile, MenuItem, Ingredient, Expense, ShiftSummary, User, CartItem, OrderSource } from '../types';
+import { Table, Order, Shift, StoreProfile, MenuItem, Ingredient, Expense, ShiftSummary, User, CartItem, OrderSource, AttendanceRecord } from '../types';
 import { supabase } from './supabaseClient';
 
 const handleError = (error: any, context: string) => {
@@ -221,6 +221,70 @@ export const deleteUserFromCloud = async (id: string) => {
     if (error) handleError(error, 'deleteUser');
 };
 
+// --- ATTENDANCE ---
+export const uploadSelfieToCloud = async (file: Blob, fileName: string) => {
+    const { data, error } = await supabase.storage
+        .from('BAKSOUJOPOS')
+        .upload(`attendance/${fileName}`, file);
+    
+    if (error) {
+        handleError(error, 'uploadSelfie');
+        return null;
+    }
+    
+    const { data: { publicUrl } } = supabase.storage
+        .from('BAKSOUJOPOS')
+        .getPublicUrl(`attendance/${fileName}`);
+        
+    return publicUrl;
+};
+
+export const saveAttendanceToCloud = async (record: AttendanceRecord) => {
+    const { error } = await supabase.from('attendance').insert({
+        id: record.id,
+        user_id: record.userId,
+        user_name: record.userName,
+        branch_id: record.branchId,
+        date: record.date,
+        clock_in: record.clockInTime,
+        status: record.status,
+        photo_url: record.photoUrl,
+        lat: record.location?.lat,
+        lng: record.location?.lng
+    });
+    if (error) handleError(error, 'saveAttendance');
+};
+
+export const updateAttendanceInCloud = async (recordId: string, updates: any) => {
+    const { error } = await supabase.from('attendance').update({
+        clock_out: updates.clockOutTime,
+        status: updates.status
+    }).eq('id', recordId);
+    if (error) handleError(error, 'updateAttendance');
+};
+
+export const getAttendanceRecordsFromCloud = async (branchId: string) => {
+    const { data, error } = await supabase
+        .from('attendance')
+        .select('*')
+        .eq('branch_id', branchId)
+        .order('clock_in', { ascending: false });
+        
+    if (error) handleError(error, 'getAttendance');
+    return (data || []).map(r => ({
+        id: String(r.id),
+        userId: r.user_id,
+        userName: r.user_name,
+        date: r.date,
+        clockInTime: Number(r.clock_in),
+        clockOutTime: r.clock_out ? Number(r.clock_out) : undefined,
+        photoUrl: r.photo_url,
+        status: r.status,
+        branchId: r.branch_id,
+        location: (r.lat && r.lng) ? { lat: parseFloat(r.lat), lng: parseFloat(r.lng) } : undefined
+    }));
+};
+
 // --- SHIFTS & ORDERS ---
 export const getActiveShiftFromCloud = async (branchId: string) => {
     const { data, error } = await supabase.from('shifts').select('*').eq('branch_id', branchId).is('end_time', null).maybeSingle();
@@ -392,7 +456,7 @@ export const updateOrderInCloud = async (id: string, updates: any) => {
 export const getTablesFromCloud = async (branchId: string): Promise<Table[]> => {
     const { data, error } = await supabase.from('tables').select('*').eq('branch_id', branchId);
     if (error) handleError(error, 'getTables');
-    return (data || []).map(t => ({ id: String(t.id), number: t.table_number, qrCodeData: t.qr_payload }));
+    return (data || []).map(t => ({ id: String(t.id), number: t.table_number, qr_payload: t.qr_payload }));
 };
 
 export const addTableToCloud = async (table: Table, branchId: string) => {
