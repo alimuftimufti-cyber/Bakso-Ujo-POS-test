@@ -95,7 +95,7 @@ const mapShiftSummary = (s: any): ShiftSummary => ({
     transactions: parseInt(s.transactions_count || 0),
     totalDiscount: parseFloat(s.total_discount || 0),
     cashDifference: parseFloat(s.closing_cash || 0) - (parseFloat(s.start_cash || 0) + parseFloat(s.cash_revenue || 0)),
-    totalExpenses: 0, // Akan dihitung di App logic
+    totalExpenses: 0, 
     netRevenue: parseFloat(s.revenue || 0),
     averageKitchenTime: 0,
     expectedCash: parseFloat(s.start_cash || 0) + parseFloat(s.cash_revenue || 0)
@@ -181,7 +181,7 @@ export const deleteCategoryFromCloud = async (name: string) => {
 
 // --- USERS / STAFF ---
 export const getUsersFromCloud = async (branchId: string) => {
-    const { data, error } = await supabase.from('users').select('*').eq('branch_id', branchId);
+    const { data, error } = await supabase.from('users').select('*').eq('branch_id', branchId).order('name', { ascending: true });
     if (error) handleError(error, 'getUsers');
     return (data || []).map(u => ({
         id: String(u.id),
@@ -202,8 +202,18 @@ export const addUserToCloud = async (user: User) => {
         pin: user.pin,
         attendance_pin: user.attendancePin,
         role: user.role
-    });
+    }, { onConflict: 'id' });
     if (error) handleError(error, 'addUser');
+};
+
+export const updateUserInCloud = async (user: User) => {
+    const { error } = await supabase.from('users').update({
+        name: user.name,
+        pin: user.pin,
+        attendance_pin: user.attendancePin,
+        role: user.role
+    }).eq('id', user.id);
+    if (error) handleError(error, 'updateUser');
 };
 
 export const deleteUserFromCloud = async (id: string) => {
@@ -273,7 +283,6 @@ export const closeShiftInCloud = async (summary: ShiftSummary) => {
 export const addOrderToCloud = async (order: Order) => {
     await ensureDefaultBranch();
     
-    // 1. Simpan Header (Tabel: orders)
     const { error: orderError } = await supabase.from('orders').insert({
         id: order.id,
         branch_id: order.branchId,
@@ -296,7 +305,6 @@ export const addOrderToCloud = async (order: Order) => {
         return;
     }
 
-    // 2. Simpan Detail (Tabel: order_items) & KURANGI STOK PRODUK
     const itemsToInsert = order.items.map(item => ({
         order_id: order.id,
         product_id: Number(item.id),
@@ -310,7 +318,6 @@ export const addOrderToCloud = async (order: Order) => {
     if (itemsError) {
         handleError(itemsError, 'addOrder-Items');
     } else {
-        // Logika Pengurangan Stok Baru
         for (const item of order.items) {
             const { data: currentProduct } = await supabase
                 .from('products')
@@ -327,25 +334,20 @@ export const addOrderToCloud = async (order: Order) => {
 };
 
 export const updateOrderInCloud = async (id: string, updates: any) => {
-    // 1. Logika Update Items dan Stok (Jika ada perubahan items)
     if (updates.items) {
-        // A. Ambil item pesanan LAMA untuk dikembalikan stoknya
         const { data: oldItems } = await supabase.from('order_items').select('*').eq('order_id', id);
         
         if (oldItems && oldItems.length > 0) {
             for (const oldItem of oldItems) {
                 const { data: prod } = await supabase.from('products').select('stock').eq('id', oldItem.product_id).single();
                 if (prod && prod.stock !== null) {
-                    // Kembalikan stok lama
                     await supabase.from('products').update({ stock: prod.stock + oldItem.quantity }).eq('id', oldItem.product_id);
                 }
             }
         }
 
-        // B. Hapus item lama dari database
         await supabase.from('order_items').delete().eq('order_id', id);
 
-        // C. Masukkan item baru
         const itemsToInsert = updates.items.map((item: CartItem) => ({
             order_id: id,
             product_id: Number(item.id),
@@ -356,7 +358,6 @@ export const updateOrderInCloud = async (id: string, updates: any) => {
         }));
         await supabase.from('order_items').insert(itemsToInsert);
 
-        // D. Kurangi stok berdasarkan item BARU
         for (const newItem of updates.items) {
             const { data: prod } = await supabase.from('products').select('stock').eq('id', Number(newItem.id)).single();
             if (prod && prod.stock !== null) {
@@ -366,7 +367,6 @@ export const updateOrderInCloud = async (id: string, updates: any) => {
         }
     }
 
-    // 2. Map UI ke Database Header
     const dbUpdates: any = {};
     if (updates.customerName !== undefined) dbUpdates.customer_name = updates.customerName;
     if (updates.status !== undefined) dbUpdates.status = updates.status;
@@ -527,4 +527,3 @@ export const getBranchesFromCloud = async () => [];
 export const addBranchToCloud = async (b: any) => {};
 export const deleteBranchFromCloud = async (id: string) => {};
 export const deleteExpenseFromCloud = async (id: number) => {};
-export const updateUserInCloud = async (u: any) => {};

@@ -119,7 +119,7 @@ const App: React.FC = () => {
                 getUsersFromCloud(activeBranchId).catch(() => []),
                 getTablesFromCloud(activeBranchId).catch(() => []),
                 getCompletedShiftsFromCloud(activeBranchId).catch(() => []),
-                getIngredientsFromCloud(activeBranchId).catch(() => []) // TAMBAHKAN INI
+                getIngredientsFromCloud(activeBranchId).catch(() => []) 
             ]);
 
             if (profileData) setStoreProfile(profileData);
@@ -128,7 +128,7 @@ const App: React.FC = () => {
             setUsers(usersData);
             setTables(tablesData);
             setCompletedShifts(histShifts);
-            setIngredients(ingredientData); // SIMPAN KE STATE
+            setIngredients(ingredientData); 
             
             const sh = await getActiveShiftFromCloud(activeBranchId).catch(() => null);
             setActiveShift(sh);
@@ -235,7 +235,9 @@ const App: React.FC = () => {
         },
         updateProductStock: updateProductStockInCloud,
         updateIngredientStock: updateIngredientStockInCloud,
-        addUser: addUserToCloud, updateUser: updateUserInCloud, deleteUser: deleteUserFromCloud,
+        addUser: async (u) => { await addUserToCloud({...u, branchId: activeBranchId}); await refreshAllData(); }, 
+        updateUser: async (u) => { await updateUserInCloud(u); await refreshAllData(); }, 
+        deleteUser: async (id) => { await deleteUserFromCloud(id); await refreshAllData(); },
         loginUser: handleLogin, logout: () => { setIsLoggedIn(false); setAppMode('landing'); },
         startShift: async (cash) => {
             const newS: Shift = { id: Date.now().toString(), start: Date.now(), start_cash: cash, revenue: 0, transactions: 0, cashRevenue: 0, nonCashRevenue: 0, totalDiscount: 0, branchId: activeBranchId };
@@ -244,18 +246,14 @@ const App: React.FC = () => {
         },
         closeShift: (cash) => {
             if (!activeShift) return null;
-            
-            // AGREGASI DATA PESANAN UNTUK SHIFT INI
             const shiftOrders = orders.filter(o => String(o.shiftId) === String(activeShift.id) && o.isPaid && o.status !== 'cancelled');
             const cashRevenue = shiftOrders.filter(o => o.paymentMethod === 'Tunai').reduce((sum, o) => sum + (o.total || 0), 0);
             const nonCashRevenue = shiftOrders.filter(o => o.paymentMethod !== 'Tunai').reduce((sum, o) => sum + (o.total || 0), 0);
             const totalRevenue = cashRevenue + nonCashRevenue;
             const totalDiscount = shiftOrders.reduce((sum, o) => sum + (o.discount || 0), 0);
             const totalExpenses = expenses.filter(e => String(e.shiftId) === String(activeShift.id)).reduce((sum, e) => sum + (e.amount || 0), 0);
-            
             const expectedCash = activeShift.start_cash + cashRevenue - totalExpenses;
             const difference = cash - expectedCash;
-
             const summary: ShiftSummary = { 
                 ...activeShift, 
                 end: Date.now(), 
@@ -271,7 +269,6 @@ const App: React.FC = () => {
                 averageKitchenTime: 0, 
                 expectedCash 
             };
-
             closeShiftInCloud(summary);
             setActiveShift(null);
             setCompletedShifts(prev => [summary, ...prev]);
@@ -324,10 +321,8 @@ const App: React.FC = () => {
                 if (moved) return { ...item, quantity: item.quantity - moved.quantity };
                 return item;
             }).filter(i => i.quantity > 0);
-            
             const financialOrig = calculateTotalsHelper(remainingItems, original.discountValue || 0, original.discountType || 'fixed');
             updateOrderInCloud(original.id, { items: remainingItems, subtotal: financialOrig.subtotal, total: financialOrig.total });
-            
             const financialNew = calculateTotalsHelper(itemsToMove, 0, 'fixed');
             const newOrder: Order = { ...original, id: Date.now().toString(), items: itemsToMove, sequentialId: undefined, status: 'pending', isPaid: false, createdAt: Date.now(), orderSource: original.orderSource, total: financialNew.total, subtotal: financialNew.subtotal, discount: 0, taxAmount: financialNew.tax, serviceChargeAmount: financialNew.service };
             addOrderToCloud(newOrder);
@@ -351,9 +346,7 @@ const App: React.FC = () => {
         <AppContext.Provider value={contextValue}>
             <div className="h-full w-full bg-gray-50">
                 {appMode === 'landing' && <LandingPage onSelectMode={setAppMode} branchName={storeProfile.name} logo={storeProfile.logo} slogan={storeProfile.slogan} isStoreOpen={!!activeShift} />}
-                
                 {appMode === 'customer' && <Suspense fallback={null}><CustomerOrderView onBack={() => setAppMode('landing')} /></Suspense>}
-                
                 {appMode === 'admin' && (
                     <div className="h-full">
                         {!isLoggedIn ? (

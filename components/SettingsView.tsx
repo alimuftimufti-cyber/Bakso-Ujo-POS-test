@@ -3,8 +3,6 @@ import React, { useState } from 'react';
 import { useAppContext } from '../types';
 import type { Table, StoreProfile, MenuItem, User } from '../types';
 
-const formatRupiah = (number: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(number);
-
 const generatePrintLayout = (tables: Table[], profile: StoreProfile) => {
     const baseUrl = window.location.origin;
     const win = window.open('', '_blank', 'width=900,height=700');
@@ -59,7 +57,7 @@ const SettingsView: React.FC = () => {
         tables, addTable, deleteTable, storeProfile, setStoreProfile, 
         menu, saveMenuItem, removeMenuItem, 
         categories, addCategory, deleteCategory,
-        users, addUser, deleteUser
+        users, addUser, updateUser, deleteUser
     } = useAppContext();
 
     const [activeTab, setActiveTab] = useState<'profile' | 'menu' | 'tables' | 'staff'>('profile');
@@ -74,31 +72,6 @@ const SettingsView: React.FC = () => {
     const [newCategoryName, setNewCategoryName] = useState('');
     const [editingUser, setEditingUser] = useState<Partial<User> | null>(null);
 
-    // --- HELPER DELETION FUNCTIONS (MENCEGAH ERROR SINTAKSIS) ---
-    const onConfirmDeleteCategory = (cat: string) => {
-        if (window.confirm(`Hapus kategori ${cat}?`)) {
-            deleteCategory(cat);
-        }
-    };
-
-    const onConfirmRemoveMenu = (id: number, name: string) => {
-        if (window.confirm(`Hapus menu ${name}?`)) {
-            removeMenuItem(id);
-        }
-    };
-
-    const onConfirmDeleteTable = (id: string, num: string) => {
-        if (window.confirm(`Hapus meja ${num}?`)) {
-            deleteTable(id);
-        }
-    };
-
-    const onConfirmDeleteUser = (id: string, name: string) => {
-        if (window.confirm(`Hapus staff ${name}?`)) {
-            deleteUser(id);
-        }
-    };
-
     // --- ACTIONS ---
     const handleSaveProfile = (e: React.FormEvent) => {
         e.preventDefault();
@@ -111,7 +84,6 @@ const SettingsView: React.FC = () => {
         if (editingProduct) {
             await saveMenuItem(editingProduct as MenuItem);
             setEditingProduct(null);
-            alert("Produk Berhasil Disimpan!");
         }
     };
 
@@ -122,16 +94,23 @@ const SettingsView: React.FC = () => {
         }
     };
 
-    const handleSaveUser = (e: React.FormEvent) => {
+    const handleSaveUser = async (e: React.FormEvent) => {
         e.preventDefault();
         if (editingUser) {
-            const userData = {
-                ...editingUser,
-                id: editingUser.id || Date.now().toString()
-            } as User;
-            addUser(userData);
+            if (editingUser.id) {
+                // Update
+                await updateUser(editingUser as User);
+                alert("Data Staff Berhasil Diperbarui!");
+            } else {
+                // Create
+                const userData = {
+                    ...editingUser,
+                    id: Date.now().toString()
+                } as User;
+                await addUser(userData);
+                alert("Staff Baru Berhasil Ditambahkan!");
+            }
             setEditingUser(null);
-            alert("Data Staff Berhasil Disimpan!");
         }
     };
 
@@ -145,8 +124,6 @@ const SettingsView: React.FC = () => {
             }
             await addTable(manualTableName.trim());
             setManualTableName('');
-        } catch (e) {
-            alert("Gagal menambah meja.");
         } finally {
             setIsProcessing(false);
         }
@@ -155,40 +132,31 @@ const SettingsView: React.FC = () => {
     const handleBatchAddTable = async () => {
         const start = parseInt(qrBatchStart), end = parseInt(qrBatchEnd);
         if(!isNaN(start) && !isNaN(end) && end >= start) {
-            if (end - start > 50) {
-                alert("Maksimal 50 meja per batch.");
-                return;
-            }
+            if (end - start > 50) { alert("Maksimal 50 meja per batch."); return; }
             setIsProcessing(true);
             try {
                 for(let i=start; i<=end; i++) {
                     const numStr = i.toString();
-                    if(!tables.find(t => t.number === numStr)) {
-                        await addTable(numStr); 
-                    }
+                    if(!tables.find(t => t.number === numStr)) await addTable(numStr); 
                 }
-            } catch (e) {
-                alert("Gagal batch upload.");
-            } finally {
-                setIsProcessing(false);
-            }
+            } finally { setIsProcessing(false); }
         }
     };
 
     return (
-        <div className="flex flex-col h-full bg-gray-50 overflow-hidden">
+        <div className="flex flex-col h-full bg-gray-50 overflow-hidden font-sans">
             {/* Tab Header */}
-            <div className="bg-white border-b px-8 py-4 flex items-center justify-between sticky top-0 z-20">
+            <div className="bg-white border-b px-8 py-4 flex flex-col lg:flex-row items-center justify-between sticky top-0 z-20 gap-4">
                 <h2 className="text-2xl font-black text-gray-900 tracking-tight uppercase italic">Pengaturan Sistem</h2>
-                <div className="flex bg-gray-100 p-1 rounded-xl">
-                    <button onClick={() => setActiveTab('profile')} className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === 'profile' ? 'bg-white shadow text-orange-600' : 'text-gray-500'}`}>PROFIL</button>
-                    <button onClick={() => setActiveTab('menu')} className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === 'menu' ? 'bg-white shadow text-orange-600' : 'text-gray-500'}`}>MENU</button>
-                    <button onClick={() => setActiveTab('tables')} className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === 'tables' ? 'bg-white shadow text-orange-600' : 'text-gray-500'}`}>MEJA QR</button>
-                    <button onClick={() => setActiveTab('staff')} className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === 'staff' ? 'bg-white shadow text-orange-600' : 'text-gray-500'}`}>STAFF</button>
+                <div className="flex bg-gray-100 p-1 rounded-xl w-full lg:w-auto overflow-x-auto scrollbar-hide">
+                    <button onClick={() => setActiveTab('profile')} className={`flex-1 lg:flex-none px-6 py-2 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${activeTab === 'profile' ? 'bg-white shadow text-orange-600' : 'text-gray-500'}`}>PROFIL</button>
+                    <button onClick={() => setActiveTab('menu')} className={`flex-1 lg:flex-none px-6 py-2 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${activeTab === 'menu' ? 'bg-white shadow text-orange-600' : 'text-gray-500'}`}>MENU</button>
+                    <button onClick={() => setActiveTab('tables')} className={`flex-1 lg:flex-none px-6 py-2 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${activeTab === 'tables' ? 'bg-white shadow text-orange-600' : 'text-gray-500'}`}>MEJA QR</button>
+                    <button onClick={() => setActiveTab('staff')} className={`flex-1 lg:flex-none px-6 py-2 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${activeTab === 'staff' ? 'bg-white shadow text-orange-600' : 'text-gray-500'}`}>STAFF</button>
                 </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
+            <div className="flex-1 overflow-y-auto p-4 lg:p-8 custom-scrollbar">
                 <div className="max-w-4xl mx-auto pb-20">
                     
                     {/* TAB: PROFIL KEDAI */}
@@ -213,23 +181,107 @@ const SettingsView: React.FC = () => {
                                             <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Alamat Lengkap</label>
                                             <input value={storeProfile.address} onChange={e => setStoreProfile({...storeProfile, address: e.target.value})} className="w-full border-2 border-gray-100 rounded-xl p-3 focus:border-orange-500 outline-none" />
                                         </div>
-                                        <div>
-                                            <label className="block text-xs font-bold text-gray-400 uppercase mb-1">URL Logo</label>
-                                            <input value={storeProfile.logo} onChange={e => setStoreProfile({...storeProfile, logo: e.target.value})} className="w-full border-2 border-gray-100 rounded-xl p-3 focus:border-orange-500 outline-none" placeholder="https://..." />
-                                        </div>
-                                        <div>
-                                            <label className="block text-xs font-bold text-gray-400 uppercase mb-1">PPN (%)</label>
-                                            <div className="flex items-center gap-3">
-                                                <input type="number" value={storeProfile.taxRate} onChange={e => setStoreProfile({...storeProfile, taxRate: parseFloat(e.target.value) || 0})} className="w-24 border-2 border-gray-100 rounded-xl p-3 focus:border-orange-500 outline-none font-bold" />
-                                                <label className="flex items-center gap-2 cursor-pointer">
-                                                    <input type="checkbox" checked={storeProfile.enableTax} onChange={e => setStoreProfile({...storeProfile, enableTax: e.target.checked})} className="w-5 h-5 rounded border-gray-300 text-orange-600 focus:ring-orange-500" />
-                                                    <span className="text-sm font-bold text-gray-600 uppercase">Aktifkan Pajak</span>
-                                                </label>
-                                            </div>
-                                        </div>
                                     </div>
                                     <button type="submit" className="bg-orange-600 text-white font-black px-8 py-3 rounded-xl hover:bg-orange-700 shadow-lg transition-all active:scale-95">SIMPAN PROFIL</button>
                                 </form>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* TAB: STAFF / KARYAWAN */}
+                    {activeTab === 'staff' && (
+                        <div className="animate-fade-in space-y-8">
+                            <div className="bg-white p-8 rounded-3xl shadow-sm border">
+                                <div className="flex justify-between items-center mb-6">
+                                    <h3 className="text-xl font-black flex items-center gap-3 uppercase">
+                                        <span className="w-2 h-6 bg-purple-500 rounded-full"></span>
+                                        Manajemen Staff
+                                    </h3>
+                                    {!editingUser && (
+                                        <button 
+                                            onClick={() => setEditingUser({ name: '', pin: '', role: 'cashier', attendancePin: '1111' })} 
+                                            className="bg-purple-600 text-white font-black px-5 py-2.5 rounded-xl text-xs hover:bg-purple-700 shadow-md transition-all active:scale-95 flex items-center gap-2"
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M12 4v16m8-8H4" /></svg>
+                                            TAMBAH STAFF
+                                        </button>
+                                    )}
+                                </div>
+
+                                {editingUser && (
+                                    <div className="bg-slate-50 p-6 rounded-2xl border-2 border-dashed border-purple-200 mb-10 animate-slide-in-up">
+                                        <h4 className="font-black text-gray-900 mb-6 uppercase text-sm flex items-center gap-2">
+                                            <span className="w-6 h-6 bg-purple-600 text-white rounded-full flex items-center justify-center text-[10px]">{editingUser.id ? 'E' : '+'}</span>
+                                            {editingUser.id ? 'Edit Data Staff' : 'Registrasi Staff Baru'}
+                                        </h4>
+                                        <form onSubmit={handleSaveUser} className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                                            <div className="space-y-1">
+                                                <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Nama Lengkap</label>
+                                                <input required value={editingUser.name || ''} onChange={e => setEditingUser(prev => prev ? {...prev, name: e.target.value} : prev)} placeholder="Nama Terang" className="w-full border-2 border-gray-200 rounded-xl p-3 focus:border-purple-600 outline-none font-bold shadow-sm" />
+                                            </div>
+                                            <div className="space-y-1">
+                                                <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Role / Jabatan</label>
+                                                <select value={editingUser.role || 'staff'} onChange={e => setEditingUser(prev => prev ? {...prev, role: e.target.value as any} : prev)} className="w-full border-2 border-gray-200 rounded-xl p-3 bg-white font-bold shadow-sm focus:border-purple-600 outline-none">
+                                                    <option value="admin">Admin / Owner</option>
+                                                    <option value="cashier">Kasir</option>
+                                                    <option value="kitchen">Dapur (Chef)</option>
+                                                    <option value="staff">Staff Umum</option>
+                                                </select>
+                                            </div>
+                                            <div className="space-y-1">
+                                                <label className="text-[10px] font-black text-gray-400 uppercase ml-1">PIN Login Dashboard</label>
+                                                <input required value={editingUser.pin || ''} onChange={e => setEditingUser(prev => prev ? {...prev, pin: e.target.value.replace(/\D/g,'')} : prev)} placeholder="PIN (4-6 Digit)" className="w-full border-2 border-gray-200 rounded-xl p-3 font-mono font-bold tracking-widest shadow-sm focus:border-purple-600 outline-none" maxLength={6} />
+                                            </div>
+                                            <div className="space-y-1">
+                                                <label className="text-[10px] font-black text-gray-400 uppercase ml-1">PIN Absensi (Clock In)</label>
+                                                <input required value={editingUser.attendancePin || ''} onChange={e => setEditingUser(prev => prev ? {...prev, attendancePin: e.target.value.replace(/\D/g,'')} : prev)} placeholder="PIN Absen (4 Digit)" className="w-full border-2 border-gray-200 rounded-xl p-3 font-mono font-bold tracking-widest shadow-sm focus:border-purple-600 outline-none" maxLength={6} />
+                                            </div>
+                                            <div className="flex justify-end gap-3 mt-4 md:col-span-2">
+                                                <button type="button" onClick={() => setEditingUser(null)} className="px-6 py-3 rounded-xl font-bold text-gray-500 hover:bg-gray-200 transition-all">BATAL</button>
+                                                <button type="submit" className="px-8 py-3 bg-purple-600 text-white rounded-xl font-black hover:bg-purple-700 shadow-xl shadow-purple-100 transition-all active:scale-95">SIMPAN DATA</button>
+                                            </div>
+                                        </form>
+                                    </div>
+                                )}
+
+                                <div className="space-y-4">
+                                    {users.length === 0 && <div className="text-center py-20 text-gray-400 font-bold uppercase tracking-widest italic border-2 border-dashed border-gray-100 rounded-2xl">Belum ada staff terdaftar</div>}
+                                    {users.map(u => (
+                                        <div key={u.id} className="flex items-center justify-between bg-white border border-gray-100 p-5 rounded-2xl hover:shadow-lg transition-all group hover:border-purple-200">
+                                            <div className="flex items-center gap-5">
+                                                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center font-black text-xl shadow-inner 
+                                                    ${u.role === 'admin' ? 'bg-purple-100 text-purple-600' : 
+                                                      u.role === 'cashier' ? 'bg-blue-100 text-blue-600' : 
+                                                      u.role === 'kitchen' ? 'bg-orange-100 text-orange-600' : 'bg-gray-100 text-gray-400'}`}>
+                                                    {u.name ? u.name.charAt(0).toUpperCase() : '?'}
+                                                </div>
+                                                <div>
+                                                    <div className="font-black text-gray-900 text-lg leading-tight mb-1">{u.name}</div>
+                                                    <div className="flex flex-wrap items-center gap-3">
+                                                        <span className={`text-[9px] font-black uppercase px-2 py-1 rounded-md shadow-sm border 
+                                                            ${u.role === 'admin' ? 'bg-purple-600 text-white border-purple-700' : 
+                                                              u.role === 'cashier' ? 'bg-blue-600 text-white border-blue-700' : 
+                                                              u.role === 'kitchen' ? 'bg-orange-600 text-white border-orange-700' : 'bg-gray-100 text-gray-500 border-gray-200'}`}>
+                                                            {u.role}
+                                                        </span>
+                                                        <div className="h-3 w-px bg-gray-200"></div>
+                                                        <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">PIN: {u.pin} / {u.attendancePin}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div className="flex gap-2">
+                                                <button onClick={() => { window.scrollTo({top: 0, behavior: 'smooth'}); setEditingUser(u); }} className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all" title="Edit Data">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                                                </button>
+                                                {u.role !== 'owner' && (
+                                                    <button onClick={() => { if(confirm(`Hapus staff "${u.name}"?`)) deleteUser(u.id); }} className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all" title="Hapus Staff">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
                             </div>
                         </div>
                     )}
@@ -246,7 +298,7 @@ const SettingsView: React.FC = () => {
                                     {categories.map(cat => (
                                         <div key={cat} className="flex items-center gap-2 bg-gray-100 px-4 py-2 rounded-full border">
                                             <span className="text-sm font-bold text-gray-700">{cat}</span>
-                                            <button onClick={() => onConfirmDeleteCategory(cat)} className="text-red-400 hover:text-red-600 text-lg">&times;</button>
+                                            <button onClick={() => { if(confirm(`Hapus kategori ${cat}?`)) deleteCategory(cat); }} className="text-red-400 hover:text-red-600 text-lg">&times;</button>
                                         </div>
                                     ))}
                                 </div>
@@ -267,7 +319,6 @@ const SettingsView: React.FC = () => {
 
                                 {editingProduct && (
                                     <div className="bg-gray-50 p-6 rounded-2xl border-2 border-dashed border-gray-200 mb-8 animate-slide-in-up">
-                                        <h4 className="font-bold text-gray-800 mb-4 uppercase text-sm">Form Data Menu</h4>
                                         <form onSubmit={handleSaveProduct} className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                             <input required value={editingProduct.name || ''} onChange={e => setEditingProduct(prev => prev ? {...prev, name: e.target.value} : prev)} placeholder="Nama Menu" className="border rounded-xl p-3 font-bold" />
                                             <input required type="number" value={editingProduct.price || 0} onChange={e => setEditingProduct(prev => prev ? {...prev, price: parseInt(e.target.value) || 0} : prev)} placeholder="Harga (Rp)" className="border rounded-xl p-3 font-bold" />
@@ -291,12 +342,11 @@ const SettingsView: React.FC = () => {
                                             </div>
                                             <div className="flex-1">
                                                 <div className="font-bold text-gray-800">{item.name}</div>
-                                                <div className="text-xs text-orange-600 font-black">{formatRupiah(item.price)}</div>
-                                                <div className="text-[10px] text-gray-400 uppercase font-bold">{item.category}</div>
+                                                <div className="text-xs text-orange-600 font-black">{new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(item.price)}</div>
                                             </div>
                                             <div className="flex flex-col gap-1">
                                                 <button onClick={() => setEditingProduct(item)} className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg"><svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg></button>
-                                                <button onClick={() => onConfirmRemoveMenu(item.id, item.name)} className="p-2 text-red-400 hover:bg-red-50 rounded-lg"><svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
+                                                <button onClick={() => { if(confirm(`Hapus menu ${item.name}?`)) removeMenuItem(item.id); }} className="p-2 text-red-400 hover:bg-red-50 rounded-lg"><svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
                                             </div>
                                         </div>
                                     ))}
@@ -321,30 +371,6 @@ const SettingsView: React.FC = () => {
                                     <button onClick={handleAddSingleTable} disabled={isProcessing || !manualTableName} className="bg-green-600 text-white font-black px-8 py-3.5 rounded-xl hover:bg-green-700 shadow-lg disabled:bg-gray-300 transition-all">{isProcessing ? '...' : '+ TAMBAH'}</button>
                                 </div>
                             </div>
-
-                            <div className="bg-white p-8 rounded-3xl shadow-sm border">
-                                <h3 className="text-xl font-black mb-6 flex items-center gap-3">
-                                    <span className="w-2 h-6 bg-indigo-500 rounded-full"></span>
-                                    GENERATOR BATCH (NOMOR URUT)
-                                </h3>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-end">
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div>
-                                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Mulai Nomor</label>
-                                            <input value={qrBatchStart} onChange={e => setQrBatchStart(e.target.value)} type="number" className="w-full border-2 border-gray-100 rounded-xl p-3 focus:border-indigo-500 outline-none font-bold" />
-                                        </div>
-                                        <div>
-                                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Sampai Nomor</label>
-                                            <input value={qrBatchEnd} onChange={e => setQrBatchEnd(e.target.value)} type="number" className="w-full border-2 border-gray-100 rounded-xl p-3 focus:border-indigo-500 outline-none font-bold" />
-                                        </div>
-                                    </div>
-                                    <div className="flex gap-2">
-                                        <button onClick={handleBatchAddTable} disabled={isProcessing} className="flex-1 bg-indigo-600 text-white font-black py-3 rounded-xl hover:bg-indigo-700 shadow-lg active:scale-95 transition-all disabled:bg-gray-300">{isProcessing ? 'MEMPROSES...' : 'BUAT BATCH'}</button>
-                                        <button onClick={() => generatePrintLayout(tables, storeProfile)} className="bg-gray-900 text-white font-black px-6 py-3 rounded-xl hover:bg-black shadow-lg transition-all">CETAK SEMUA</button>
-                                    </div>
-                                </div>
-                            </div>
-
                             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
                                 {tables.sort((a,b) => parseInt(a.number) - parseInt(b.number) || a.number.localeCompare(b.number)).map(table => {
                                     const baseUrl = window.location.origin;
@@ -352,7 +378,7 @@ const SettingsView: React.FC = () => {
                                     const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(maskedUrl)}`;
                                     return (
                                         <div key={table.id} className="bg-white p-4 border rounded-2xl text-center shadow-sm relative group hover:border-indigo-500 transition-all animate-fade-in">
-                                            <button onClick={() => onConfirmDeleteTable(table.id, table.number)} className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full font-bold opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-xs">&times;</button>
+                                            <button onClick={() => { if(confirm(`Hapus meja ${table.number}?`)) deleteTable(table.id); }} className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full font-bold opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-xs">&times;</button>
                                             <img src={qrUrl} className="mx-auto mb-3 w-full aspect-square object-contain" alt={`Meja ${table.number}`} />
                                             <div className="font-black text-gray-800 text-lg">MEJA {table.number}</div>
                                         </div>
@@ -361,61 +387,6 @@ const SettingsView: React.FC = () => {
                             </div>
                         </div>
                     )}
-
-                    {/* TAB: STAFF / KARYAWAN */}
-                    {activeTab === 'staff' && (
-                        <div className="animate-fade-in space-y-8">
-                            <div className="bg-white p-8 rounded-3xl shadow-sm border">
-                                <div className="flex justify-between items-center mb-6">
-                                    <h3 className="text-xl font-black flex items-center gap-3">
-                                        <span className="w-2 h-6 bg-purple-500 rounded-full"></span>
-                                        MANAJEMEN STAFF
-                                    </h3>
-                                    <button onClick={() => setEditingUser({ name: '', pin: '', role: 'cashier', attendancePin: '1111' })} className="bg-purple-600 text-white font-bold px-4 py-2 rounded-xl text-xs hover:bg-purple-700">+ TAMBAH STAFF</button>
-                                </div>
-
-                                {editingUser && (
-                                    <div className="bg-gray-50 p-6 rounded-2xl border-2 border-dashed border-gray-200 mb-8 animate-slide-in-up">
-                                        <form onSubmit={handleSaveUser} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                            <input required value={editingUser.name || ''} onChange={e => setEditingUser(prev => prev ? {...prev, name: e.target.value} : prev)} placeholder="Nama Lengkap" className="border rounded-xl p-3 font-bold" />
-                                            <input required value={editingUser.pin || ''} onChange={e => setEditingUser(prev => prev ? {...prev, pin: e.target.value.replace(/\D/g,'')} : prev)} placeholder="PIN Login (4-6 Angka)" className="border rounded-xl p-3 font-bold" maxLength={6} />
-                                            <select value={editingUser.role || 'staff'} onChange={e => setEditingUser(prev => prev ? {...prev, role: e.target.value as any} : prev)} className="border rounded-xl p-3 bg-white font-bold">
-                                                <option value="admin">Admin / Owner</option>
-                                                <option value="cashier">Kasir</option>
-                                                <option value="kitchen">Dapur</option>
-                                                <option value="staff">Staff Umum</option>
-                                            </select>
-                                            <div className="flex justify-end gap-2 mt-2 md:col-span-2">
-                                                <button type="button" onClick={() => setEditingUser(null)} className="px-6 py-2 rounded-xl font-bold text-gray-500 hover:bg-gray-200">BATAL</button>
-                                                <button type="submit" className="px-8 py-2 bg-purple-600 text-white rounded-xl font-black hover:bg-purple-700 shadow-md">SIMPAN STAFF</button>
-                                            </div>
-                                        </form>
-                                    </div>
-                                )}
-
-                                <div className="space-y-4">
-                                    {users.map(u => (
-                                        <div key={u.id} className="flex items-center justify-between bg-white border p-4 rounded-2xl hover:border-purple-200 transition-all">
-                                            <div className="flex items-center gap-4">
-                                                <div className="w-12 h-12 bg-purple-100 text-purple-600 rounded-full flex items-center justify-center font-black text-xl">{u.name ? u.name.charAt(0) : '?'}</div>
-                                                <div>
-                                                    <div className="font-bold text-gray-800">{u.name}</div>
-                                                    <div className="flex items-center gap-2">
-                                                        <span className="text-[10px] font-black uppercase bg-gray-100 px-2 py-0.5 rounded text-gray-500">{u.role}</span>
-                                                        <span className="text-[10px] font-bold text-gray-400">PIN: {u.pin}</span>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            <button onClick={() => onConfirmDeleteUser(u.id, u.name)} className="p-2 text-red-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all">
-                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                                            </button>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
                 </div>
             </div>
         </div>
