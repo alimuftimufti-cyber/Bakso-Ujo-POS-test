@@ -182,7 +182,6 @@ const App: React.FC = () => {
 
     // NEW SECURITY FLOW: Login first, then choose
     const handleInitialLogin = (pin: string) => {
-        // Cari user yang memiliki PIN ini baik di login admin atau login absen
         const user = users.find(u => String(u.pin) === String(pin) || String(u.attendancePin) === String(pin));
         if (user) {
             setCurrentUser(user);
@@ -198,7 +197,6 @@ const App: React.FC = () => {
         setIsLoggedIn(true);
         setAppMode('admin');
         setAuthChoice('none');
-        // Set default view based on role
         if (currentUser.role === 'kitchen') setView('kitchen');
         else if (currentUser.role === 'cashier') setView('pos');
         else if (currentUser.role === 'staff') setView('attendance');
@@ -210,13 +208,10 @@ const App: React.FC = () => {
         setAuthChoice('none');
     };
 
-    // RBAC: Check if role has access to specific view
     const hasAccess = (viewName: View): boolean => {
         if (!currentUser) return false;
         const role = currentUser.role;
-        
         if (role === 'owner' || role === 'admin') return true;
-        
         switch(viewName) {
             case 'pos': 
             case 'shift': 
@@ -226,10 +221,10 @@ const App: React.FC = () => {
             case 'inventory': 
                 return role === 'cashier';
             case 'attendance': 
-                return true; // Everyone can see their reports
+                return false; 
             case 'settings': 
             case 'report': 
-                return false; // Staff/Kitchen/Cashier can't see analytics/settings
+                return false;
             default: 
                 return false;
         }
@@ -367,7 +362,6 @@ const App: React.FC = () => {
                     />
                 )}
                 
-                {/* 1. Request PIN Panel */}
                 {authChoice === 'login' && (
                     <div className="fixed inset-0 bg-gray-900/95 flex items-center justify-center z-[100] p-4 backdrop-blur-md">
                         <div className="bg-white p-10 rounded-[3rem] shadow-2xl max-sm w-full text-center border-t-8 border-orange-600 animate-scale-in">
@@ -386,7 +380,6 @@ const App: React.FC = () => {
                     </div>
                 )}
 
-                {/* 2. Session Panel Choice (After PIN Valid) */}
                 {authChoice === 'user_session' && currentUser && (
                     <div className="fixed inset-0 bg-gray-900/95 flex items-center justify-center z-[100] p-4 backdrop-blur-md animate-fade-in">
                         <div className="bg-white p-10 rounded-[3rem] shadow-2xl max-w-md w-full text-center border-t-8 border-indigo-600">
@@ -399,13 +392,11 @@ const App: React.FC = () => {
                              </div>
 
                              <div className="grid grid-cols-1 gap-3">
-                                 {/* Everyone can clock in/out */}
                                  <button onClick={enterAttendance} className="p-4 bg-blue-50 border-2 border-blue-100 rounded-2xl hover:border-blue-600 transition-all flex items-center gap-4">
                                      <div className="w-10 h-10 bg-blue-600 text-white rounded-xl flex items-center justify-center shadow-lg"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg></div>
                                      <span className="font-black text-blue-900 uppercase tracking-widest text-sm">Absensi (In/Out)</span>
                                  </button>
                                  
-                                 {/* Only roles besides 'staff' should normally see Admin Panel if they have specific duties */}
                                  {currentUser.role !== 'staff' && (
                                     <button onClick={enterAdminPanel} className="p-4 bg-orange-50 border-2 border-orange-100 rounded-2xl hover:border-orange-600 transition-all flex items-center gap-4">
                                         <div className="w-10 h-10 bg-orange-600 text-white rounded-xl flex items-center justify-center shadow-lg"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg></div>
