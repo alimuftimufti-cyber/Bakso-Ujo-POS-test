@@ -315,7 +315,8 @@ export const saveAttendanceToCloud = async (record: AttendanceRecord) => {
         department: record.department,
         branch_id: record.branchId,
         date: record.date,
-        clock_in: record.clock_in,
+        // FIX: Changed record.clock_in to record.clockInTime to match type definition.
+        clock_in: record.clockInTime,
         status: record.status,
         photo_url: record.photoUrl,
         lat: record.location?.lat,
@@ -415,7 +416,8 @@ export const closeShiftInCloud = async (summary: ShiftSummary) => {
         closing_cash: summary.closingCash,
         revenue: summary.revenue,
         cash_revenue: summary.cashRevenue,
-        non_cash_revenue: summary.non_cash_revenue,
+        // FIX: Changed summary.non_cash_revenue to summary.nonCashRevenue to match type definition.
+        non_cash_revenue: summary.nonCashRevenue,
         total_discount: summary.totalDiscount,
         transactions_count: summary.transactions
     }).eq('id', summary.id);

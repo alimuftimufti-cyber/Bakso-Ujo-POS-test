@@ -97,6 +97,9 @@ const App: React.FC = () => {
     const [activeBranchId, setActiveBranchId] = useState('pusat');
     const [currentUser, setCurrentUser] = useState<User | null>(null);
     const [authChoice, setAuthChoice] = useState<'none' | 'choice' | 'login_admin' | 'login_attendance'>('none');
+    
+    // Feature: Sidebar Minimize (Default: Collapsed)
+    const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
 
     const [storeProfile, setStoreProfile] = useState<StoreProfile>(defaultStoreProfile);
     const [menu, setMenu] = useState<MenuItem[]>([]);
@@ -459,24 +462,68 @@ const App: React.FC = () => {
                 
                 {appMode === 'admin' && isLoggedIn && (
                     <div className="flex h-screen overflow-hidden bg-slate-900">
-                        <aside className="w-64 bg-slate-900 border-r border-slate-800 hidden md:flex flex-col shadow-2xl">
-                            <div className="p-8 border-b border-slate-800">
-                                <h2 className="font-black text-white text-2xl uppercase italic tracking-tighter">Bakso Ujo</h2>
-                                <p className="text-[10px] font-bold text-orange-500 uppercase tracking-widest mt-1">Terminal Kasir</p>
+                        {/* Sidebar dengan fitur Collapse */}
+                        <aside className={`${isSidebarCollapsed ? 'w-20' : 'w-64'} bg-slate-900 border-r border-slate-800 hidden md:flex flex-col shadow-2xl transition-all duration-300 relative`}>
+                            {/* Toggle Button */}
+                            <button 
+                                onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+                                className="absolute -right-3 top-10 bg-orange-600 text-white p-1 rounded-full border-2 border-slate-900 z-50 hover:scale-110 transition-transform"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" className={`h-4 w-4 transition-transform duration-300 ${isSidebarCollapsed ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M15 19l-7-7 7-7" />
+                                </svg>
+                            </button>
+
+                            <div className={`p-8 border-b border-slate-800 flex flex-col items-center ${isSidebarCollapsed ? 'px-2' : ''}`}>
+                                {!isSidebarCollapsed ? (
+                                    <>
+                                        <h2 className="font-black text-white text-2xl uppercase italic tracking-tighter">Bakso Ujo</h2>
+                                        <p className="text-[10px] font-bold text-orange-500 uppercase tracking-widest mt-1">Terminal Kasir</p>
+                                    </>
+                                ) : (
+                                    <div className="w-10 h-10 bg-orange-600 rounded-xl flex items-center justify-center text-white font-black text-xl italic">U</div>
+                                )}
                             </div>
-                            <nav className="flex-1 p-4 space-y-2">
-                                <button onClick={() => setView('pos')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-bold transition-all ${view === 'pos' ? 'bg-orange-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><SidebarIcons.Pos /> Kasir (POS)</button>
-                                <button onClick={() => setView('shift')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-bold transition-all ${view === 'shift' ? 'bg-orange-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><SidebarIcons.Shift /> Keuangan</button>
-                                <button onClick={() => setView('kitchen')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-bold transition-all ${view === 'kitchen' ? 'bg-orange-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><SidebarIcons.Kitchen /> Dapur</button>
-                                <button onClick={() => setView('inventory')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-bold transition-all ${view === 'inventory' ? 'bg-orange-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><SidebarIcons.Inventory /> Stok Gudang</button>
-                                <button onClick={() => setView('report')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-bold transition-all ${view === 'report' ? 'bg-orange-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><SidebarIcons.Report /> Laporan</button>
-                                <button onClick={() => setView('attendance')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-bold transition-all ${view === 'attendance' ? 'bg-orange-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" /></svg> Absensi</button>
-                                <button onClick={() => setView('settings')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-bold transition-all ${view === 'settings' ? 'bg-orange-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}><SidebarIcons.Settings /> Pengaturan Sistem</button>
+
+                            <nav className="flex-1 p-4 space-y-2 overflow-x-hidden">
+                                <button onClick={() => setView('pos')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-bold transition-all ${view === 'pos' ? 'bg-orange-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'} ${isSidebarCollapsed ? 'justify-center' : ''}`} title="Kasir (POS)">
+                                    <SidebarIcons.Pos /> 
+                                    {!isSidebarCollapsed && <span>Kasir (POS)</span>}
+                                </button>
+                                <button onClick={() => setView('shift')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-bold transition-all ${view === 'shift' ? 'bg-orange-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'} ${isSidebarCollapsed ? 'justify-center' : ''}`} title="Keuangan">
+                                    <SidebarIcons.Shift /> 
+                                    {!isSidebarCollapsed && <span>Keuangan</span>}
+                                </button>
+                                <button onClick={() => setView('kitchen')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-bold transition-all ${view === 'kitchen' ? 'bg-orange-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'} ${isSidebarCollapsed ? 'justify-center' : ''}`} title="Dapur">
+                                    <SidebarIcons.Kitchen /> 
+                                    {!isSidebarCollapsed && <span>Dapur</span>}
+                                </button>
+                                <button onClick={() => setView('inventory')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-bold transition-all ${view === 'inventory' ? 'bg-orange-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'} ${isSidebarCollapsed ? 'justify-center' : ''}`} title="Stok Gudang">
+                                    <SidebarIcons.Inventory /> 
+                                    {!isSidebarCollapsed && <span>Stok Gudang</span>}
+                                </button>
+                                <button onClick={() => setView('report')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-bold transition-all ${view === 'report' ? 'bg-orange-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'} ${isSidebarCollapsed ? 'justify-center' : ''}`} title="Laporan">
+                                    <SidebarIcons.Report /> 
+                                    {!isSidebarCollapsed && <span>Laporan</span>}
+                                </button>
+                                <button onClick={() => setView('attendance')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-bold transition-all ${view === 'attendance' ? 'bg-orange-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'} ${isSidebarCollapsed ? 'justify-center' : ''}`} title="Absensi">
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" /></svg> 
+                                    {!isSidebarCollapsed && <span>Absensi</span>}
+                                </button>
+                                <button onClick={() => setView('settings')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl font-bold transition-all ${view === 'settings' ? 'bg-orange-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'} ${isSidebarCollapsed ? 'justify-center' : ''}`} title="Pengaturan">
+                                    <SidebarIcons.Settings /> 
+                                    {!isSidebarCollapsed && <span>Pengaturan</span>}
+                                </button>
                             </nav>
+
                             <div className="p-4 border-t border-slate-800">
-                                <button onClick={() => { setIsLoggedIn(false); setAppMode('landing'); setCurrentUser(null); }} className="w-full flex items-center gap-3 px-4 py-3.5 text-red-400 font-bold hover:bg-red-500/10 rounded-xl transition-all"><SidebarIcons.Logout /> Keluar</button>
+                                <button onClick={() => { setIsLoggedIn(false); setAppMode('landing'); setCurrentUser(null); }} className={`w-full flex items-center gap-3 px-4 py-3.5 text-red-400 font-bold hover:bg-red-500/10 rounded-xl transition-all ${isSidebarCollapsed ? 'justify-center' : ''}`} title="Keluar">
+                                    <SidebarIcons.Logout /> 
+                                    {!isSidebarCollapsed && <span>Keluar</span>}
+                                </button>
                             </div>
                         </aside>
+                        
                         <main className="flex-1 overflow-hidden bg-white">
                             <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-500"></div></div>}>
                                 {view === 'pos' && <POSView />}
