@@ -1,5 +1,12 @@
+
 import { formatOrderForThermalPrinter, formatShiftForThermalPrinter } from './receiptFormatter';
 import type { Order, StoreProfile, ShiftSummary } from '../types';
+
+// Fix: Declared missing types locally for browser compatibility
+type BluetoothDevice = any;
+type USBDevice = any;
+type BluetoothRemoteGATTService = any;
+type BluetoothRemoteGATTCharacteristic = any;
 
 // Common Bluetooth Printer Service UUIDs
 const OPTIONAL_SERVICES = [
@@ -15,10 +22,12 @@ const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 // --- Device Selection ---
 
 export const selectBluetoothPrinter = async (): Promise<BluetoothDevice> => {
-    if(!navigator.bluetooth) throw new Error('Browser ini tidak mendukung Web Bluetooth. Gunakan Google Chrome di Android atau Desktop.');
+    // Fix: cast navigator as any to bypass missing bluetooth type
+    const nav = navigator as any;
+    if(!nav.bluetooth) throw new Error('Browser ini tidak mendukung Web Bluetooth. Gunakan Google Chrome di Android atau Desktop.');
     
     try {
-        const device = await navigator.bluetooth.requestDevice({
+        const device = await nav.bluetooth.requestDevice({
            acceptAllDevices: true,
            optionalServices: OPTIONAL_SERVICES
         });
@@ -34,10 +43,12 @@ export const selectBluetoothPrinter = async (): Promise<BluetoothDevice> => {
 };
 
 export const selectUsbPrinter = async (): Promise<USBDevice> => {
-    if (!navigator.usb) throw new Error('Browser ini tidak mendukung Web USB.');
+    // Fix: cast navigator as any to bypass missing usb type
+    const nav = navigator as any;
+    if (!nav.usb) throw new Error('Browser ini tidak mendukung Web USB.');
 
     try {
-        const device = await navigator.usb.requestDevice({
+        const device = await nav.usb.requestDevice({
             filters: [{ classCode: 0x07 }] // Printer class code
         });
     
@@ -72,7 +83,7 @@ const printViaUsb = async (device: USBDevice, data: string) => {
 
         await device.claimInterface(anInterfaceNumber);
         
-        const endpoint = anInterface.alternate.endpoints.find(e => e.direction === 'out');
+        const endpoint = anInterface.alternate.endpoints.find((e: any) => e.direction === 'out');
         if (!endpoint) throw new Error("Endpoint USB output tidak ditemukan.");
         
         // USB transfers are usually fast enough, but we can chunk if needed. 
@@ -118,7 +129,7 @@ const printViaBluetooth = async (device: BluetoothDevice, data: string) => {
             service = await server.getPrimaryService(uuid);
             const characteristics = await service.getCharacteristics();
             // Find a characteristic that supports Write or WriteWithoutResponse
-            characteristic = characteristics.find(c => c.properties.write || c.properties.writeWithoutResponse);
+            characteristic = characteristics.find((c: any) => c.properties.write || c.properties.writeWithoutResponse);
             if (characteristic) break; 
         } catch (e) {
             continue; // Try next service

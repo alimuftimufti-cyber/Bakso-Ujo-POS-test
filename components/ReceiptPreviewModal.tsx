@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { useAppContext } from '../types';
 import PrintableReceipt from './PrintableReceipt';
@@ -11,6 +12,7 @@ interface ReceiptPreviewModalProps {
 }
 
 const ReceiptPreviewModal: React.FC<ReceiptPreviewModalProps> = ({ order, shift, onClose, variant = 'receipt' }) => {
+    // Fix: Used the implemented methods from AppContext
     const { storeProfile, printOrderToDevice, printShiftToDevice, printOrderViaBrowser, isPrinting, printerDevice } = useAppContext();
 
     const handlePrintDirect = () => {

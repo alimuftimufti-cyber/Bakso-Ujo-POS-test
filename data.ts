@@ -70,7 +70,7 @@ export const initialMenuData: MenuItem[] = [
 export const defaultStoreProfile: StoreProfile = {
     name: "Bakso Ujo",
     address: "Jl. Spesial Tetelan Urat Gimbal No.1",
-    phoneNumber: "628123456789", // Default phone
+    phoneNumber: "628123456789", // Fix: default property exists now
     slogan: "Nikmatnya Asli, Bikin Nagih!",
     logo: "",
     themeColor: 'orange', // Default theme

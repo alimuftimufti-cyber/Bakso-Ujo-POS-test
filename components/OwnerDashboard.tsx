@@ -5,10 +5,11 @@ import { useAppContext } from '../types';
 const formatRupiah = (number: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(number);
 
 const OwnerDashboard: React.FC = () => {
+    // Fix: Handled potential missing properties
     const { 
         storeProfile, 
-        branches, 
-        switchBranch, 
+        branches = [], 
+        switchBranch = async () => {}, 
         orders, 
         completedShifts,
         activeShift
@@ -46,7 +47,6 @@ const OwnerDashboard: React.FC = () => {
     const activeBranchName = branches.find(b => b.id === storeProfile.branchId)?.name || 'Unknown Branch';
 
     return (
-        // FIX: Changed min-h-full to h-full overflow-y-auto to allow scrolling inside the layout
         <div className="bg-slate-900 h-full overflow-y-auto text-slate-100 p-6 lg:p-10 font-sans custom-scrollbar">
             <div className="max-w-7xl mx-auto pb-20">
                 {/* TOP HEADER */}

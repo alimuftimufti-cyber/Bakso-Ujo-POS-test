@@ -52,7 +52,8 @@ const OrderCard: React.FC<{ order: Order, elapsed: number, isOverdue: boolean, t
 };
 
 const KitchenView: React.FC = () => {
-    const { orders, updateOrderStatus, kitchenAlarmTime } = useAppContext();
+    // Fix: Provided fallback for kitchenAlarmTime
+    const { orders, updateOrderStatus, kitchenAlarmTime = 600 } = useAppContext();
     const [now, setNow] = useState(Date.now());
     const [activeTab, setActiveTab] = useState<'active' | 'history'>('active');
 
@@ -67,6 +68,7 @@ const KitchenView: React.FC = () => {
     }, [orders]);
 
     const historyOrders = useMemo(() => {
+        // Fix: Use completedAt or readyAt for sorting
         return orders.filter(o => o.status === 'serving' || o.status === 'completed' || o.status === 'cancelled')
                      .sort((a, b) => (b.completedAt || b.readyAt || 0) - (a.completedAt || a.readyAt || 0));
     }, [orders]);

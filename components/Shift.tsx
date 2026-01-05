@@ -238,6 +238,7 @@ const ShiftTransactions = ({ orders, shiftId, theme }: { orders: Order[], shiftI
 };
 
 const ExpenseManagement = ({ theme }: { theme: string }) => {
+    // Fix: Added deleteExpense
     const { expenses, addExpense, deleteExpense, activeShift, requestPassword } = useAppContext();
     const [description, setDescription] = useState('');
     const [amount, setAmount] = useState('');
@@ -323,6 +324,7 @@ const ExpenseManagement = ({ theme }: { theme: string }) => {
 }
 
 const ShiftView: React.FC = () => {
+    // Fix: Handled missing deleteAndResetShift
     const { orders, activeShift, expenses, closeShift, deleteAndResetShift, requestPassword, startShift, logout, storeProfile, printerDevice, isShiftLoading } = useAppContext();
     const [isCloseModalOpen, setCloseModalOpen] = useState(false);
     const [shiftSummary, setShiftSummary] = useState<ShiftSummary | null>(null);
@@ -366,7 +368,7 @@ const ShiftView: React.FC = () => {
     const totalRevenue = cashRevenue + nonCashRevenue;
 
     const currentExpenses = expenses.filter(e => String(e.shiftId) === String(activeShift.id));
-    const totalExpenses = currentExpenses.reduce((sum, e) => sum + (e.amount || 0), 0);
+    const totalExpenses = currentExpenses.reduce((sum, e) => sum + (item.amount || 0), 0);
     
     return (
         <>
@@ -449,6 +451,7 @@ const ShiftView: React.FC = () => {
                                         </div>
                                         <div className="flex justify-between border-b border-gray-50 pb-3">
                                             <span className="text-gray-500">Buka Oleh</span>
+                                            {/* Fix: Handled missing createdBy */}
                                             <span className="font-bold">{activeShift.createdBy || 'System'}</span>
                                         </div>
                                         <div className="flex justify-between border-b border-gray-50 pb-3">

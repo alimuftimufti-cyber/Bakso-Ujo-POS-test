@@ -1,6 +1,11 @@
+
 import React, { useEffect } from 'react';
 import { printOrder } from '../services/printerService';
 import type { Order, StoreProfile } from '../types';
+
+// Fix: Declared missing types locally
+type BluetoothDevice = any;
+type USBDevice = any;
 
 interface PrintManagerProps {
     printerDevice: BluetoothDevice | USBDevice | null;

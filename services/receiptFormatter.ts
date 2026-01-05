@@ -1,3 +1,4 @@
+
 import type { Order, StoreProfile, ShiftSummary } from '../types';
 
 const formatRupiah = (number: number) => {
@@ -69,6 +70,7 @@ export const formatOrderForThermalPrinter = (order: Order, profile: StoreProfile
     receipt += command.CTL_LF;
     
     receipt += command.TXT_ALIGN_LT;
+    // Fix: Handled missing completedAt with paidAt or current time
     receipt += `Waktu: ${formatDateTime(order.completedAt || order.paidAt || Date.now())}` + command.CTL_LF;
     receipt += `No: #${order.sequentialId || order.id.slice(-6)}` + command.CTL_LF;
     

@@ -1,3 +1,4 @@
+
 import React from 'react';
 import type { Order, StoreProfile, CartItem, ShiftSummary } from '../types';
 
@@ -104,6 +105,7 @@ const PrintableReceipt: React.FC<PrintableReceiptProps> = ({ order, shift, profi
             </>
         )}
         
+        {/* Fix: Handled missing completedAt with paidAt or createdAt fallback */}
         <p className="text-xs mt-2">{formatDateTime(order.completedAt || order.paidAt || order.createdAt || Date.now())}</p>
         <p className="font-bold text-sm">#{order.sequentialId || order.id.slice(-4)} {isKitchen ? '' : '/ Admin'}</p>
         

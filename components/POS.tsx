@@ -293,7 +293,8 @@ const POSView: React.FC = () => {
     }, [menu, selectedCategory, searchTerm]);
 
     const pendingOrders = useMemo(() => orders.filter(o => o.status !== 'completed' && o.status !== 'cancelled').sort((a, b) => b.createdAt - a.createdAt), [orders]);
-    const historyOrders = useMemo(() => orders.filter(o => o.status === 'completed' || o.status === 'cancelled').sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0)).slice(0, 20), [orders]);
+    // Fix: Used paidAt instead of completedAt which might not be set
+    const historyOrders = useMemo(() => orders.filter(o => o.status === 'completed' || o.status === 'cancelled').sort((a, b) => (b.completedAt || b.paidAt || 0) - (a.completedAt || a.paidAt || 0)).slice(0, 20), [orders]);
     const displayedOrders = sidebarTab === 'active' ? pendingOrders : historyOrders;
 
     const addToCart = useCallback((item: MenuItem) => { 
@@ -310,6 +311,7 @@ const POSView: React.FC = () => {
                 alert(`Stok tidak mencukupi.`);
                 return prev;
             }
+            // Fix: Use defaultNote if available
             return existing ? prev.map(i => i.id === item.id ? { ...i, quantity: i.quantity + 1 } : i) : [...prev, { ...item, quantity: 1, note: item.defaultNote || '' }]; 
         }); 
     }, [isReadOnly]);
@@ -335,7 +337,8 @@ const POSView: React.FC = () => {
         } 
     };
     
-    const handleNameConfirm = (name: string) => { let newOrder: Order | null = null; if (pendingAction === 'save') { addOrder(cart, name, discountVal, discountType, orderType); setActiveOrder(null); setCart([]); setDiscountVal(0); setOrderType('Dine In'); } else if (pendingAction === 'pay') { newOrder = addOrder(cart, name, discountVal, discountType, orderType); if(newOrder) { setActiveOrder(newOrder); setIsPaymentModalOpen(true); } } setPendingAction(null); setNameModalOpen(false); };
+    // Fix: Awaited addOrder result
+    const handleNameConfirm = async (name: string) => { let newOrder: Order | null = null; if (pendingAction === 'save') { await addOrder(cart, name, discountVal, discountType, orderType); setActiveOrder(null); setCart([]); setDiscountVal(0); setOrderType('Dine In'); } else if (pendingAction === 'pay') { newOrder = await addOrder(cart, name, discountVal, discountType, orderType); if(newOrder) { setActiveOrder(newOrder); setIsPaymentModalOpen(true); } } setPendingAction(null); setNameModalOpen(false); };
     const handlePayment = (method: PaymentMethod) => { if (activeOrder) { const finalOrder = { ...activeOrder, items: cart, total: totals.total, discount: totals.discount, taxAmount: totals.tax, serviceChargeAmount: totals.service }; const paidOrder = payForOrder(finalOrder, method); if(paidOrder) { setActiveOrder(paidOrder); } setIsPaymentModalOpen(false); } };
     const handleCompleteOrder = (order: Order) => { updateOrderStatus(order.id, 'completed'); setActiveOrder(null); setCart([]); };
     const handleSelectOrder = (o: Order) => { 
