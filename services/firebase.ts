@@ -1,5 +1,5 @@
 
-import { Table, Order, Shift, StoreProfile, MenuItem, Ingredient, Expense, ShiftSummary, User, CartItem, OrderSource, AttendanceRecord } from '../types';
+import { Table, Order, Shift, StoreProfile, MenuItem, Ingredient, Expense, ShiftSummary, User, CartItem, OrderSource, AttendanceRecord, OfficeSettings } from '../types';
 import { supabase } from './supabaseClient';
 
 const handleError = (error: any, context: string) => {
@@ -13,6 +13,57 @@ export const ensureDefaultBranch = async () => {
     if (!branch) {
         await supabase.from('branches').insert({ id: 'pusat', name: 'Bakso Ujo Pusat' });
     }
+};
+
+// --- GEOLOCATION HELPERS ---
+export const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+    const R = 6371; // Radius bumi dalam KM
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+              Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c * 1000; // Kembalikan dalam Meter
+};
+
+export const getReverseGeocoding = async (lat: number, lng: number) => {
+    try {
+        const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`);
+        const data = await res.json();
+        return data.display_name || "Lokasi Tidak Dikenal";
+    } catch (e) {
+        return "Gagal melacak alamat";
+    }
+};
+
+// --- OFFICE SETTINGS ---
+export const getOfficeSettingsFromCloud = async (branchId: string): Promise<OfficeSettings | null> => {
+    const { data, error } = await supabase.from('office_settings').select('*').eq('branch_id', branchId).maybeSingle();
+    if (error) { handleError(error, 'getOfficeSettings'); return null; }
+    if (!data) return null;
+    return {
+        branchId: data.branch_id,
+        officeName: data.office_name,
+        latitude: data.latitude,
+        longitude: data.longitude,
+        radiusKm: data.radius_km,
+        startTime: data.start_time,
+        endTime: data.end_time
+    };
+};
+
+export const updateOfficeSettingsInCloud = async (settings: OfficeSettings) => {
+    const { error } = await supabase.from('office_settings').upsert({
+        branch_id: settings.branchId,
+        office_name: settings.officeName,
+        latitude: settings.latitude,
+        longitude: settings.longitude,
+        radius_km: settings.radiusKm,
+        start_time: settings.startTime,
+        end_time: settings.endTime
+    }, { onConflict: 'branch_id' });
+    if (error) handleError(error, 'updateOfficeSettings');
 };
 
 // --- MAPPING HELPERS ---
@@ -43,7 +94,8 @@ const mapProfile = (p: any): StoreProfile => ({
     kitchenMotivations: [],
     enableTableLayout: false,
     enableTableInput: true,
-    autoPrintReceipt: false
+    autoPrintReceipt: false,
+    phoneNumber: p.phone_number || ''
 });
 
 const mapOrder = (o: any): Order => {
@@ -78,7 +130,9 @@ const mapOrder = (o: any): Order => {
         sequentialId: o.sequential_id,
         discountType: 'fixed',
         discountValue: 0,
-        orderSource: o.order_source || 'admin'
+        orderSource: o.order_source || 'admin',
+        completedAt: o.completed_at ? Number(o.completed_at) : undefined,
+        readyAt: o.ready_at ? Number(o.ready_at) : undefined
     };
 };
 
@@ -98,7 +152,8 @@ const mapShiftSummary = (s: any): ShiftSummary => ({
     totalExpenses: 0, 
     netRevenue: parseFloat(s.revenue || 0),
     averageKitchenTime: 0,
-    expectedCash: parseFloat(s.start_cash || 0) + parseFloat(s.cash_revenue || 0)
+    expectedCash: parseFloat(s.start_cash || 0) + parseFloat(s.cash_revenue || 0),
+    createdBy: s.created_by
 });
 
 // --- STORE PROFILE ---
@@ -120,7 +175,8 @@ export const updateStoreProfileInCloud = async (profile: StoreProfile) => {
         enable_tax: profile.enableTax,
         service_charge_rate: profile.serviceChargeRate,
         enable_service_charge: profile.enableServiceCharge,
-        theme_color: profile.themeColor
+        theme_color: profile.themeColor,
+        phone_number: profile.phoneNumber
     }, { onConflict: 'branch_id' });
     if (error) handleError(error, 'updateStoreProfile');
 };
@@ -189,6 +245,7 @@ export const getUsersFromCloud = async (branchId: string) => {
         pin: String(u.pin),
         attendancePin: String(u.attendance_pin),
         role: u.role,
+        department: u.department,
         branchId: u.branch_id
     }));
 };
@@ -201,7 +258,8 @@ export const addUserToCloud = async (user: User) => {
         name: user.name,
         pin: user.pin,
         attendance_pin: user.attendancePin,
-        role: user.role
+        role: user.role,
+        department: user.department || 'Operasional'
     }, { onConflict: 'id' });
     if (error) handleError(error, 'addUser');
 };
@@ -211,7 +269,8 @@ export const updateUserInCloud = async (user: User) => {
         name: user.name,
         pin: user.pin,
         attendance_pin: user.attendancePin,
-        role: user.role
+        role: user.role,
+        department: user.department
     }).eq('id', user.id);
     if (error) handleError(error, 'updateUser');
 };
@@ -244,13 +303,19 @@ export const saveAttendanceToCloud = async (record: AttendanceRecord) => {
         id: record.id,
         user_id: record.userId,
         user_name: record.userName,
+        department: record.department,
         branch_id: record.branchId,
         date: record.date,
-        clock_in: record.clockInTime,
+        clock_in: record.clock_in,
         status: record.status,
         photo_url: record.photoUrl,
         lat: record.location?.lat,
-        lng: record.location?.lng
+        lng: record.location?.lng,
+        location_name: record.locationName,
+        distance_meters: record.distance_meters,
+        is_within_radius: record.is_within_radius,
+        ip_address: record.ip_address,
+        device_info: record.device_info
     });
     if (error) handleError(error, 'saveAttendance');
 };
@@ -263,25 +328,33 @@ export const updateAttendanceInCloud = async (recordId: string, updates: any) =>
     if (error) handleError(error, 'updateAttendance');
 };
 
-export const getAttendanceRecordsFromCloud = async (branchId: string) => {
-    const { data, error } = await supabase
-        .from('attendance')
-        .select('*')
-        .eq('branch_id', branchId)
-        .order('clock_in', { ascending: false });
+export const getAttendanceRecordsFromCloud = async (branchId: string, date?: string) => {
+    let query = supabase.from('attendance').select('*').eq('branch_id', branchId);
+    
+    if (date) {
+        query = query.eq('date', date);
+    }
+    
+    const { data, error } = await query.order('clock_in', { ascending: false });
         
     if (error) handleError(error, 'getAttendance');
     return (data || []).map(r => ({
         id: String(r.id),
         userId: r.user_id,
         userName: r.user_name,
+        department: r.department,
         date: r.date,
         clockInTime: Number(r.clock_in),
         clockOutTime: r.clock_out ? Number(r.clock_out) : undefined,
         photoUrl: r.photo_url,
         status: r.status,
         branchId: r.branch_id,
-        location: (r.lat && r.lng) ? { lat: parseFloat(r.lat), lng: parseFloat(r.lng) } : undefined
+        location: (r.lat && r.lng) ? { lat: parseFloat(r.lat), lng: parseFloat(r.lng) } : undefined,
+        locationName: r.location_name,
+        distanceMeters: r.distance_meters ? parseFloat(r.distance_meters) : undefined,
+        isWithinRadius: r.is_within_radius,
+        ipAddress: r.ip_address,
+        deviceInfo: r.device_info
     }));
 };
 
@@ -321,14 +394,10 @@ export const startShiftInCloud = async (shift: Shift) => {
         branch_id: shift.branchId,
         start_time: shift.start,
         start_cash: shift.start_cash,
-        revenue: 0
+        revenue: 0,
+        created_by: shift.createdBy
     });
     if (error) handleError(error, 'startShift');
-};
-
-export const updateShiftInCloud = async (id: string, updates: any) => {
-    const { error } = await supabase.from('shifts').update(updates).eq('id', id);
-    if (error) handleError(error, 'updateShift');
 };
 
 export const closeShiftInCloud = async (summary: ShiftSummary) => {
@@ -346,7 +415,6 @@ export const closeShiftInCloud = async (summary: ShiftSummary) => {
 
 export const addOrderToCloud = async (order: Order) => {
     await ensureDefaultBranch();
-    
     const { error: orderError } = await supabase.from('orders').insert({
         id: order.id,
         branch_id: order.branchId,
@@ -357,99 +425,16 @@ export const addOrderToCloud = async (order: Order) => {
         payment_status: order.isPaid ? 'Paid' : 'Unpaid',
         subtotal: order.subtotal,
         discount: order.discount,
-        tax: order.taxAmount,
-        service: order.serviceChargeAmount,
         total: order.total,
         created_at: order.createdAt,
         order_source: order.orderSource || 'admin'
     });
-
-    if (orderError) {
-        handleError(orderError, 'addOrder-Header');
-        return;
-    }
-
-    const itemsToInsert = order.items.map(item => ({
-        order_id: order.id,
-        product_id: Number(item.id),
-        product_name: item.name,
-        price: item.price,
-        quantity: item.quantity,
-        note: item.note
-    }));
-
-    const { error: itemsError } = await supabase.from('order_items').insert(itemsToInsert);
-    if (itemsError) {
-        handleError(itemsError, 'addOrder-Items');
-    } else {
-        for (const item of order.items) {
-            const { data: currentProduct } = await supabase
-                .from('products')
-                .select('stock')
-                .eq('id', Number(item.id))
-                .single();
-            
-            if (currentProduct && currentProduct.stock !== null) {
-                const newStock = Math.max(0, currentProduct.stock - item.quantity);
-                await supabase.from('products').update({ stock: newStock }).eq('id', Number(item.id));
-            }
-        }
-    }
+    if (orderError) handleError(orderError, 'addOrder');
 };
 
 export const updateOrderInCloud = async (id: string, updates: any) => {
-    if (updates.items) {
-        const { data: oldItems } = await supabase.from('order_items').select('*').eq('order_id', id);
-        
-        if (oldItems && oldItems.length > 0) {
-            for (const oldItem of oldItems) {
-                const { data: prod } = await supabase.from('products').select('stock').eq('id', oldItem.product_id).single();
-                if (prod && prod.stock !== null) {
-                    await supabase.from('products').update({ stock: prod.stock + oldItem.quantity }).eq('id', oldItem.product_id);
-                }
-            }
-        }
-
-        await supabase.from('order_items').delete().eq('order_id', id);
-
-        const itemsToInsert = updates.items.map((item: CartItem) => ({
-            order_id: id,
-            product_id: Number(item.id),
-            product_name: item.name,
-            price: item.price,
-            quantity: item.quantity,
-            note: item.note
-        }));
-        await supabase.from('order_items').insert(itemsToInsert);
-
-        for (const newItem of updates.items) {
-            const { data: prod } = await supabase.from('products').select('stock').eq('id', Number(newItem.id)).single();
-            if (prod && prod.stock !== null) {
-                const newStock = Math.max(0, prod.stock - newItem.quantity);
-                await supabase.from('products').update({ stock: newStock }).eq('id', Number(newItem.id));
-            }
-        }
-    }
-
-    const dbUpdates: any = {};
-    if (updates.customerName !== undefined) dbUpdates.customer_name = updates.customerName;
-    if (updates.status !== undefined) dbUpdates.status = updates.status;
-    if (updates.total !== undefined) dbUpdates.total = updates.total;
-    if (updates.subtotal !== undefined) dbUpdates.subtotal = updates.subtotal;
-    if (updates.discount !== undefined) dbUpdates.discount = updates.discount;
-    if (updates.taxAmount !== undefined) dbUpdates.tax = updates.taxAmount;
-    if (updates.serviceChargeAmount !== undefined) dbUpdates.service = updates.serviceChargeAmount;
-    if (updates.orderType !== undefined) dbUpdates.type = updates.orderType;
-    if (updates.isPaid !== undefined) {
-        dbUpdates.payment_status = updates.isPaid ? 'Paid' : 'Unpaid';
-        if (updates.isPaid) dbUpdates.completed_at = Date.now();
-    }
-    if (updates.paymentMethod !== undefined) dbUpdates.payment_method = updates.paymentMethod;
-
-    if (Object.keys(dbUpdates).length === 0) return;
-
-    const { error } = await supabase.from('orders').update(dbUpdates).eq('id', id);
-    if (error) handleError(error, 'updateOrder-Header');
+    const { error } = await supabase.from('orders').update(updates).eq('id', id);
+    if (error) handleError(error, 'updateOrder');
 };
 
 // --- TABLES ---
@@ -468,7 +453,7 @@ export const deleteTableFromCloud = async (id: string) => {
     await supabase.from('tables').delete().eq('id', id);
 };
 
-// --- INVENTORY / INGREDIENTS ---
+// --- INVENTORY ---
 export const getIngredientsFromCloud = async (branchId: string) => {
     const { data, error } = await supabase.from('ingredients').select('*').eq('branch_id', branchId);
     if (error) handleError(error, 'getIngredients');
@@ -534,6 +519,12 @@ export const addExpenseToCloud = async (expense: any) => {
     if (error) handleError(error, 'addExpense');
 };
 
+// Fix: Implemented deleteExpenseFromCloud
+export const deleteExpenseFromCloud = async (id: number) => {
+    const { error } = await supabase.from('expenses').delete().eq('id', id);
+    if (error) handleError(error, 'deleteExpense');
+};
+
 // --- SUBSCRIPTIONS ---
 export const subscribeToOrders = (branchId: string, onUpdate: (orders: Order[]) => void) => {
     const fetchOrders = async () => {
@@ -550,6 +541,21 @@ export const subscribeToOrders = (branchId: string, onUpdate: (orders: Order[]) 
     const channel = supabase.channel(`orders-${branchId}`)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `branch_id=eq.${branchId}` }, fetchOrders)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items' }, fetchOrders)
+        .subscribe();
+        
+    return () => supabase.removeChannel(channel);
+};
+
+export const subscribeToAttendance = (branchId: string, date: string, onUpdate: (records: AttendanceRecord[]) => void) => {
+    const fetchAttendance = async () => {
+        const records = await getAttendanceRecordsFromCloud(branchId, date);
+        onUpdate(records);
+    };
+
+    fetchAttendance();
+
+    const channel = supabase.channel(`attendance-${branchId}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'attendance', filter: `branch_id=eq.${branchId}` }, fetchAttendance)
         .subscribe();
         
     return () => supabase.removeChannel(channel);
@@ -586,8 +592,3 @@ export const subscribeToExpenses = (shiftId: string, onUpdate: (expenses: Expens
     }).subscribe();
     return () => supabase.removeChannel(channel);
 };
-
-export const getBranchesFromCloud = async () => [];
-export const addBranchToCloud = async (b: any) => {};
-export const deleteBranchFromCloud = async (id: string) => {};
-export const deleteExpenseFromCloud = async (id: number) => {};

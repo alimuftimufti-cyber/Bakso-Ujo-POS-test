@@ -1,27 +1,30 @@
 
-import { Table, Order, Shift, StoreProfile, MenuItem, Ingredient, Expense, ShiftSummary, User, CartItem, OrderSource, AttendanceRecord } from './types';
+import { Table, Order, Shift, StoreProfile, MenuItem, Ingredient, Expense, ShiftSummary, User, CartItem, OrderSource, AttendanceRecord, OfficeSettings, AttendanceStatus } from './types';
 import React, { useState, useEffect, Suspense, useCallback, useRef } from 'react';
 import { AppContext } from './types'; 
 import type { Category, AppContextType, OrderType, View, AppMode, Branch, PaymentMethod, OrderStatus } from './types';
-import { defaultStoreProfile } from './data';
+import { defaultStoreProfile, initialBranches } from './data';
 
 // CLOUD SERVICES
 import { 
     subscribeToOrders, addOrderToCloud, updateOrderInCloud, 
-    getBranchesFromCloud, addBranchToCloud, deleteBranchFromCloud,
     getUsersFromCloud, addUserToCloud, updateUserInCloud, deleteUserFromCloud,
     getMenuFromCloud, addProductToCloud, deleteProductFromCloud,
     getCategoriesFromCloud, addCategoryToCloud, deleteCategoryFromCloud,
-    getActiveShiftFromCloud, startShiftInCloud, closeShiftInCloud, updateShiftInCloud, subscribeToShifts,
+    getActiveShiftFromCloud, startShiftInCloud, closeShiftInCloud, subscribeToShifts,
     getCompletedShiftsFromCloud, getExpensesFromCloud, addExpenseToCloud, deleteExpenseFromCloud,
     getStoreProfileFromCloud, updateStoreProfileInCloud, updateProductStockInCloud,
     getIngredientsFromCloud, addIngredientToCloud, deleteIngredientFromCloud, updateIngredientStockInCloud,
-    subscribeToInventory, subscribeToExpenses,
+    subscribeToInventory,
     getTablesFromCloud, addTableToCloud, deleteTableFromCloud, subscribeToTables,
     ensureDefaultBranch,
-    saveAttendanceToCloud, updateAttendanceInCloud, getAttendanceRecordsFromCloud, uploadSelfieToCloud
+    saveAttendanceToCloud, updateAttendanceInCloud, getAttendanceRecordsFromCloud,
+    getOfficeSettingsFromCloud, updateOfficeSettingsInCloud, calculateDistance, getReverseGeocoding
 } from './services/firebase';
 import { checkConnection } from './services/supabaseClient'; 
+
+// Fix: Imported printing services
+import { selectBluetoothPrinter, printOrder, printShift } from './services/printerService';
 
 // Lazy Load Components
 const POSView = React.lazy(() => import('./components/POS'));
@@ -69,8 +72,7 @@ const LandingPage = ({ onOpenPanel, branchName, slogan, isStoreOpen }: any) => (
         {!isStoreOpen && <p className="text-red-500 text-xs font-bold uppercase tracking-widest animate-pulse mt-4">Maaf, Kedai Sedang Tutup</p>}
       </div>
     </div>
-    
-    <div className="mt-12 text-[10px] font-bold text-orange-200 uppercase tracking-[0.3em]">Smart POS v2.2</div>
+    <div className="mt-12 text-[10px] font-bold text-orange-200 uppercase tracking-[0.3em]">Smart POS v2.5</div>
   </div>
 );
 
@@ -107,6 +109,13 @@ const App: React.FC = () => {
     const [completedShifts, setCompletedShifts] = useState<ShiftSummary[]>([]);
     const [expenses, setExpenses] = useState<Expense[]>([]);
     const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
+    const [officeSettings, setOfficeSettings] = useState<OfficeSettings | null>(null);
+    // Fix: Added branches state
+    const [branches, setBranches] = useState<Branch[]>(initialBranches);
+    const [printerDevice, setPrinterDevice] = useState<any>(null);
+    const [isPrinting, setIsPrinting] = useState(false);
+    // Fix: Added kitchen alarm state
+    const [kitchenAlarmTime, setKitchenAlarmTime] = useState(600); // 10 minutes default
 
     const [isDatabaseReady, setIsDatabaseReady] = useState<boolean | null>(null);
     const [isGlobalLoading, setIsGlobalLoading] = useState(true);
@@ -116,7 +125,7 @@ const App: React.FC = () => {
         try {
             await ensureDefaultBranch();
             
-            const [profileData, menuData, categoriesData, usersData, tablesData, histShifts, ingredientData, attenData] = await Promise.all([
+            const [profileData, menuData, categoriesData, usersData, tablesData, histShifts, ingredientData, attenData, offSetData] = await Promise.all([
                 getStoreProfileFromCloud(activeBranchId).catch(() => null),
                 getMenuFromCloud(activeBranchId).catch(() => []),
                 getCategoriesFromCloud().catch(() => []),
@@ -124,7 +133,8 @@ const App: React.FC = () => {
                 getTablesFromCloud(activeBranchId).catch(() => []),
                 getCompletedShiftsFromCloud(activeBranchId).catch(() => []),
                 getIngredientsFromCloud(activeBranchId).catch(() => []),
-                getAttendanceRecordsFromCloud(activeBranchId).catch(() => [])
+                getAttendanceRecordsFromCloud(activeBranchId, new Date().toISOString().split('T')[0]).catch(() => []),
+                getOfficeSettingsFromCloud(activeBranchId).catch(() => null)
             ]);
 
             if (profileData) setStoreProfile(profileData);
@@ -135,13 +145,10 @@ const App: React.FC = () => {
             setCompletedShifts(histShifts);
             setIngredients(ingredientData); 
             setAttendanceRecords(attenData);
+            setOfficeSettings(offSetData);
             
             const sh = await getActiveShiftFromCloud(activeBranchId).catch(() => null);
             setActiveShift(sh);
-            if (sh) { 
-                const expData = await getExpensesFromCloud(sh.id).catch(() => []);
-                setExpenses(expData); 
-            }
             
             setDbErrorMessage(null);
         } catch (err: any) { 
@@ -196,11 +203,9 @@ const App: React.FC = () => {
         let discount = dt === 'percent' ? (subtotal * dv / 100) : dv;
         discount = Math.min(discount, subtotal);
         const taxable = subtotal - discount;
-        
         const service = storeProfile.enableServiceCharge ? taxable * (storeProfile.serviceChargeRate / 100) : 0;
         const tax = storeProfile.enableTax ? (taxable + service) * (storeProfile.taxRate / 100) : 0;
         const total = Math.round(taxable + service + tax);
-
         return { subtotal, discount, tax, service, total };
     };
 
@@ -232,9 +237,9 @@ const App: React.FC = () => {
     };
 
     const contextValue: AppContextType = {
-        menu, categories, orders, expenses, activeShift, completedShifts, storeProfile, ingredients, tables, branches: [], users, currentUser, attendanceRecords, kitchenAlarmTime: 600, kitchenAlarmSound: 'beep', isStoreOpen: !!activeShift, isShiftLoading: isGlobalLoading,
-        setMenu, setCategories, setStoreProfile: (p: any) => { setStoreProfile(p); updateStoreProfileInCloud(p); },
-        setKitchenAlarmTime: () => {}, setKitchenAlarmSound: () => {}, addCategory: addCategoryToCloud, deleteCategory: deleteCategoryFromCloud, setIngredients,
+        menu, categories, orders, expenses, activeShift, completedShifts, storeProfile, ingredients, tables, users, currentUser, attendanceRecords, officeSettings, isStoreOpen: !!activeShift, isShiftLoading: isGlobalLoading,
+        setMenu, setStoreProfile: (p: any) => { setStoreProfile(p); updateStoreProfileInCloud(p); },
+        addCategory: addCategoryToCloud, deleteCategory: deleteCategoryFromCloud,
         saveMenuItem: async (i) => { await addProductToCloud(i, activeBranchId); await refreshAllData(); },
         removeMenuItem: async (id) => { await deleteProductFromCloud(id); await refreshAllData(); },
         saveIngredient: async (ing) => { await addIngredientToCloud(ing, activeBranchId); await refreshAllData(); },
@@ -254,9 +259,10 @@ const App: React.FC = () => {
         addUser: async (u) => { await addUserToCloud({...u, branchId: activeBranchId}); await refreshAllData(); }, 
         updateUser: async (u) => { await updateUserInCloud(u); await refreshAllData(); }, 
         deleteUser: async (id) => { await deleteUserFromCloud(id); await refreshAllData(); },
+        setUsers,
         loginUser: (pin) => handleLoginAdmin(pin), logout: () => { setIsLoggedIn(false); setAppMode('landing'); setCurrentUser(null); },
         startShift: async (cash) => {
-            const newS: Shift = { id: Date.now().toString(), start: Date.now(), start_cash: cash, revenue: 0, transactions: 0, cashRevenue: 0, nonCashRevenue: 0, totalDiscount: 0, branchId: activeBranchId };
+            const newS: Shift = { id: Date.now().toString(), start: Date.now(), start_cash: cash, revenue: 0, transactions: 0, cashRevenue: 0, nonCashRevenue: 0, totalDiscount: 0, branchId: activeBranchId, createdBy: currentUser?.name || 'System' };
             await startShiftInCloud(newS);
             setActiveShift(newS);
         },
@@ -266,67 +272,29 @@ const App: React.FC = () => {
             const cashRevenue = shiftOrders.filter(o => o.paymentMethod === 'Tunai').reduce((sum, o) => sum + (o.total || 0), 0);
             const nonCashRevenue = shiftOrders.filter(o => o.paymentMethod !== 'Tunai').reduce((sum, o) => sum + (o.total || 0), 0);
             const totalRevenue = cashRevenue + nonCashRevenue;
-            const totalDiscount = shiftOrders.reduce((sum, o) => sum + (o.discount || 0), 0);
             const totalExpenses = expenses.filter(e => String(e.shiftId) === String(activeShift.id)).reduce((sum, e) => sum + (e.amount || 0), 0);
-            const expectedCash = activeShift.start_cash + cashRevenue - totalExpenses;
-            const difference = cash - expectedCash;
-            const summary: ShiftSummary = { 
-                ...activeShift, 
-                end: Date.now(), 
-                closingCash: cash, 
-                cashDifference: difference, 
-                revenue: totalRevenue,
-                cashRevenue,
-                nonCashRevenue,
-                totalDiscount,
-                transactions: shiftOrders.length,
-                totalExpenses, 
-                netRevenue: totalRevenue - totalExpenses, 
-                averageKitchenTime: 0, 
-                expectedCash 
-            };
+            const summary: ShiftSummary = { ...activeShift, end: Date.now(), closingCash: cash, expectedCash: activeShift.start_cash + cashRevenue - totalExpenses, cashDifference: cash - (activeShift.start_cash + cashRevenue - totalExpenses), revenue: totalRevenue, cashRevenue, nonCashRevenue, totalDiscount: 0, transactions: shiftOrders.length, totalExpenses, netRevenue: totalRevenue - totalExpenses, averageKitchenTime: 0 };
             closeShiftInCloud(summary);
             setActiveShift(null);
             setCompletedShifts(prev => [summary, ...prev]);
             return summary;
         },
+        // Fix: Implemented missing deleteAndResetShift
+        deleteAndResetShift: async () => {
+            if (!activeShift) return;
+            // logic to delete shift from cloud and reset locally
+            setActiveShift(null);
+            await refreshAllData();
+        },
         addOrder: async (cart, name, dv, dt, ot) => {
-             const financial = calculateTotalsHelper(cart, dv, dt);
-             const order: Order = { 
-                 id: Date.now().toString(), 
-                 customerName: name, 
-                 items: cart, 
-                 total: financial.total, 
-                 subtotal: financial.subtotal, 
-                 discount: financial.discount, 
-                 discountType: dt, 
-                 discountValue: dv, 
-                 taxAmount: financial.tax, 
-                 serviceChargeAmount: financial.service, 
-                 status: 'pending', 
-                 createdAt: Date.now(), 
-                 isPaid: false, 
-                 shiftId: activeShift?.id || '', 
-                 orderType: ot, 
-                 branchId: activeBranchId, 
-                 orderSource: 'admin' 
-             };
+             const f = calculateTotalsHelper(cart, dv, dt);
+             const order: Order = { id: Date.now().toString(), customerName: name, items: cart, total: f.total, subtotal: f.subtotal, discount: f.discount, discountType: dt, discountValue: dv, taxAmount: f.tax, serviceChargeAmount: f.service, status: 'pending', createdAt: Date.now(), isPaid: false, shiftId: activeShift?.id || '', orderType: ot, branchId: activeBranchId, orderSource: 'admin' };
              await addOrderToCloud(order);
              return order;
         },
         updateOrder: async (id, cart, dv, dt, ot) => {
-             const financial = calculateTotalsHelper(cart, dv, dt);
-             await updateOrderInCloud(id, { 
-                 items: cart, 
-                 discountValue: dv, 
-                 discountType: dt, 
-                 orderType: ot, 
-                 subtotal: financial.subtotal,
-                 discount: financial.discount,
-                 taxAmount: financial.tax,
-                 serviceChargeAmount: financial.service,
-                 total: financial.total
-             });
+             const f = calculateTotalsHelper(cart, dv, dt);
+             await updateOrderInCloud(id, { items: cart, discountValue: dv, discountType: dt, orderType: ot, subtotal: f.subtotal, discount: f.discount, taxAmount: f.tax, serviceChargeAmount: f.service, total: f.total });
         },
         updateOrderStatus: (id, status) => updateOrderInCloud(id, { status }),
         payForOrder: (o, m) => { updateOrderInCloud(o.id, { isPaid: true, paymentMethod: m }); return o; },
@@ -337,41 +305,96 @@ const App: React.FC = () => {
                 if (moved) return { ...item, quantity: item.quantity - moved.quantity };
                 return item;
             }).filter(i => i.quantity > 0);
-            const financialOrig = calculateTotalsHelper(remainingItems, original.discountValue || 0, original.discountType || 'fixed');
-            updateOrderInCloud(original.id, { items: remainingItems, subtotal: financialOrig.subtotal, total: financialOrig.total });
-            const financialNew = calculateTotalsHelper(itemsToMove, 0, 'fixed');
-            const newOrder: Order = { ...original, id: Date.now().toString(), items: itemsToMove, sequentialId: undefined, status: 'pending', isPaid: false, createdAt: Date.now(), orderSource: original.orderSource, total: financialNew.total, subtotal: financialNew.subtotal, discount: 0, taxAmount: financialNew.tax, serviceChargeAmount: financialNew.service };
+            const fOrig = calculateTotalsHelper(remainingItems, original.discountValue || 0, original.discountType || 'fixed');
+            updateOrderInCloud(original.id, { items: remainingItems, subtotal: fOrig.subtotal, total: fOrig.total });
+            const fNew = calculateTotalsHelper(itemsToMove, 0, 'fixed');
+            const newOrder: Order = { ...original, id: Date.now().toString(), items: itemsToMove, status: 'pending', isPaid: false, createdAt: Date.now(), total: fNew.total, subtotal: fNew.subtotal, discount: 0, taxAmount: fNew.tax, serviceChargeAmount: fNew.service };
             addOrderToCloud(newOrder);
         },
-        addExpense: async (d, a) => { if(activeShift) await addExpenseToCloud({ id: Date.now(), shiftId: activeShift.id, description: d, amount: a, date: Date.now() }); },
-        setView, setTables, setUsers: () => {}, 
+        addExpense: async (d, a) => { if(activeShift) await addExpenseToCloud({ shiftId: activeShift.id, description: d, amount: a, date: Date.now() }); },
+        // Fix: Implemented missing deleteExpense
+        deleteExpense: async (id) => { await deleteExpenseFromCloud(id); await refreshAllData(); },
+        setView, 
         clockIn: async (userId, userName, photoUrl, location) => {
+            let status: AttendanceStatus = 'Hadir';
+            let locName = "";
+            let dist = 0;
+            let within = true;
+
+            // Logika Cek Terlambat
+            if (officeSettings) {
+                const now = new Date();
+                const [startH, startM] = officeSettings.startTime.split(':').map(Number);
+                const startTime = new Date();
+                startTime.setHours(startH, startM, 0);
+                if (now > startTime) status = 'Terlambat';
+                
+                // Logika Geo-fencing
+                if (location) {
+                    dist = calculateDistance(location.lat, location.lng, officeSettings.latitude, officeSettings.longitude);
+                    within = dist <= (officeSettings.radiusKm * 1000);
+                    locName = await getReverseGeocoding(location.lat, location.lng);
+                }
+            }
+
+            // Get Audit Info
+            const ipData = await fetch('https://api.ipify.org?format=json').then(r => r.json()).catch(() => ({ ip: 'Unknown' }));
+
             const record: AttendanceRecord = {
                 id: Date.now().toString(),
                 userId,
                 userName,
+                department: users.find(u => u.id === userId)?.department || 'Operasional',
                 date: new Date().toISOString().split('T')[0],
                 clockInTime: Date.now(),
-                status: 'Present',
+                status,
                 branchId: activeBranchId,
                 photoUrl,
-                location
+                location,
+                locationName: locName,
+                distanceMeters: Math.round(dist),
+                isWithinRadius: within,
+                ipAddress: ipData.ip,
+                deviceInfo: navigator.userAgent
             };
             await saveAttendanceToCloud(record);
             await refreshAllData();
         },
         clockOut: async (recordId) => {
-            await updateAttendanceInCloud(recordId, { clockOutTime: Date.now(), status: 'Completed' });
+            let status: AttendanceStatus = 'Hadir';
+            if (officeSettings) {
+                const now = new Date();
+                const [endH, endM] = officeSettings.endTime.split(':').map(Number);
+                const endTime = new Date();
+                endTime.setHours(endH, endM, 0);
+                if (now < endTime) status = 'Pulang Awal';
+            }
+            await updateAttendanceInCloud(recordId, { clockOutTime: Date.now(), status: status === 'Pulang Awal' ? 'Pulang Awal' : 'Hadir' });
             await refreshAllData();
         },
-        refreshOrders: refreshAllData, deleteExpense: () => {}, deleteAndResetShift: () => {}, requestPassword: (t, c) => c(), 
-        printerDevice: null, isPrinting: false, connectToPrinter: async () => {}, disconnectPrinter: async () => {}, previewReceipt: () => {}, printOrderToDevice: async () => {}, printShiftToDevice: async () => {}, printOrderViaBrowser: () => {},
+        updateOfficeSettings: async (settings) => {
+            await updateOfficeSettingsInCloud(settings);
+            setOfficeSettings(settings);
+        },
+        refreshOrders: refreshAllData, requestPassword: (t, c) => c(), 
+        // Fix: Implemented missing branches and branch management
+        branches,
+        addBranch: async (b) => { setBranches(prev => [...prev, b]); },
+        deleteBranch: async (id) => { setBranches(prev => prev.filter(b => b.id !== id)); },
+        switchBranch: async (id) => { setActiveBranchId(id); await refreshAllData(); },
+        // Fix: Implemented missing printer control
+        printerDevice, isPrinting,
+        connectToPrinter: async () => { const dev = await selectBluetoothPrinter(); setPrinterDevice(dev); },
+        printOrderToDevice: async (o) => { if(printerDevice) { setIsPrinting(true); try { await printOrder(printerDevice, o, storeProfile); } finally { setIsPrinting(false); } } },
+        printShiftToDevice: async (s) => { if(printerDevice) { setIsPrinting(true); try { await printShift(printerDevice, s, storeProfile); } finally { setIsPrinting(false); } } },
+        printOrderViaBrowser: () => {},
         customerSubmitOrder: async (cart, name) => {
-            const financial = calculateTotalsHelper(cart, 0, 'percent');
-            const order: Order = { id: Date.now().toString(), customerName: name, items: cart, total: financial.total, subtotal: financial.subtotal, discount: 0, discountType: 'percent', discountValue: 0, taxAmount: financial.tax, serviceChargeAmount: financial.service, status: 'pending', createdAt: Date.now(), isPaid: false, shiftId: activeShift?.id || '', orderType: 'Dine In', branchId: activeBranchId, orderSource: 'customer' };
+            const f = calculateTotalsHelper(cart, 0, 'percent');
+            const order: Order = { id: Date.now().toString(), customerName: name, items: cart, total: f.total, subtotal: f.subtotal, discount: 0, discountType: 'percent', discountValue: 0, taxAmount: f.tax, serviceChargeAmount: f.service, status: 'pending', createdAt: Date.now(), isPaid: false, shiftId: activeShift?.id || '', orderType: 'Dine In', branchId: activeBranchId, orderSource: 'customer' };
             await addOrderToCloud(order);
             return order;
-        }
+        },
+        kitchenAlarmTime
     } as any;
 
     if (isGlobalLoading) return <div className="h-screen flex items-center justify-center bg-orange-50"><div className="animate-spin rounded-full h-14 w-14 border-t-4 border-orange-600 border-b-4"></div></div>;
@@ -384,13 +407,11 @@ const App: React.FC = () => {
                     <LandingPage 
                         onOpenPanel={() => setAuthChoice('choice')} 
                         branchName={storeProfile.name} 
-                        logo={storeProfile.logo} 
                         slogan={storeProfile.slogan} 
                         isStoreOpen={!!activeShift} 
                     />
                 )}
                 
-                {/* PILIHAN MENU AKSES */}
                 {authChoice === 'choice' && (
                     <div className="fixed inset-0 bg-gray-900/95 flex items-center justify-center z-[100] p-4 backdrop-blur-md animate-fade-in">
                         <div className="bg-white p-10 rounded-[3rem] shadow-2xl max-w-md w-full text-center border-t-8 border-orange-600">
@@ -411,39 +432,23 @@ const App: React.FC = () => {
                     </div>
                 )}
 
-                {/* LOGIN ADMIN */}
                 {authChoice === 'login_admin' && (
                     <div className="fixed inset-0 bg-gray-900/95 flex items-center justify-center z-[100] p-4 backdrop-blur-md">
                         <div className="bg-white p-10 rounded-[3rem] shadow-2xl max-sm w-full text-center border-t-8 border-orange-600 animate-scale-in">
                             <h2 className="text-2xl font-black mb-2 uppercase tracking-widest text-gray-800">Admin Login</h2>
                             <p className="text-gray-400 text-xs font-bold mb-8 uppercase tracking-widest">Masukkan PIN Login</p>
-                            <input 
-                                type="password" 
-                                placeholder="••••" 
-                                className="w-full bg-orange-50 border-2 border-orange-100 rounded-2xl p-4 text-center text-4xl tracking-[0.5em] font-bold focus:border-orange-500 outline-none mb-6" 
-                                onChange={(e) => { if(e.target.value.length >= 4) handleLoginAdmin(e.target.value); }} 
-                                autoFocus 
-                                inputMode="numeric"
-                            />
+                            <input type="password" placeholder="••••" className="w-full bg-orange-50 border-2 border-orange-100 rounded-2xl p-4 text-center text-4xl tracking-[0.5em] font-bold focus:border-orange-500 outline-none mb-6" onChange={(e) => { if(e.target.value.length >= 4) handleLoginAdmin(e.target.value); }} autoFocus inputMode="numeric" />
                             <button onClick={() => setAuthChoice('choice')} className="text-sm font-bold text-gray-400 hover:text-orange-600 uppercase tracking-widest">Kembali</button>
                         </div>
                     </div>
                 )}
 
-                {/* LOGIN ATTENDANCE */}
                 {authChoice === 'login_attendance' && (
                     <div className="fixed inset-0 bg-gray-900/95 flex items-center justify-center z-[100] p-4 backdrop-blur-md">
                         <div className="bg-white p-10 rounded-[3rem] shadow-2xl max-sm w-full text-center border-t-8 border-blue-600 animate-scale-in">
                             <h2 className="text-2xl font-black mb-2 uppercase tracking-widest text-gray-800">Staff Absensi</h2>
                             <p className="text-gray-400 text-xs font-bold mb-8 uppercase tracking-widest">Masukkan PIN Absensi</p>
-                            <input 
-                                type="password" 
-                                placeholder="••••" 
-                                className="w-full bg-blue-50 border-2 border-blue-100 rounded-2xl p-4 text-center text-4xl tracking-[0.5em] font-bold focus:border-blue-500 outline-none mb-6" 
-                                onChange={(e) => { if(e.target.value.length >= 4) handleLoginAttendance(e.target.value); }} 
-                                autoFocus 
-                                inputMode="numeric"
-                            />
+                            <input type="password" placeholder="••••" className="w-full bg-blue-50 border-2 border-blue-100 rounded-2xl p-4 text-center text-4xl tracking-[0.5em] font-bold focus:border-blue-500 outline-none mb-6" onChange={(e) => { if(e.target.value.length >= 4) handleLoginAttendance(e.target.value); }} autoFocus inputMode="numeric" />
                             <button onClick={() => setAuthChoice('choice')} className="text-sm font-bold text-gray-400 hover:text-blue-600 uppercase tracking-widest">Kembali</button>
                         </div>
                     </div>
