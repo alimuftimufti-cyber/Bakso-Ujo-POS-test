@@ -38,7 +38,8 @@ const mapOrder = (o: any): Order => {
         taxAmount: parseFloat(o.tax || 0),
         serviceChargeAmount: parseFloat(o.service || 0),
         status: o.status || 'pending',
-        isPaid: o.payment_status === 'Paid' || !!o.is_paid,
+        // Mapping: Gunakan payment_status karena is_paid tidak ada di DB
+        isPaid: o.payment_status === 'Paid',
         paymentMethod: o.payment_method,
         orderType: o.type || o.order_type || 'Dine In',
         createdAt: Number(o.created_at),
@@ -90,6 +91,7 @@ export const addOrderToCloud = async (order: Order) => {
         tax: order.taxAmount || 0,
         service: order.serviceChargeAmount || 0,
         total: order.total,
+        items: [], // Kolom ini 'NOT NULL' di schema Anda, kita isi array kosong sebagai formalitas karena data asli ada di order_items
         created_at: order.createdAt,
         order_source: order.orderSource || 'admin'
     });
@@ -115,20 +117,18 @@ export const addOrderToCloud = async (order: Order) => {
 export const updateOrderInCloud = async (id: string, updates: any) => {
     const dbPayload: any = {};
     
+    // Pastikan hanya menggunakan kolom yang benar-benar ada di tabel 'orders' Anda
     if (updates.status) dbPayload.status = updates.status;
     if (updates.orderType) dbPayload.type = updates.orderType;
-    if (updates.isPaid !== undefined) {
-        dbPayload.payment_status = updates.isPaid ? 'Paid' : 'Unpaid';
-        dbPayload.is_paid = updates.isPaid;
-    }
     if (updates.paymentMethod) dbPayload.payment_method = updates.paymentMethod;
     if (updates.total !== undefined) dbPayload.total = updates.total;
     if (updates.subtotal !== undefined) dbPayload.subtotal = updates.subtotal;
     if (updates.discount !== undefined) dbPayload.discount = updates.discount;
     
-    // Gunakan paid_at jika status selesai (sesuai schema)
-    if (updates.status === 'completed' || updates.isPaid) {
-        dbPayload.paid_at = Date.now();
+    // FIX: Gunakan payment_status (string), HAPUS is_paid (boolean) karena tidak ada di kolom DB Anda
+    if (updates.isPaid !== undefined) {
+        dbPayload.payment_status = updates.isPaid ? 'Paid' : 'Unpaid';
+        if (updates.isPaid) dbPayload.paid_at = Date.now();
     }
 
     // 1. Update header order
@@ -138,13 +138,9 @@ export const updateOrderInCloud = async (id: string, updates: any) => {
         throw orderError; 
     }
 
-    // 2. Jika ada update items (Proses Update Pesanan di POS)
+    // 2. Update items jika ada perubahan (dari POS)
     if (updates.items) {
-        // Hapus item lama
-        const { error: deleteError } = await supabase.from('order_items').delete().eq('order_id', id);
-        if (deleteError) { handleError(deleteError, 'updateOrder:deleteItems'); }
-        
-        // Masukkan item baru
+        await supabase.from('order_items').delete().eq('order_id', id);
         const itemsPayload = updates.items.map((item: any) => ({
             order_id: id,
             product_id: item.id,
@@ -153,9 +149,8 @@ export const updateOrderInCloud = async (id: string, updates: any) => {
             quantity: item.quantity,
             note: item.note
         }));
-        
         const { error: itemsError } = await supabase.from('order_items').insert(itemsPayload);
-        if (itemsError) handleError(itemsError, 'updateOrder:insertItems');
+        if (itemsError) handleError(itemsError, 'updateOrder:items');
     }
 };
 
@@ -275,6 +270,7 @@ export const closeShiftInCloud = async (summary: ShiftSummary) => {
         revenue: summary.revenue,
         cash_revenue: summary.cashRevenue,
         non_cash_revenue: summary.nonCashRevenue,
+        // FIX: Aligned with ShiftSummary type which uses camelCase for properties.
         total_discount: summary.totalDiscount
     }).eq('id', summary.id);
     if (error) handleError(error, 'closeShift');
