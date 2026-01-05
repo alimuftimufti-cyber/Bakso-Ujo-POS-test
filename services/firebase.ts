@@ -17,7 +17,6 @@ export const ensureDefaultBranch = async () => {
 
 // --- MAPPING HELPERS ---
 const mapOrder = (o: any): Order => {
-    // Ambil detail item dari hasil join tabel order_items
     const items = Array.isArray(o.order_items) ? o.order_items.map((item: any) => ({
         id: item.product_id,
         name: item.product_name,
@@ -39,24 +38,21 @@ const mapOrder = (o: any): Order => {
         taxAmount: parseFloat(o.tax || 0),
         serviceChargeAmount: parseFloat(o.service || 0),
         status: o.status || 'pending',
-        isPaid: o.payment_status === 'Paid',
+        isPaid: o.payment_status === 'Paid' || !!o.is_paid,
         paymentMethod: o.payment_method,
-        orderType: o.type || 'Dine In',
+        orderType: o.type || o.order_type || 'Dine In',
         createdAt: Number(o.created_at),
-        paidAt: o.completed_at ? Number(o.completed_at) : undefined,
+        paidAt: o.paid_at ? Number(o.paid_at) : undefined,
         sequentialId: o.sequential_id,
         discountType: 'fixed',
         discountValue: parseFloat(o.discount || 0),
-        orderSource: o.order_source || 'admin',
-        completedAt: o.completed_at ? Number(o.completed_at) : undefined,
-        readyAt: o.ready_at ? Number(o.ready_at) : undefined
+        orderSource: o.order_source || 'admin'
     };
 };
 
 // --- ORDER SERVICES ---
 export const subscribeToOrders = (branchId: string, onUpdate: (orders: Order[]) => void) => {
     const fetchOrders = async () => {
-        // PENTING: Lakukan join dengan order_items agar data item muncul
         const { data, error } = await supabase
             .from('orders')
             .select('*, order_items(*)')
@@ -67,26 +63,11 @@ export const subscribeToOrders = (branchId: string, onUpdate: (orders: Order[]) 
         onUpdate((data || []).map(mapOrder));
     };
 
-    // Jalankan fetch pertama kali
     fetchOrders();
 
-    // Langganan perubahan real-time pada tabel orders DAN order_items
     const channel = supabase.channel(`orders-live-${branchId}`)
-        .on('postgres_changes', { 
-            event: '*', 
-            schema: 'public', 
-            table: 'orders', 
-            filter: `branch_id=eq.${branchId}` 
-        }, () => {
-            fetchOrders(); // Refresh jika ada order baru/update status
-        })
-        .on('postgres_changes', { 
-            event: '*', 
-            schema: 'public', 
-            table: 'order_items' 
-        }, () => {
-            fetchOrders(); // Refresh jika ada perubahan pada item pesanan
-        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `branch_id=eq.${branchId}` }, fetchOrders)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items' }, fetchOrders)
         .subscribe();
 
     return () => supabase.removeChannel(channel);
@@ -95,7 +76,6 @@ export const subscribeToOrders = (branchId: string, onUpdate: (orders: Order[]) 
 export const addOrderToCloud = async (order: Order) => {
     await ensureDefaultBranch();
     
-    // 1. Simpan ke tabel 'orders' (HAPUS kolom 'items' karena tidak ada di DB Anda)
     const { error: orderError } = await supabase.from('orders').insert({
         id: order.id,
         branch_id: order.branchId || 'pusat',
@@ -119,7 +99,6 @@ export const addOrderToCloud = async (order: Order) => {
         throw orderError; 
     }
 
-    // 2. Simpan detail item ke tabel 'order_items' secara terpisah
     const itemsPayload = order.items.map(item => ({
         order_id: order.id,
         product_id: item.id,
@@ -136,24 +115,36 @@ export const addOrderToCloud = async (order: Order) => {
 export const updateOrderInCloud = async (id: string, updates: any) => {
     const dbPayload: any = {};
     
-    // Sinkronisasi nama kolom database
     if (updates.status) dbPayload.status = updates.status;
-    if (updates.isPaid !== undefined) dbPayload.payment_status = updates.isPaid ? 'Paid' : 'Unpaid';
+    if (updates.orderType) dbPayload.type = updates.orderType;
+    if (updates.isPaid !== undefined) {
+        dbPayload.payment_status = updates.isPaid ? 'Paid' : 'Unpaid';
+        dbPayload.is_paid = updates.isPaid;
+    }
     if (updates.paymentMethod) dbPayload.payment_method = updates.paymentMethod;
     if (updates.total !== undefined) dbPayload.total = updates.total;
     if (updates.subtotal !== undefined) dbPayload.subtotal = updates.subtotal;
     if (updates.discount !== undefined) dbPayload.discount = updates.discount;
     
-    if (updates.status === 'completed') dbPayload.completed_at = Date.now();
-    if (updates.status === 'serving' || updates.status === 'ready') dbPayload.ready_at = Date.now();
+    // Gunakan paid_at jika status selesai (sesuai schema)
+    if (updates.status === 'completed' || updates.isPaid) {
+        dbPayload.paid_at = Date.now();
+    }
 
+    // 1. Update header order
     const { error: orderError } = await supabase.from('orders').update(dbPayload).eq('id', id);
-    if (orderError) { handleError(orderError, 'updateOrder:main'); return; }
+    if (orderError) { 
+        handleError(orderError, 'updateOrder:main'); 
+        throw orderError; 
+    }
 
-    // Jika ada perubahan item, hapus yang lama dan masukkan yang baru
+    // 2. Jika ada update items (Proses Update Pesanan di POS)
     if (updates.items) {
-        await supabase.from('order_items').delete().eq('order_id', id);
+        // Hapus item lama
+        const { error: deleteError } = await supabase.from('order_items').delete().eq('order_id', id);
+        if (deleteError) { handleError(deleteError, 'updateOrder:deleteItems'); }
         
+        // Masukkan item baru
         const itemsPayload = updates.items.map((item: any) => ({
             order_id: id,
             product_id: item.id,
@@ -164,7 +155,7 @@ export const updateOrderInCloud = async (id: string, updates: any) => {
         }));
         
         const { error: itemsError } = await supabase.from('order_items').insert(itemsPayload);
-        if (itemsError) handleError(itemsError, 'updateOrder:items');
+        if (itemsError) handleError(itemsError, 'updateOrder:insertItems');
     }
 };
 
