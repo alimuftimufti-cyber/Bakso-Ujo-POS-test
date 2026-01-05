@@ -306,16 +306,16 @@ export const saveAttendanceToCloud = async (record: AttendanceRecord) => {
         department: record.department,
         branch_id: record.branchId,
         date: record.date,
-        clock_in: record.clock_in,
+        clock_in: record.clockInTime,
         status: record.status,
         photo_url: record.photoUrl,
         lat: record.location?.lat,
         lng: record.location?.lng,
         location_name: record.locationName,
-        distance_meters: record.distance_meters,
-        is_within_radius: record.is_within_radius,
-        ip_address: record.ip_address,
-        device_info: record.device_info
+        distance_meters: record.distanceMeters,
+        is_within_radius: record.isWithinRadius,
+        ip_address: record.ipAddress,
+        device_info: record.deviceInfo
     });
     if (error) handleError(error, 'saveAttendance');
 };

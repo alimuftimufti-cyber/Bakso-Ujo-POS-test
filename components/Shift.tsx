@@ -368,7 +368,8 @@ const ShiftView: React.FC = () => {
     const totalRevenue = cashRevenue + nonCashRevenue;
 
     const currentExpenses = expenses.filter(e => String(e.shiftId) === String(activeShift.id));
-    const totalExpenses = currentExpenses.reduce((sum, e) => sum + (item.amount || 0), 0);
+    // FIX: Changed 'item.amount' to 'e.amount' as 'item' was undefined in the callback.
+    const totalExpenses = currentExpenses.reduce((sum, e) => sum + (e.amount || 0), 0);
     
     return (
         <>
