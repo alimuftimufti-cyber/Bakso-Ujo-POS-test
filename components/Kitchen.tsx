@@ -38,7 +38,7 @@ const OrderCard: React.FC<{ order: Order, elapsed: number, isOverdue: boolean, t
             <div className="p-4 bg-black/40 border-t border-gray-700 flex justify-between items-center">
                 <div className="flex flex-col">
                     <span className="text-[10px] uppercase font-black text-gray-500 tracking-widest">Waktu Tunggu</span>
-                    <span className="font-black text-2xl text-white font-mono">{formatTime(elapsed)}</span>
+                    <span className={`font-black text-2xl font-mono ${isOverdue ? 'text-red-500' : 'text-white'}`}>{formatTime(elapsed)}</span>
                 </div>
                 <button 
                     onClick={() => onAction(order.id, 'serving')}
@@ -52,10 +52,18 @@ const OrderCard: React.FC<{ order: Order, elapsed: number, isOverdue: boolean, t
 };
 
 const KitchenView: React.FC = () => {
-    // Fix: Provided fallback for kitchenAlarmTime
-    const { orders, updateOrderStatus, kitchenAlarmTime = 600 } = useAppContext();
+    const { orders, updateOrderStatus, storeProfile } = useAppContext();
     const [now, setNow] = useState(Date.now());
     const [activeTab, setActiveTab] = useState<'active' | 'history'>('active');
+    
+    // Motivasi acak
+    const motivation = useMemo(() => {
+        const list = storeProfile?.kitchenMotivations || [];
+        if (list.length === 0) return "Selamat bekerja, Tim Dapur! 🔥";
+        return list[Math.floor(Math.random() * list.length)];
+    }, [storeProfile]);
+
+    const alarmTimeSeconds = storeProfile?.kitchenAlarmTime || 600;
 
     useEffect(() => {
         const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -68,14 +76,13 @@ const KitchenView: React.FC = () => {
     }, [orders]);
 
     const historyOrders = useMemo(() => {
-        // Fix: Use completedAt or readyAt for sorting
         return orders.filter(o => o.status === 'serving' || o.status === 'completed' || o.status === 'cancelled')
                      .sort((a, b) => (b.completedAt || b.readyAt || 0) - (a.completedAt || a.readyAt || 0));
     }, [orders]);
 
     return (
-        <div className="bg-[#0f172a] text-white h-full flex flex-col font-sans">
-            <header className="p-4 lg:p-6 bg-slate-800 shadow-2xl flex flex-col sm:flex-row justify-between items-center border-b border-slate-700 gap-4">
+        <div className="bg-[#0f172a] text-white h-full flex flex-col font-sans relative overflow-hidden">
+            <header className="p-4 lg:p-6 bg-slate-800 shadow-2xl flex flex-col sm:flex-row justify-between items-center border-b border-slate-700 gap-4 z-10">
                 <div className="flex items-center gap-6 w-full sm:w-auto">
                     <h1 className="text-2xl lg:text-3xl font-black tracking-tighter uppercase italic">Monitor Dapur</h1>
                     <div className="flex bg-black/30 p-1 rounded-2xl">
@@ -83,10 +90,13 @@ const KitchenView: React.FC = () => {
                         <button onClick={() => setActiveTab('history')} className={`px-4 lg:px-6 py-2 rounded-xl text-xs lg:text-sm font-black transition-all ${activeTab === 'history' ? 'bg-orange-600 text-white' : 'text-gray-500'}`}>RIWAYAT</button>
                     </div>
                 </div>
+                <div className="hidden lg:flex items-center gap-4 text-xs font-bold text-slate-400 uppercase tracking-widest bg-slate-900/50 px-4 py-2 rounded-full border border-slate-700">
+                    <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
+                    Urgent: {Math.floor(alarmTimeSeconds / 60)} Menit
+                </div>
             </header>
 
-            {/* Kontainer Utama: overflow-y di HP, overflow-x di Desktop */}
-            <main className="flex-1 overflow-y-auto lg:overflow-x-auto p-4 lg:p-6 custom-scrollbar">
+            <main className="flex-1 overflow-y-auto lg:overflow-x-auto p-4 lg:p-6 custom-scrollbar pb-24">
                 {activeTab === 'active' ? (
                     <div className="flex flex-col lg:flex-row lg:items-start gap-6">
                         {activeOrders.length === 0 ? (
@@ -100,7 +110,7 @@ const KitchenView: React.FC = () => {
                                     key={order.id} 
                                     order={order} 
                                     elapsed={now - order.createdAt} 
-                                    isOverdue={(now - order.createdAt) / 1000 > kitchenAlarmTime} 
+                                    isOverdue={(now - order.createdAt) / 1000 > alarmTimeSeconds} 
                                     type={order.items.every(i => i.category === 'Minuman') ? 'drink' : 'food'} 
                                     onAction={updateOrderStatus}
                                 />
@@ -127,6 +137,17 @@ const KitchenView: React.FC = () => {
                     </div>
                 )}
             </main>
+
+            {/* Footer Motivasi */}
+            <footer className="absolute bottom-0 left-0 right-0 bg-slate-900 border-t border-slate-800 p-4 flex items-center justify-center z-20">
+                <div className="flex items-center gap-3 animate-fade-in">
+                    <span className="text-xl">💪</span>
+                    <p className="text-sm md:text-base font-bold text-indigo-400 italic tracking-wide text-center">
+                        {motivation}
+                    </p>
+                    <span className="text-xl">🔥</span>
+                </div>
+            </footer>
         </div>
     );
 };

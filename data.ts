@@ -70,11 +70,11 @@ export const initialMenuData: MenuItem[] = [
 export const defaultStoreProfile: StoreProfile = {
     name: "Bakso Ujo",
     address: "Jl. Spesial Tetelan Urat Gimbal No.1",
-    phoneNumber: "628123456789", // Fix: default property exists now
+    phoneNumber: "628123456789", 
     slogan: "Nikmatnya Asli, Bikin Nagih!",
     logo: "",
-    themeColor: 'orange', // Default theme
-    enableKitchen: true,  // Default enabled
+    themeColor: 'orange', 
+    enableKitchen: true,  
     kitchenMotivations: [
         "Semangat Tim Dapur! Pelanggan menunggu masakan lezatmu! 👨‍🍳",
         "Kualitas adalah prioritas! Jaga rasa tetap otentik. 🔥",
@@ -86,7 +86,8 @@ export const defaultStoreProfile: StoreProfile = {
     serviceChargeRate: 0,
     enableServiceCharge: false,
     enableTableLayout: false,
-    enableTableInput: true, // Default enabled for ease of use
+    enableTableInput: true, 
     autoPrintReceipt: false,
-    branchId: "pusat" // Default Branch ID
+    branchId: "pusat",
+    kitchenAlarmTime: 600 // Default 10 menit
 };

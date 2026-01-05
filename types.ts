@@ -173,6 +173,8 @@ export interface StoreProfile {
     autoPrintReceipt: boolean;
     // Fix: Added missing phoneNumber property
     phoneNumber: string;
+    // New: Kitchen settings
+    kitchenAlarmTime: number; // in seconds
 }
 
 // --- CONTEXT INTERFACE ---

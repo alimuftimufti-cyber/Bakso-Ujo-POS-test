@@ -79,6 +79,7 @@ const mapMenu = (item: any): MenuItem => {
     };
 };
 
+// FIX: Added missing properties to match StoreProfile interface
 const mapProfile = (p: any): StoreProfile => ({
     branchId: p.branch_id || 'pusat',
     name: p.name || 'Bakso Ujo',
@@ -90,12 +91,13 @@ const mapProfile = (p: any): StoreProfile => ({
     serviceChargeRate: parseFloat(p.service_charge_rate || 0),
     enableServiceCharge: !!p.enable_service_charge,
     themeColor: p.theme_color || 'orange',
-    enableKitchen: true,
-    kitchenMotivations: [],
-    enableTableLayout: false,
-    enableTableInput: true,
-    autoPrintReceipt: false,
-    phoneNumber: p.phone_number || ''
+    enableKitchen: p.enable_kitchen !== undefined ? !!p.enable_kitchen : true,
+    kitchenMotivations: Array.isArray(p.kitchen_motivations) ? p.kitchen_motivations : [],
+    enableTableLayout: !!p.enable_table_layout,
+    enableTableInput: p.enable_table_input !== undefined ? !!p.enable_table_input : true,
+    autoPrintReceipt: !!p.auto_print_receipt,
+    phoneNumber: p.phone_number || '',
+    kitchenAlarmTime: p.kitchen_alarm_time || 600
 });
 
 const mapOrder = (o: any): Order => {
@@ -163,6 +165,7 @@ export const getStoreProfileFromCloud = async (branchId: string) => {
     return data ? mapProfile(data) : null;
 };
 
+// FIX: Updated to upsert all StoreProfile properties
 export const updateStoreProfileInCloud = async (profile: StoreProfile) => {
     await ensureDefaultBranch();
     const { error } = await supabase.from('store_profiles').upsert({
@@ -176,7 +179,13 @@ export const updateStoreProfileInCloud = async (profile: StoreProfile) => {
         service_charge_rate: profile.serviceChargeRate,
         enable_service_charge: profile.enableServiceCharge,
         theme_color: profile.themeColor,
-        phone_number: profile.phoneNumber
+        phone_number: profile.phoneNumber,
+        enable_kitchen: profile.enableKitchen,
+        kitchen_motivations: profile.kitchenMotivations,
+        enable_table_layout: profile.enableTableLayout,
+        enable_table_input: profile.enableTableInput,
+        auto_print_receipt: profile.autoPrintReceipt,
+        kitchen_alarm_time: profile.kitchenAlarmTime
     }, { onConflict: 'branch_id' });
     if (error) handleError(error, 'updateStoreProfile');
 };
@@ -306,7 +315,7 @@ export const saveAttendanceToCloud = async (record: AttendanceRecord) => {
         department: record.department,
         branch_id: record.branchId,
         date: record.date,
-        clock_in: record.clockInTime,
+        clock_in: record.clock_in,
         status: record.status,
         photo_url: record.photoUrl,
         lat: record.location?.lat,
@@ -406,7 +415,7 @@ export const closeShiftInCloud = async (summary: ShiftSummary) => {
         closing_cash: summary.closingCash,
         revenue: summary.revenue,
         cash_revenue: summary.cashRevenue,
-        non_cash_revenue: summary.nonCashRevenue,
+        non_cash_revenue: summary.non_cash_revenue,
         total_discount: summary.totalDiscount,
         transactions_count: summary.transactions
     }).eq('id', summary.id);
