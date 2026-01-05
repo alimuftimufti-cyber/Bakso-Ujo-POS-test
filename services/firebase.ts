@@ -17,14 +17,14 @@ export const ensureDefaultBranch = async () => {
 
 // --- MAPPING HELPERS ---
 const mapOrder = (o: any): Order => {
-    // Karena sekarang datanya join dari order_items, kita petakan array tersebut
+    // Ambil detail item dari hasil join tabel order_items
     const items = Array.isArray(o.order_items) ? o.order_items.map((item: any) => ({
         id: item.product_id,
         name: item.product_name,
         price: parseFloat(item.price),
         quantity: item.quantity,
         note: item.note || '',
-        category: 'Bakso' // Fallback
+        category: 'Bakso' 
     })) : [];
 
     return {
@@ -56,7 +56,7 @@ const mapOrder = (o: any): Order => {
 // --- ORDER SERVICES ---
 export const subscribeToOrders = (branchId: string, onUpdate: (orders: Order[]) => void) => {
     const fetchOrders = async () => {
-        // Ambil orders BESERTA order_items (JOIN)
+        // PENTING: Lakukan join dengan order_items agar data item muncul
         const { data, error } = await supabase
             .from('orders')
             .select('*, order_items(*)')
@@ -67,12 +67,26 @@ export const subscribeToOrders = (branchId: string, onUpdate: (orders: Order[]) 
         onUpdate((data || []).map(mapOrder));
     };
 
+    // Jalankan fetch pertama kali
     fetchOrders();
 
-    // Listen to changes in both tables
+    // Langganan perubahan real-time pada tabel orders DAN order_items
     const channel = supabase.channel(`orders-live-${branchId}`)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `branch_id=eq.${branchId}` }, fetchOrders)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items' }, fetchOrders)
+        .on('postgres_changes', { 
+            event: '*', 
+            schema: 'public', 
+            table: 'orders', 
+            filter: `branch_id=eq.${branchId}` 
+        }, () => {
+            fetchOrders(); // Refresh jika ada order baru/update status
+        })
+        .on('postgres_changes', { 
+            event: '*', 
+            schema: 'public', 
+            table: 'order_items' 
+        }, () => {
+            fetchOrders(); // Refresh jika ada perubahan pada item pesanan
+        })
         .subscribe();
 
     return () => supabase.removeChannel(channel);
@@ -81,7 +95,7 @@ export const subscribeToOrders = (branchId: string, onUpdate: (orders: Order[]) 
 export const addOrderToCloud = async (order: Order) => {
     await ensureDefaultBranch();
     
-    // 1. Simpan ke tabel 'orders' (Tanpa field 'items' karena tidak ada di DB Anda)
+    // 1. Simpan ke tabel 'orders' (HAPUS kolom 'items' karena tidak ada di DB Anda)
     const { error: orderError } = await supabase.from('orders').insert({
         id: order.id,
         branch_id: order.branchId || 'pusat',
@@ -105,7 +119,7 @@ export const addOrderToCloud = async (order: Order) => {
         throw orderError; 
     }
 
-    // 2. Simpan detail item ke 'order_items'
+    // 2. Simpan detail item ke tabel 'order_items' secara terpisah
     const itemsPayload = order.items.map(item => ({
         order_id: order.id,
         product_id: item.id,
@@ -122,7 +136,7 @@ export const addOrderToCloud = async (order: Order) => {
 export const updateOrderInCloud = async (id: string, updates: any) => {
     const dbPayload: any = {};
     
-    // Filter hanya field yang ada di tabel 'orders'
+    // Sinkronisasi nama kolom database
     if (updates.status) dbPayload.status = updates.status;
     if (updates.isPaid !== undefined) dbPayload.payment_status = updates.isPaid ? 'Paid' : 'Unpaid';
     if (updates.paymentMethod) dbPayload.payment_method = updates.paymentMethod;
@@ -133,13 +147,11 @@ export const updateOrderInCloud = async (id: string, updates: any) => {
     if (updates.status === 'completed') dbPayload.completed_at = Date.now();
     if (updates.status === 'serving' || updates.status === 'ready') dbPayload.ready_at = Date.now();
 
-    // 1. Update header order
     const { error: orderError } = await supabase.from('orders').update(dbPayload).eq('id', id);
     if (orderError) { handleError(orderError, 'updateOrder:main'); return; }
 
-    // 2. Jika ada update items (misal edit pesanan)
+    // Jika ada perubahan item, hapus yang lama dan masukkan yang baru
     if (updates.items) {
-        // Hapus item lama, masukkan yang baru
         await supabase.from('order_items').delete().eq('order_id', id);
         
         const itemsPayload = updates.items.map((item: any) => ({
