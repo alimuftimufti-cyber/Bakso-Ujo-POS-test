@@ -138,7 +138,7 @@ const SplitBillModal = ({ order, onClose, onSplit, theme }: { order: Order, onCl
 };
 
 const PaymentModal = ({ total, onClose, onPay, theme }: { total: number, onClose: () => void, onPay: (method: PaymentMethod) => void, theme: string }) => {
-    return (<div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4"><div className="bg-white rounded-xl shadow-2xl p-6 max-w-sm w-full animate-scale-in"><h3 className="text-xl font-bold mb-2 text-center">Pilih Metode Bayar</h3><p className={`text-center text-2xl font-bold text-${theme}-600 mb-6`}>{formatRupiah(total)}</p><div className="grid grid-cols-1 gap-3"><button onClick={() => onPay('Tunai')} className={`flex items-center justify-center p-4 border-2 border-gray-100 hover:border-${theme}-500 rounded-lg font-bold text-lg hover:bg-${theme}-50 transition-all`}>💵 Tunai</button><button onClick={() => onPay('QRIS')} className={`flex items-center justify-center p-4 border-2 border-gray-100 hover:border-${theme}-500 rounded-lg font-bold text-lg hover:bg-${theme}-50 transition-all`}>📷 QRIS</button><button onClick={() => onPay('Debit')} className={`flex items-center justify-center p-4 border-2 border-gray-100 hover:border-${theme}-500 rounded-lg font-bold text-lg hover:bg-${theme}-50 transition-all`}>💳 Debit / EDC</button></div><button onClick={onClose} className="w-full mt-6 py-3 text-gray-500 font-semibold hover:bg-gray-100 rounded-lg">Batal</button></div></div>)
+    return (<div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4"><div className="bg-white rounded-xl shadow-2xl p-6 max-sm w-full animate-scale-in"><h3 className="text-xl font-bold mb-2 text-center">Pilih Metode Bayar</h3><p className={`text-center text-2xl font-bold text-${theme}-600 mb-6`}>{formatRupiah(total)}</p><div className="grid grid-cols-1 gap-3"><button onClick={() => onPay('Tunai')} className={`flex items-center justify-center p-4 border-2 border-gray-100 hover:border-${theme}-500 rounded-lg font-bold text-lg hover:bg-${theme}-50 transition-all`}>💵 Tunai</button><button onClick={() => onPay('QRIS')} className={`flex items-center justify-center p-4 border-2 border-gray-100 hover:border-${theme}-500 rounded-lg font-bold text-lg hover:bg-${theme}-50 transition-all`}>📷 QRIS</button><button onClick={() => onPay('Debit')} className={`flex items-center justify-center p-4 border-2 border-gray-100 hover:border-${theme}-500 rounded-lg font-bold text-lg hover:bg-${theme}-50 transition-all`}>💳 Debit / EDC</button></div><button onClick={onClose} className="w-full mt-6 py-3 text-gray-500 font-semibold hover:bg-gray-100 rounded-lg">Batal</button></div></div>)
 }
 
 const CustomerNameModal = ({ onConfirm, onCancel, theme, requireTable }: { onConfirm: (name: string) => void, onCancel: () => void, theme: string, requireTable: boolean }) => {
@@ -246,8 +246,9 @@ const POSView: React.FC = () => {
 
     useEffect(() => {
         if (orders.length > prevOrdersLength.current) {
-            const latestOrder = orders[orders.length - 1];
-            if (latestOrder.status === 'pending') {
+            // Karena data disort DESC di firebase.ts, data terbaru ada di index 0
+            const latestOrder = orders[0];
+            if (latestOrder && latestOrder.status === 'pending') {
                 const audio = new Audio(BEEP_URL);
                 audio.play().catch(e => console.log("Audio play blocked", e));
                 setHighlightedOrderId(latestOrder.id);
@@ -293,8 +294,7 @@ const POSView: React.FC = () => {
     }, [menu, selectedCategory, searchTerm]);
 
     const pendingOrders = useMemo(() => orders.filter(o => o.status !== 'completed' && o.status !== 'cancelled').sort((a, b) => b.createdAt - a.createdAt), [orders]);
-    // Fix: Used paidAt instead of completedAt which might not be set
-    const historyOrders = useMemo(() => orders.filter(o => o.status === 'completed' || o.status === 'cancelled').sort((a, b) => (b.completedAt || b.paidAt || 0) - (a.completedAt || a.paidAt || 0)).slice(0, 20), [orders]);
+    const historyOrders = useMemo(() => orders.filter(o => o.status === 'completed' || o.status === 'cancelled').sort((a, b) => (b.completedAt || b.createdAt || 0) - (a.completedAt || a.createdAt || 0)).slice(0, 20), [orders]);
     const displayedOrders = sidebarTab === 'active' ? pendingOrders : historyOrders;
 
     const addToCart = useCallback((item: MenuItem) => { 
@@ -311,7 +311,6 @@ const POSView: React.FC = () => {
                 alert(`Stok tidak mencukupi.`);
                 return prev;
             }
-            // Fix: Use defaultNote if available
             return existing ? prev.map(i => i.id === item.id ? { ...i, quantity: i.quantity + 1 } : i) : [...prev, { ...item, quantity: 1, note: item.defaultNote || '' }]; 
         }); 
     }, [isReadOnly]);
@@ -337,7 +336,6 @@ const POSView: React.FC = () => {
         } 
     };
     
-    // Fix: Awaited addOrder result
     const handleNameConfirm = async (name: string) => { let newOrder: Order | null = null; if (pendingAction === 'save') { await addOrder(cart, name, discountVal, discountType, orderType); setActiveOrder(null); setCart([]); setDiscountVal(0); setOrderType('Dine In'); } else if (pendingAction === 'pay') { newOrder = await addOrder(cart, name, discountVal, discountType, orderType); if(newOrder) { setActiveOrder(newOrder); setIsPaymentModalOpen(true); } } setPendingAction(null); setNameModalOpen(false); };
     const handlePayment = (method: PaymentMethod) => { if (activeOrder) { const finalOrder = { ...activeOrder, items: cart, total: totals.total, discount: totals.discount, taxAmount: totals.tax, serviceChargeAmount: totals.service }; const paidOrder = payForOrder(finalOrder, method); if(paidOrder) { setActiveOrder(paidOrder); } setIsPaymentModalOpen(false); } };
     const handleCompleteOrder = (order: Order) => { updateOrderStatus(order.id, 'completed'); setActiveOrder(null); setCart([]); };
@@ -395,11 +393,8 @@ const POSView: React.FC = () => {
 
     const handleQuickPay = (newItems: CartItem[]) => {
         if (activeOrder) {
-            // 1. Simpan perubahan ke database dulu
             updateOrder(activeOrder.id, newItems, activeOrder.discountValue || 0, activeOrder.discountType || 'percent', activeOrder.orderType);
-            // 2. Update state lokal
             setCart(newItems);
-            // 3. Tutup modal update dan buka modal pembayaran
             setIsQuickUpdateOpen(false);
             setIsPaymentModalOpen(true);
         }

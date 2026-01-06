@@ -1,4 +1,3 @@
-
 import { Table, Order, Shift, StoreProfile, MenuItem, Ingredient, Expense, ShiftSummary, User, CartItem, OrderSource, AttendanceRecord, OfficeSettings } from '../types';
 import { supabase } from './supabaseClient';
 
@@ -38,7 +37,7 @@ const mapOrder = (o: any): Order => {
         taxAmount: parseFloat(o.tax || 0),
         serviceChargeAmount: parseFloat(o.service || 0),
         status: o.status || 'pending',
-        isPaid: o.payment_status === 'Paid', // Kembali menggunakan payment_status
+        isPaid: o.payment_status === 'Paid',
         paymentMethod: o.payment_method,
         orderType: o.type || 'Dine In',
         createdAt: Number(o.created_at),
@@ -64,11 +63,26 @@ export const subscribeToOrders = (branchId: string, onUpdate: (orders: Order[]) 
         onUpdate((data || []).map(mapOrder));
     };
 
+    // Jalankan fetch awal
     fetchOrders();
 
+    // Berlangganan perubahan real-time
     const channel = supabase.channel(`orders-live-${branchId}`)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `branch_id=eq.${branchId}` }, fetchOrders)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items' }, fetchOrders)
+        .on('postgres_changes', { 
+            event: '*', 
+            schema: 'public', 
+            table: 'orders', 
+            filter: `branch_id=eq.${branchId}` 
+        }, () => {
+            fetchOrders(); // Re-fetch saat ada perubahan di tabel orders
+        })
+        .on('postgres_changes', { 
+            event: '*', 
+            schema: 'public', 
+            table: 'order_items' 
+        }, () => {
+            fetchOrders(); // Re-fetch saat ada perubahan di detail item
+        })
         .subscribe();
 
     return () => supabase.removeChannel(channel);
@@ -84,7 +98,7 @@ export const addOrderToCloud = async (order: Order) => {
         customer_name: order.customerName,
         type: order.orderType,
         status: order.status,
-        payment_status: order.isPaid ? 'Paid' : 'Unpaid', // Kembali menggunakan payment_status
+        payment_status: order.isPaid ? 'Paid' : 'Unpaid',
         payment_method: order.paymentMethod || null,
         subtotal: order.subtotal,
         discount: order.discount,
@@ -126,7 +140,7 @@ export const updateOrderInCloud = async (id: string, updates: any) => {
     if (updates.serviceChargeAmount !== undefined) dbPayload.service = updates.serviceChargeAmount;
     
     if (updates.isPaid !== undefined) {
-        dbPayload.payment_status = updates.isPaid ? 'Paid' : 'Unpaid'; // Kembali menggunakan payment_status
+        dbPayload.payment_status = updates.isPaid ? 'Paid' : 'Unpaid';
     }
 
     if (updates.status === 'serving') dbPayload.ready_at = Date.now();
@@ -198,7 +212,8 @@ export const getMenuFromCloud = async (branchId: string) => {
         name: i.name,
         price: parseFloat(i.price),
         category: i.category,
-        image_url: i.image_url,
+        // FIX: Mapped database snake_case field 'image_url' to camelCase 'imageUrl' expected by MenuItem type
+        imageUrl: i.image_url,
         stock: i.stock
     }));
 };
@@ -210,6 +225,7 @@ export const addProductToCloud = async (item: MenuItem, branchId: string) => {
         name: item.name,
         price: item.price,
         category: item.category,
+        // FIX: Correctly access 'imageUrl' from MenuItem type to map back to database field 'image_url'
         image_url: item.imageUrl,
         stock: item.stock
     });
@@ -400,13 +416,11 @@ export const updateOfficeSettingsInCloud = async (settings: OfficeSettings) => {
 export const getTablesFromCloud = async (branchId: string) => {
     const { data, error } = await supabase.from('tables').select('*').eq('branch_id', branchId);
     if (error) handleError(error, 'getTables');
-    // FIX: Consistent mapping with Table interface (qrCodeData)
     return (data || []).map(t => ({ id: String(t.id), number: t.table_number, qrCodeData: t.qr_payload }));
 };
 
 export const addTableToCloud = async (table: Table, branchId: string) => {
     await ensureDefaultBranch();
-    // FIX: Using correct property name from Table interface (qrCodeData) for the insert payload
     await supabase.from('tables').insert({ id: table.id, branch_id: branchId, table_number: table.number, qr_payload: table.qrCodeData });
 };
 

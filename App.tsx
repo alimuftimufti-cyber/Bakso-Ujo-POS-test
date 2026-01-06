@@ -293,7 +293,12 @@ const App: React.FC = () => {
         updateOrderStatus: async (id, status) => {
             await updateOrderInCloud(id, { status });
         },
-        payForOrder: (o, m) => { updateOrderInCloud(o.id, { isPaid: true, paymentMethod: m }); return o; },
+        payForOrder: (o, m) => { 
+            // Optimistic UI: Segera return objek terupdate agar POS langsung merespon
+            const updatedOrder = { ...o, isPaid: true, paymentMethod: m };
+            updateOrderInCloud(o.id, { isPaid: true, paymentMethod: m }); 
+            return updatedOrder; 
+        },
         voidOrder: (order) => updateOrderInCloud(order.id, { status: 'cancelled' }),
         splitOrder: (original, itemsToMove) => {
             const remainingItems = original.items.map(item => {
