@@ -1,4 +1,3 @@
-
 import { Table, Order, Shift, StoreProfile, MenuItem, Ingredient, Expense, ShiftSummary, User, CartItem, OrderSource, AttendanceRecord, OfficeSettings } from '../types';
 import { supabase } from './supabaseClient';
 
@@ -17,7 +16,6 @@ export const ensureDefaultBranch = async () => {
 
 // --- MAPPING HELPERS ---
 const mapOrder = (o: any): Order => {
-    // Mengambil item dari relasi order_items
     const items = Array.isArray(o.order_items) ? o.order_items.map((item: any) => ({
         id: item.product_id,
         name: item.product_name,
@@ -39,11 +37,10 @@ const mapOrder = (o: any): Order => {
         taxAmount: parseFloat(o.tax || 0),
         serviceChargeAmount: parseFloat(o.service || 0),
         status: o.status || 'pending',
-        isPaid: o.payment_status === 'Paid',
+        isPaid: !!o.is_paid, // Gunakan is_paid boolean dari DB
         paymentMethod: o.payment_method,
         orderType: o.type || 'Dine In',
         createdAt: Number(o.created_at),
-        paidAt: o.paid_at ? Number(o.paid_at) : undefined,
         readyAt: o.ready_at ? Number(o.ready_at) : undefined,
         completedAt: o.completed_at ? Number(o.completed_at) : undefined,
         sequentialId: o.sequential_id,
@@ -53,10 +50,9 @@ const mapOrder = (o: any): Order => {
     };
 };
 
-// --- ORDER SERVICES (REAL-TIME SYNC) ---
+// --- ORDER SERVICES ---
 export const subscribeToOrders = (branchId: string, onUpdate: (orders: Order[]) => void) => {
     const fetchOrders = async () => {
-        // Ambil orders beserta detail items-nya menggunakan join
         const { data, error } = await supabase
             .from('orders')
             .select('*, order_items(*)')
@@ -67,22 +63,11 @@ export const subscribeToOrders = (branchId: string, onUpdate: (orders: Order[]) 
         onUpdate((data || []).map(mapOrder));
     };
 
-    // Pemuatan data awal
     fetchOrders();
 
-    // Subscribe ke perubahan tabel orders dan order_items
     const channel = supabase.channel(`orders-live-${branchId}`)
-        .on('postgres_changes', { 
-            event: '*', 
-            schema: 'public', 
-            table: 'orders', 
-            filter: `branch_id=eq.${branchId}` 
-        }, fetchOrders)
-        .on('postgres_changes', { 
-            event: '*', 
-            schema: 'public', 
-            table: 'order_items' 
-        }, fetchOrders)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `branch_id=eq.${branchId}` }, fetchOrders)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items' }, fetchOrders)
         .subscribe();
 
     return () => supabase.removeChannel(channel);
@@ -91,8 +76,6 @@ export const subscribeToOrders = (branchId: string, onUpdate: (orders: Order[]) 
 export const addOrderToCloud = async (order: Order) => {
     await ensureDefaultBranch();
     
-    // 1. Simpan Header Pesanan (Tabel orders)
-    // Kolom 'items' DIHAPUS dari payload karena tidak ada di DB
     const { error: orderError } = await supabase.from('orders').insert({
         id: order.id,
         branch_id: order.branchId || 'pusat',
@@ -100,7 +83,7 @@ export const addOrderToCloud = async (order: Order) => {
         customer_name: order.customerName,
         type: order.orderType,
         status: order.status,
-        payment_status: order.isPaid ? 'Paid' : 'Unpaid',
+        is_paid: order.isPaid, // Sesuaikan ke kolom is_paid (boolean)
         payment_method: order.paymentMethod || null,
         subtotal: order.subtotal,
         discount: order.discount,
@@ -116,7 +99,6 @@ export const addOrderToCloud = async (order: Order) => {
         throw orderError; 
     }
 
-    // 2. Simpan Detail Item (Tabel order_items)
     const itemsPayload = order.items.map(item => ({
         order_id: order.id,
         product_id: item.id,
@@ -133,7 +115,6 @@ export const addOrderToCloud = async (order: Order) => {
 export const updateOrderInCloud = async (id: string, updates: any) => {
     const dbPayload: any = {};
     
-    // Mapping properti ke nama kolom DB
     if (updates.status) dbPayload.status = updates.status;
     if (updates.orderType) dbPayload.type = updates.orderType;
     if (updates.paymentMethod) dbPayload.payment_method = updates.paymentMethod;
@@ -144,33 +125,33 @@ export const updateOrderInCloud = async (id: string, updates: any) => {
     if (updates.serviceChargeAmount !== undefined) dbPayload.service = updates.serviceChargeAmount;
     
     if (updates.isPaid !== undefined) {
-        dbPayload.payment_status = updates.isPaid ? 'Paid' : 'Unpaid';
-        if (updates.isPaid) dbPayload.paid_at = Date.now();
+        dbPayload.is_paid = !!updates.isPaid; // Pastikan boolean
+        // HAPUS TOTAL paid_at DARI SINI
     }
 
     if (updates.status === 'serving') dbPayload.ready_at = Date.now();
     if (updates.status === 'completed') dbPayload.completed_at = Date.now();
 
-    // 1. Update header pesanan
-    const { error: orderError } = await supabase.from('orders').update(dbPayload).eq('id', id);
-    if (orderError) { 
-        handleError(orderError, 'updateOrder:main'); 
-        throw orderError; 
-    }
+    try {
+        const { error: orderError } = await supabase.from('orders').update(dbPayload).eq('id', id);
+        if (orderError) throw orderError;
 
-    // 2. Update items jika ada perubahan
-    if (updates.items) {
-        await supabase.from('order_items').delete().eq('order_id', id);
-        const itemsPayload = updates.items.map((item: any) => ({
-            order_id: id,
-            product_id: item.id,
-            product_name: item.name,
-            price: item.price,
-            quantity: item.quantity,
-            note: item.note
-        }));
-        const { error: itemsError } = await supabase.from('order_items').insert(itemsPayload);
-        if (itemsError) handleError(itemsError, 'updateOrder:items');
+        if (updates.items) {
+            await supabase.from('order_items').delete().eq('order_id', id);
+            const itemsPayload = updates.items.map((item: any) => ({
+                order_id: id,
+                product_id: item.id,
+                product_name: item.name,
+                price: item.price,
+                quantity: item.quantity,
+                note: item.note
+            }));
+            const { error: itemsError } = await supabase.from('order_items').insert(itemsPayload);
+            if (itemsError) throw itemsError;
+        }
+    } catch (err: any) {
+        handleError(err, 'updateOrderInCloud');
+        throw err;
     }
 };
 
@@ -203,7 +184,6 @@ export const updateStoreProfileInCloud = async (profile: StoreProfile) => {
         enable_tax: profile.enableTax,
         service_charge_rate: profile.serviceChargeRate,
         enable_service_charge: profile.enableServiceCharge,
-        // FIX: Using themeColor (the correct property name in StoreProfile) instead of theme_color to resolve line 212 error
         theme_color: profile.themeColor,
         phone_number: profile.phoneNumber
     }, { onConflict: 'branch_id' });
@@ -364,6 +344,7 @@ export const saveAttendanceToCloud = async (record: AttendanceRecord) => {
         department: record.department,
         branch_id: record.branchId,
         date: record.date,
+        // FIX: clock_in database field should be populated from record.clockInTime
         clock_in: record.clockInTime,
         status: record.status,
         photo_url: record.photoUrl
@@ -425,7 +406,7 @@ export const getTablesFromCloud = async (branchId: string) => {
 
 export const addTableToCloud = async (table: Table, branchId: string) => {
     await ensureDefaultBranch();
-    await supabase.from('tables').insert({ id: table.id, branch_id: branchId, table_number: table.number, qr_payload: table.qrCodeData });
+    await supabase.from('tables').insert({ id: table.id, branch_id: branchId, table_number: table.number, qr_payload: table.qr_payload });
 };
 
 export const deleteTableFromCloud = async (id: string) => {
