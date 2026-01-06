@@ -9,13 +9,13 @@ const formatRupiah = (number: number) => new Intl.NumberFormat('id-ID', { style:
 
 const BEEP_URL = "https://actions.google.com/sounds/v1/alarms/beep_short.ogg"; 
 
-// Loading Overlay Component
+// Komponen Loading Overlay Transparan
 const SavingOverlay = () => (
-    <div className="fixed inset-0 z-[200] flex flex-col items-center justify-center bg-white/40 backdrop-blur-[2px] animate-fade-in">
-        <div className="bg-white p-8 rounded-[2.5rem] shadow-2xl flex flex-col items-center border border-gray-100">
+    <div className="fixed inset-0 z-[200] flex flex-col items-center justify-center bg-white/40 backdrop-blur-sm animate-fade-in">
+        <div className="bg-white p-8 rounded-[2.5rem] shadow-2xl flex flex-col items-center border border-gray-100 scale-110">
             <div className="w-16 h-16 border-4 border-orange-100 border-t-orange-600 rounded-full animate-spin mb-4"></div>
-            <p className="font-black text-gray-900 uppercase tracking-widest text-xs">Memproses Data...</p>
-            <p className="text-[10px] text-gray-400 font-bold mt-1 uppercase">Mohon Tunggu Sebentar</p>
+            <p className="font-black text-gray-900 uppercase tracking-widest text-xs">Menyimpan Pesanan...</p>
+            <p className="text-[10px] text-gray-400 font-bold mt-1 uppercase">Sedang Menghubungkan ke Cloud</p>
         </div>
     </div>
 );
@@ -231,13 +231,13 @@ const POSView: React.FC = () => {
     const [discountType, setDiscountType] = useState<'percent' | 'fixed'>('percent');
     const [orderType, setOrderType] = useState<OrderType>('Dine In');
     
-    // Modals
+    // Modals & States
     const [isNameModalOpen, setNameModalOpen] = useState(false);
     const [isSplitOpen, setIsSplitOpen] = useState(false);
     const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
     const [isScanOpen, setIsScanOpen] = useState(false);
     const [isQuickUpdateOpen, setIsQuickUpdateOpen] = useState(false);
-    const [isSaving, setIsSaving] = useState(false); // New Saving State
+    const [isSaving, setIsSaving] = useState(false); // State Loading Transparan
 
     const [searchTerm, setSearchTerm] = useState('');
     const [pendingAction, setPendingAction] = useState<'save' | 'pay' | null>(null);
@@ -250,6 +250,7 @@ const POSView: React.FC = () => {
     const prevOrdersLength = useRef(orders.length);
     const [highlightedOrderId, setHighlightedOrderId] = useState<string | null>(null);
 
+    // Deteksi pesanan baru untuk auto-load dan bunyi beep
     useEffect(() => {
         if (orders.length > prevOrdersLength.current) {
             const latestOrder = orders[0];
@@ -329,14 +330,16 @@ const POSView: React.FC = () => {
             setIsSaving(true);
             try {
                 await updateOrder(activeOrder.id, cart, discountVal, discountType, orderType); 
-                
                 if (action === 'pay') { 
                     setIsPaymentModalOpen(true); 
                 } else { 
                     setActiveOrder(null); 
                     setCart([]); 
+                    setDiscountVal(0);
                     alert("Pesanan berhasil diperbarui!");
                 }
+            } catch (e) {
+                alert("Gagal memperbarui pesanan. Coba lagi.");
             } finally {
                 setIsSaving(false);
             }
@@ -348,8 +351,8 @@ const POSView: React.FC = () => {
     
     const handleNameConfirm = async (name: string) => { 
         setIsSaving(true);
+        setNameModalOpen(false);
         try {
-            let newOrder: Order | null = null; 
             if (pendingAction === 'save') { 
                 await addOrder(cart, name, discountVal, discountType, orderType); 
                 setActiveOrder(null); 
@@ -357,16 +360,17 @@ const POSView: React.FC = () => {
                 setDiscountVal(0); 
                 setOrderType('Dine In'); 
             } else if (pendingAction === 'pay') { 
-                newOrder = await addOrder(cart, name, discountVal, discountType, orderType); 
+                const newOrder = await addOrder(cart, name, discountVal, discountType, orderType); 
                 if(newOrder) { 
                     setActiveOrder(newOrder); 
                     setIsPaymentModalOpen(true); 
                 } 
             } 
-            setPendingAction(null); 
-            setNameModalOpen(false); 
+        } catch (e) {
+            alert("Koneksi terputus. Gagal menyimpan pesanan.");
         } finally {
             setIsSaving(false);
+            setPendingAction(null); 
         }
     };
 
@@ -409,6 +413,7 @@ const POSView: React.FC = () => {
                 await voidOrder(activeOrder);
                 setActiveOrder(null);
                 setCart([]);
+                setDiscountVal(0);
             } finally {
                 setIsSaving(false);
             }

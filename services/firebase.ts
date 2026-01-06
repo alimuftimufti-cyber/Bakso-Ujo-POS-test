@@ -1,3 +1,4 @@
+
 import { Table, Order, Shift, StoreProfile, MenuItem, Ingredient, Expense, ShiftSummary, User, CartItem, OrderSource, AttendanceRecord, OfficeSettings } from '../types';
 import { supabase } from './supabaseClient';
 
@@ -66,7 +67,7 @@ export const subscribeToOrders = (branchId: string, onUpdate: (orders: Order[]) 
     // Jalankan fetch awal
     fetchOrders();
 
-    // Berlangganan perubahan real-time
+    // Berlangganan perubahan real-time dengan filter spesifik
     const channel = supabase.channel(`orders-live-${branchId}`)
         .on('postgres_changes', { 
             event: '*', 
@@ -74,14 +75,15 @@ export const subscribeToOrders = (branchId: string, onUpdate: (orders: Order[]) 
             table: 'orders', 
             filter: `branch_id=eq.${branchId}` 
         }, () => {
-            fetchOrders(); // Re-fetch saat ada perubahan di tabel orders
+            fetchOrders(); 
         })
         .on('postgres_changes', { 
             event: '*', 
             schema: 'public', 
             table: 'order_items' 
         }, () => {
-            fetchOrders(); // Re-fetch saat ada perubahan di detail item
+            // Re-fetch jika ada perubahan di detail item
+            fetchOrders(); 
         })
         .subscribe();
 
@@ -91,6 +93,7 @@ export const subscribeToOrders = (branchId: string, onUpdate: (orders: Order[]) 
 export const addOrderToCloud = async (order: Order) => {
     await ensureDefaultBranch();
     
+    // 1. Simpan Header Pesanan
     const { error: orderError } = await supabase.from('orders').insert({
         id: order.id,
         branch_id: order.branchId || 'pusat',
@@ -114,6 +117,7 @@ export const addOrderToCloud = async (order: Order) => {
         throw orderError; 
     }
 
+    // 2. Simpan Detail Item Pesanan
     const itemsPayload = order.items.map(item => ({
         order_id: order.id,
         product_id: item.id,
@@ -212,7 +216,6 @@ export const getMenuFromCloud = async (branchId: string) => {
         name: i.name,
         price: parseFloat(i.price),
         category: i.category,
-        // FIX: Mapped database snake_case field 'image_url' to camelCase 'imageUrl' expected by MenuItem type
         imageUrl: i.image_url,
         stock: i.stock
     }));
@@ -225,7 +228,6 @@ export const addProductToCloud = async (item: MenuItem, branchId: string) => {
         name: item.name,
         price: item.price,
         category: item.category,
-        // FIX: Correctly access 'imageUrl' from MenuItem type to map back to database field 'image_url'
         image_url: item.imageUrl,
         stock: item.stock
     });
