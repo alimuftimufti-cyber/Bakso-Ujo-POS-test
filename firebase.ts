@@ -1,520 +1,110 @@
 
+import { Table, Order, Shift, StoreProfile, MenuItem, Ingredient, Expense, ShiftSummary, User, CartItem, OrderSource, AttendanceRecord, OfficeSettings } from '../types';
 import { supabase } from './supabaseClient';
-import type { Order, AttendanceRecord, MenuItem, Category, StoreProfile, Ingredient, Branch, User, Shift, ShiftSummary, Expense } from '../types';
-import { defaultStoreProfile } from '../data';
-
-// --- STATUS KONEKSI ---
-export const isFirebaseReady = true; 
-export const currentProjectId = "Supabase Project";
 
 const handleError = (error: any, context: string) => {
-    if (error) {
-        console.error(`Error in ${context}:`, error);
-        // Tampilkan alert agar user tahu jika gagal koneksi atau constraint error
-        if (context === 'startShift') {
-            alert(`Gagal membuka shift: ${error.message || JSON.stringify(error)}`);
-        }
-    }
-};
-
-// ==========================================
-// 1. STORE PROFILE & BRANCHES
-// ==========================================
-
-export const getBranchesFromCloud = async (): Promise<Branch[]> => {
-    const { data, error } = await supabase.from('branches').select('*');
-    handleError(error, 'getBranches');
-    return data || [];
-};
-
-export const getStoreProfileFromCloud = async (branchId: string): Promise<StoreProfile> => {
-    const { data, error } = await supabase.from('branches').select('name, address, settings').eq('id', branchId).single();
-    
-    if (error || !data) {
-        return { ...defaultStoreProfile, branchId }; 
-    }
-
-    const settings = data.settings || {};
-    
-    return {
-        ...defaultStoreProfile,
-        ...settings, // Override defaults with DB settings
-        name: data.name,
-        address: data.address,
-        branchId: branchId
-    };
-};
-
-export const updateStoreProfileInCloud = async (profile: StoreProfile) => {
-    const settings = {
-        themeColor: profile.themeColor,
-        phoneNumber: profile.phoneNumber,
-        slogan: profile.slogan,
-        logo: profile.logo,
-        enableKitchen: profile.enableKitchen,
-        kitchenMotivations: profile.kitchenMotivations,
-        taxRate: profile.taxRate,
-        enableTax: profile.enableTax,
-        serviceChargeRate: profile.serviceChargeRate,
-        enableServiceCharge: profile.enableServiceCharge,
-        enableTableLayout: profile.enableTableLayout,
-        enableTableInput: profile.enableTableInput,
-        autoPrintReceipt: profile.autoPrintReceipt
-    };
-
-    const { error } = await supabase.from('branches').update({
-        name: profile.name,
-        address: profile.address,
-        settings: settings
-    }).eq('id', profile.branchId);
-    
-    handleError(error, 'updateStoreProfile');
-};
-
-export const addBranchToCloud = async (branch: Branch) => {
-    const { error } = await supabase.from('branches').insert({
-        id: branch.id,
-        name: branch.name,
-        address: branch.address,
-        settings: { themeColor: 'orange' } // Default settings
-    });
-    handleError(error, 'addBranch');
-};
-
-export const deleteBranchFromCloud = async (id: string) => {
-    const { error } = await supabase.from('branches').delete().eq('id', id);
-    handleError(error, 'deleteBranch');
-};
-
-// ==========================================
-// 2. SHIFTS & EXPENSES (CLOUD)
-// ==========================================
-
-export const getActiveShiftFromCloud = async (branchId: string): Promise<Shift | null> => {
-    const { data, error } = await supabase
-        .from('shifts')
-        .select('*')
-        .eq('branch_id', branchId)
-        .is('end_time', null)
-        .single();
-
-    if (error && error.code !== 'PGRST116') {
-        console.error("Error getting active shift", error);
-    }
-
-    if (data) {
-        return {
-            id: data.id,
-            start: Number(data.start_time),
-            start_cash: Number(data.start_cash),
-            revenue: Number(data.revenue),
-            cashRevenue: Number(data.cash_revenue),
-            nonCashRevenue: Number(data.non_cash_revenue),
-            transactions: data.transactions_count,
-            totalDiscount: Number(data.total_discount),
-            branchId: data.branch_id,
-            createdBy: data.created_by
-        };
-    }
+    console.error(`🔴 Supabase Error [${context}]:`, error.message, error.details);
     return null;
 };
 
-export const subscribeToShifts = (branchId: string, onShiftChange: (shift: Shift | null) => void) => {
-    const channel = supabase
-        .channel(`realtime-shifts-${branchId}`)
-        .on(
-            'postgres_changes',
-            { event: '*', schema: 'public', table: 'shifts', filter: `branch_id=eq.${branchId}` },
-            async () => {
-                const activeShift = await getActiveShiftFromCloud(branchId);
-                onShiftChange(activeShift);
-            }
-        )
-        .subscribe();
-
-    return () => { supabase.removeChannel(channel); };
-};
-
-export const startShiftInCloud = async (shift: Shift) => {
-    // Pastikan user ID valid atau null jika user lokal belum disinkronkan
-    // Jika user ID 'owner' (dari local seed) dan tidak ada di DB, insert akan gagal karena Foreign Key constraint.
-    // Solusi: Jika ID adalah 'owner' (lokal), coba ganti dengan ID valid di DB (misal owner-1) atau biarkan null jika DB mengizinkan.
-    // Tapi untuk keamanan data, sebaiknya pastikan User ID valid.
-    
-    // Payload to insert
-    const payload: any = {
-        id: shift.id,
-        branch_id: shift.branchId,
-        start_time: shift.start,
-        start_cash: shift.start_cash,
-        revenue: 0,
-        cash_revenue: 0,
-        non_cash_revenue: 0,
-        total_expenses: 0,
-        transactions_count: 0
-    };
-
-    // Only add created_by if it exists and isn't a generic local placeholder that causes FK error
-    if (shift.createdBy && shift.createdBy !== 'owner') {
-        payload.created_by = shift.createdBy;
-    } else {
-        // Fallback: Try to map 'owner' to 'owner-1' if likely seeded
-        if (shift.createdBy === 'owner') payload.created_by = 'owner-1';
-    }
-
-    const { error } = await supabase.from('shifts').insert(payload);
-    handleError(error, 'startShift');
-};
-
-export const updateShiftInCloud = async (shiftId: string, updates: Partial<Shift>) => {
-    const dbUpdates: any = {};
-    if (updates.revenue !== undefined) dbUpdates.revenue = updates.revenue;
-    if (updates.cashRevenue !== undefined) dbUpdates.cash_revenue = updates.cashRevenue;
-    if (updates.nonCashRevenue !== undefined) dbUpdates.non_cash_revenue = updates.nonCashRevenue;
-    if (updates.transactions !== undefined) dbUpdates.transactions_count = updates.transactions;
-    if (updates.totalDiscount !== undefined) dbUpdates.total_discount = updates.totalDiscount;
-
-    const { error } = await supabase.from('shifts').update(dbUpdates).eq('id', shiftId);
-    handleError(error, 'updateShift');
-};
-
-export const closeShiftInCloud = async (summary: ShiftSummary) => {
-    const { error } = await supabase.from('shifts').update({
-        end_time: summary.end,
-        closing_cash: summary.closingCash,
-        total_expenses: summary.totalExpenses,
-        revenue: summary.revenue,
-        cash_revenue: summary.cashRevenue,
-        non_cash_revenue: summary.nonCashRevenue,
-        transactions_count: summary.transactions
-    }).eq('id', summary.id);
-    handleError(error, 'closeShift');
-};
-
-export const getCompletedShiftsFromCloud = async (branchId: string): Promise<ShiftSummary[]> => {
-    const { data, error } = await supabase
-        .from('shifts')
-        .select('*')
-        .eq('branch_id', branchId)
-        .not('end_time', 'is', null)
-        .order('end_time', { ascending: false })
-        .limit(20);
-
-    handleError(error, 'getCompletedShifts');
-
-    return (data || []).map((s: any) => {
-        const startCash = Number(s.start_cash);
-        const cashRev = Number(s.cash_revenue);
-        const expenses = Number(s.total_expenses);
-        const closingCash = Number(s.closing_cash);
-        const expected = startCash + cashRev - expenses;
-
-        return {
-            id: s.id,
-            start: Number(s.start_time),
-            end: Number(s.end_time),
-            start_cash: startCash,
-            revenue: Number(s.revenue),
-            cashRevenue: cashRev,
-            nonCashRevenue: Number(s.non_cash_revenue),
-            totalDiscount: Number(s.total_discount),
-            transactions: s.transactions_count,
-            closingCash: closingCash,
-            totalExpenses: expenses,
-            netRevenue: Number(s.revenue) - expenses,
-            expectedCash: expected,
-            cashDifference: closingCash - expected,
-            averageKitchenTime: 0,
-            branchId: s.branch_id
-        };
-    });
-};
-
-export const getExpensesFromCloud = async (shiftId: string): Promise<Expense[]> => {
-    const { data, error } = await supabase.from('expenses').select('*').eq('shift_id', shiftId);
-    handleError(error, 'getExpenses');
-    return (data || []).map((e: any) => ({
-        id: e.id,
-        shiftId: e.shift_id,
-        description: e.description,
-        amount: Number(e.amount),
-        date: Number(e.created_at)
-    }));
-};
-
-export const addExpenseToCloud = async (expense: Expense) => {
-    const { error } = await supabase.from('expenses').insert({
-        shift_id: expense.shiftId,
-        description: expense.description,
-        amount: expense.amount,
-        created_at: expense.date
-    });
-    handleError(error, 'addExpense');
-};
-
-export const deleteExpenseFromCloud = async (id: number) => {
-    const { error } = await supabase.from('expenses').delete().eq('id', id);
-    handleError(error, 'deleteExpense');
-};
-
-// ==========================================
-// 3. USERS (PEGAWAI)
-// ==========================================
-
-export const getUsersFromCloud = async (branchId: string): Promise<User[]> => {
-    const { data, error } = await supabase
-        .from('users')
-        .select('*')
-        .or(`branch_id.eq.${branchId},role.eq.owner`);
-        
-    handleError(error, 'getUsers');
-    
-    return (data || []).map((u: any) => ({
-        id: u.id,
-        name: u.name,
-        pin: u.pin,
-        attendancePin: u.attendance_pin,
-        role: u.role as any,
-        branchId: u.branch_id
-    }));
-};
-
-export const addUserToCloud = async (user: User) => {
-    const { error } = await supabase.from('users').insert({
-        id: user.id,
-        name: user.name,
-        pin: user.pin,
-        attendance_pin: user.attendancePin,
-        role: user.role,
-        branch_id: user.branchId
-    });
-    handleError(error, 'addUser');
-};
-
-export const deleteUserFromCloud = async (id: string) => {
-    const { error } = await supabase.from('users').delete().eq('id', id);
-    handleError(error, 'deleteUser');
-};
-
-export const updateUserInCloud = async (user: User) => {
-    const { error } = await supabase.from('users').update({
-        name: user.name,
-        pin: user.pin,
-        attendance_pin: user.attendancePin,
-        role: user.role
-    }).eq('id', user.id);
-    handleError(error, 'updateUser');
-};
-
-// ==========================================
-// 4. CATEGORIES & MENU
-// ==========================================
-
-export const getCategoriesFromCloud = async (): Promise<Category[]> => {
-    const { data, error } = await supabase.from('categories').select('name');
-    handleError(error, 'getCategories');
-    return (data || []).map((c: any) => c.name);
-};
-
-export const addCategoryToCloud = async (name: string) => {
-    const { error } = await supabase.from('categories').insert({ name });
-    handleError(error, 'addCategory');
-};
-
-export const deleteCategoryFromCloud = async (name: string) => {
-    const { error } = await supabase.from('categories').delete().eq('name', name);
-    handleError(error, 'deleteCategory');
-};
-
-export const getMenuFromCloud = async (branchId: string): Promise<MenuItem[]> => {
-    const { data, error } = await supabase
-        .from('products')
-        .select(`*, categories (name)`)
-        .eq('is_active', true)
-        .or(`branch_id.is.null,branch_id.eq.${branchId}`);
-
-    handleError(error, 'getMenu');
-
-    return (data || []).map((p: any) => ({
-        id: p.id,
-        name: p.name,
-        price: Number(p.price),
-        category: p.categories?.name || 'Umum',
-        imageUrl: p.image_url,
-        stock: p.stock,
-        minStock: p.min_stock
-    }));
-};
-
-export const addProductToCloud = async (item: MenuItem, branchId: string) => {
-    let categoryId = 1;
-    // Get Category ID
-    const { data: catData } = await supabase.from('categories').select('id').eq('name', item.category).single();
-    if (catData) categoryId = catData.id;
-
-    const payload = {
-        name: item.name,
-        price: item.price,
-        category_id: categoryId,
-        image_url: item.imageUrl,
-        stock: item.stock,
-        min_stock: item.minStock,
-        is_active: true,
-        branch_id: null // Global menu for now, or use branchId if strict separation
-    };
-
-    // Check if ID exists to determine Insert or Update
-    const { data: existing } = await supabase.from('products').select('id').eq('id', item.id).single();
-
-    if (existing) {
-        const { error } = await supabase.from('products').update(payload).eq('id', item.id);
-        handleError(error, 'updateProduct');
-    } else {
-        const { error } = await supabase.from('products').insert(payload);
-        handleError(error, 'addProduct');
+// --- INITIALIZATION HELPER ---
+export const ensureDefaultBranch = async () => {
+    const { data: branch } = await supabase.from('branches').select('id').eq('id', 'pusat').maybeSingle();
+    if (!branch) {
+        await supabase.from('branches').insert({ id: 'pusat', name: 'Bakso Ujo Pusat' });
     }
 };
 
-export const updateProductStockInCloud = async (id: number, stock: number) => {
-    const { error } = await supabase.from('products').update({ stock: stock }).eq('id', id);
-    handleError(error, 'updateProductStock');
-}
+// --- MAPPING HELPERS ---
+const mapOrder = (o: any): Order => {
+    const items = Array.isArray(o.order_items) ? o.order_items.map((item: any) => ({
+        id: item.product_id,
+        name: item.product_name,
+        price: parseFloat(item.price),
+        quantity: item.quantity,
+        note: item.note || '',
+        category: 'Bakso' 
+    })) : [];
 
-export const deleteProductFromCloud = async (id: number) => {
-    await supabase.from('products').update({ is_active: false }).eq('id', id);
-};
-
-// ==========================================
-// 5. INGREDIENTS (BAHAN BAKU)
-// ==========================================
-
-export const getIngredientsFromCloud = async (branchId: string): Promise<Ingredient[]> => {
-    const { data, error } = await supabase.from('ingredients').select('*').eq('branch_id', branchId);
-    handleError(error, 'getIngredients');
-    return (data || []).map((i: any) => ({
-        id: i.id,
-        name: i.name,
-        unit: i.unit,
-        stock: Number(i.stock),
-        minStock: Number(i.min_stock),
-        type: i.type
-    }));
-};
-
-export const addIngredientToCloud = async (ingredient: Ingredient, branchId: string) => {
-    const payload = {
-        id: ingredient.id, // TEXT ID allowed
-        name: ingredient.name,
-        unit: ingredient.unit,
-        stock: ingredient.stock,
-        min_stock: ingredient.minStock,
-        type: ingredient.type,
-        branch_id: branchId
-    };
-    
-    // Upsert (Insert or Update based on ID)
-    const { error } = await supabase.from('ingredients').upsert(payload);
-    handleError(error, 'addIngredient');
-};
-
-export const deleteIngredientFromCloud = async (id: string) => {
-    const { error } = await supabase.from('ingredients').delete().eq('id', id);
-    handleError(error, 'deleteIngredient');
-}
-
-export const updateIngredientStockInCloud = async (id: string, stock: number) => {
-    const { error } = await supabase.from('ingredients').update({ stock: stock }).eq('id', id);
-    handleError(error, 'updateIngredientStock');
-}
-
-// ==========================================
-// 6. ORDERS
-// ==========================================
-
-const mapToAppOrder = (dbOrder: any): Order => {
     return {
-        id: dbOrder.id,
-        sequentialId: dbOrder.sequential_id,
-        customerName: dbOrder.customer_name,
-        items: dbOrder.order_items ? dbOrder.order_items.map((i: any) => ({
-            id: i.product_id,
-            name: i.product_name,
-            price: i.price,
-            quantity: i.quantity,
-            note: i.note,
-            category: 'Uncategorized', 
-        })) : [],
-        total: dbOrder.total,
-        subtotal: dbOrder.subtotal,
-        discount: dbOrder.discount || 0,
-        discountType: 'percent',
-        discountValue: 0,
-        taxAmount: dbOrder.tax || 0,
-        serviceChargeAmount: dbOrder.service || 0,
-        status: dbOrder.status,
-        createdAt: Number(dbOrder.created_at),
-        completedAt: dbOrder.completed_at ? Number(dbOrder.completed_at) : undefined,
-        paidAt: dbOrder.payment_status === 'paid' ? new Date(dbOrder.updated_at).getTime() : undefined,
-        isPaid: dbOrder.payment_status === 'paid',
-        paymentMethod: dbOrder.payment_method,
-        shiftId: dbOrder.shift_id,
-        orderType: dbOrder.type,
-        branchId: dbOrder.branch_id
+        id: String(o.id),
+        branchId: o.branch_id,
+        shiftId: o.shift_id,
+        customerName: o.customer_name || 'Pelanggan',
+        items: items,
+        total: parseFloat(o.total || 0),
+        subtotal: parseFloat(o.subtotal || 0),
+        discount: parseFloat(o.discount || 0),
+        taxAmount: parseFloat(o.tax || 0),
+        serviceChargeAmount: parseFloat(o.service || 0),
+        status: o.status || 'pending',
+        isPaid: o.payment_status === 'Paid',
+        paymentMethod: o.payment_method,
+        orderType: o.type || 'Dine In',
+        createdAt: Number(o.created_at),
+        // Sesuai skema Anda: tidak ada paid_at, kita gunakan created_at/completed_at sebagai referensi waktu
+        readyAt: o.ready_at ? Number(o.ready_at) : undefined,
+        completedAt: o.completed_at ? Number(o.completed_at) : undefined,
+        sequentialId: o.sequential_id,
+        discountType: 'fixed',
+        discountValue: parseFloat(o.discount || 0),
+        orderSource: o.order_source || 'admin'
     };
 };
 
+// --- ORDER SERVICES ---
 export const subscribeToOrders = (branchId: string, onUpdate: (orders: Order[]) => void) => {
-    if (!branchId) return () => {};
-
     const fetchOrders = async () => {
-        // Ambil orders dari 24 jam terakhir agar tidak terlalu berat
-        const oneDayAgo = Date.now() - (24 * 60 * 60 * 1000);
         const { data, error } = await supabase
             .from('orders')
-            .select(`*, order_items (*)`)
+            .select('*, order_items(*)')
             .eq('branch_id', branchId)
-            .gte('created_at', oneDayAgo) 
             .order('created_at', { ascending: false });
-
-        if (!error && data) {
-            onUpdate(data.map(mapToAppOrder));
-        }
+        
+        if (error) { handleError(error, 'fetchOrders'); return; }
+        onUpdate((data || []).map(mapOrder));
     };
 
     fetchOrders();
 
-    const channel = supabase
-        .channel(`realtime-orders-${branchId}`)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `branch_id=eq.${branchId}` }, () => fetchOrders())
+    const channel = supabase.channel(`orders-live-${branchId}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `branch_id=eq.${branchId}` }, fetchOrders)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items' }, fetchOrders)
         .subscribe();
 
-    return () => { supabase.removeChannel(channel); };
+    return () => supabase.removeChannel(channel);
 };
 
 export const addOrderToCloud = async (order: Order) => {
+    await ensureDefaultBranch();
+    
+    // Simpan Header ke tabel 'orders'
+    // PENTING: Jangan kirim kolom 'items' ke sini
     const { error: orderError } = await supabase.from('orders').insert({
         id: order.id,
-        branch_id: order.branchId,
-        shift_id: order.shiftId,
+        branch_id: order.branchId || 'pusat',
+        shift_id: order.shiftId || null,
         customer_name: order.customerName,
         type: order.orderType,
         status: order.status,
-        payment_method: order.paymentMethod,
-        payment_status: order.isPaid ? 'paid' : 'unpaid',
+        payment_status: order.isPaid ? 'Paid' : 'Unpaid',
+        payment_method: order.paymentMethod || null,
         subtotal: order.subtotal,
         discount: order.discount,
-        tax: order.taxAmount,
-        service: order.serviceChargeAmount,
+        tax: order.taxAmount || 0,
+        service: order.serviceChargeAmount || 0,
         total: order.total,
-        created_at: order.createdAt
+        created_at: order.createdAt,
+        order_source: order.orderSource || 'admin'
     });
 
-    if (orderError) {
-        console.error("Add Order Error", orderError);
-        return;
+    if (orderError) { 
+        handleError(orderError, 'addOrder:main'); 
+        throw orderError; 
     }
 
-    const items = order.items.map(item => ({
+    // Simpan Detail ke tabel 'order_items'
+    const itemsPayload = order.items.map(item => ({
         order_id: order.id,
         product_id: item.id,
         product_name: item.name,
@@ -522,78 +112,419 @@ export const addOrderToCloud = async (order: Order) => {
         quantity: item.quantity,
         note: item.note
     }));
-    
-    await supabase.from('order_items').insert(items);
+
+    const { error: itemsError } = await supabase.from('order_items').insert(itemsPayload);
+    if (itemsError) handleError(itemsError, 'addOrder:items');
 };
 
-export const updateOrderInCloud = async (orderId: string, data: Partial<Order>) => {
-    const updates: any = {};
-    if (data.status) updates.status = data.status;
-    if (data.isPaid !== undefined) updates.payment_status = data.isPaid ? 'paid' : 'unpaid';
-    if (data.paymentMethod) updates.payment_method = data.paymentMethod;
-    if (data.completedAt) updates.completed_at = data.completedAt; 
+export const updateOrderInCloud = async (id: string, updates: any) => {
+    const dbPayload: any = {};
     
-    if (Object.keys(updates).length > 0) {
-        updates.updated_at = new Date().toISOString(); 
-        await supabase.from('orders').update(updates).eq('id', orderId);
+    // Mapping payload aplikasi ke nama kolom database Anda
+    if (updates.status) dbPayload.status = updates.status;
+    if (updates.orderType) dbPayload.type = updates.orderType;
+    if (updates.paymentMethod) dbPayload.payment_method = updates.paymentMethod;
+    if (updates.total !== undefined) dbPayload.total = updates.total;
+    if (updates.subtotal !== undefined) dbPayload.subtotal = updates.subtotal;
+    if (updates.discount !== undefined) dbPayload.discount = updates.discount;
+    if (updates.taxAmount !== undefined) dbPayload.tax = updates.taxAmount;
+    if (updates.serviceChargeAmount !== undefined) dbPayload.service = updates.serviceChargeAmount;
+    
+    if (updates.isPaid !== undefined) {
+        dbPayload.payment_status = updates.isPaid ? 'Paid' : 'Unpaid';
+        // HAPUS paid_at karena kolom tidak ada di skema screenshot Anda
+    }
+
+    // Handle waktu dapur
+    // Selesai Masak (Status: serving) -> Isi kolom ready_at
+    if (updates.status === 'serving') dbPayload.ready_at = Date.now();
+    // Selesai Transaksi (Status: completed) -> Isi kolom completed_at
+    if (updates.status === 'completed') dbPayload.completed_at = Date.now();
+
+    try {
+        const { error: orderError } = await supabase.from('orders').update(dbPayload).eq('id', id);
+        if (orderError) throw orderError;
+
+        // Jika ada update item (Edit Pesanan)
+        if (updates.items) {
+            await supabase.from('order_items').delete().eq('order_id', id);
+            const itemsPayload = updates.items.map((item: any) => ({
+                order_id: id,
+                product_id: item.id,
+                product_name: item.name,
+                price: item.price,
+                quantity: item.quantity,
+                note: item.note
+            }));
+            const { error: itemsError } = await supabase.from('order_items').insert(itemsPayload);
+            if (itemsError) throw itemsError;
+        }
+    } catch (err: any) {
+        handleError(err, 'updateOrderInCloud');
+        throw err;
     }
 };
 
-// ==========================================
-// 7. ATTENDANCE
-// ==========================================
-
-export const subscribeToAttendance = (branchId: string, onUpdate: (data: AttendanceRecord[]) => void) => {
-    const fetch = async () => {
-        // Fetch only today's attendance
-        const startOfDay = new Date();
-        startOfDay.setHours(0,0,0,0);
-        
-        const { data } = await supabase.from('attendance')
-            .select('*')
-            .eq('branch_id', branchId)
-            .gte('clock_in', startOfDay.getTime())
-            .order('clock_in', { ascending: false });
-            
-        if (data) {
-            onUpdate(data.map((r: any) => ({
-                id: r.id,
-                userId: r.user_id,
-                userName: r.user_name,
-                branchId: r.branch_id,
-                date: r.date,
-                clockInTime: Number(r.clock_in),
-                clockOutTime: r.clock_out ? Number(r.clock_out) : undefined,
-                status: r.status,
-                photoUrl: r.photo_url,
-                location: r.lat ? { lat: r.lat, lng: r.lng } : undefined
-            })));
-        }
-    };
-    fetch();
-    return () => {};
+export const getStoreProfileFromCloud = async (branchId: string) => {
+    const { data, error } = await supabase.from('store_profiles').select('*').eq('branch_id', branchId).maybeSingle();
+    if (error) handleError(error, 'getStoreProfile');
+    return data ? {
+        branchId: data.branch_id,
+        name: data.name,
+        address: data.address,
+        slogan: data.slogan,
+        logo: data.logo,
+        taxRate: parseFloat(data.tax_rate || 0),
+        enableTax: !!data.enable_tax,
+        serviceChargeRate: parseFloat(data.service_charge_rate || 0),
+        enableServiceCharge: !!data.enable_service_charge,
+        themeColor: data.theme_color || 'orange',
+        phoneNumber: data.phone_number || ''
+    } : null;
 };
 
-export const addAttendanceToCloud = async (record: AttendanceRecord) => {
-    await supabase.from('attendance').insert({
+export const updateStoreProfileInCloud = async (profile: StoreProfile) => {
+    const { error } = await supabase.from('store_profiles').upsert({
+        branch_id: profile.branchId,
+        name: profile.name,
+        address: profile.address,
+        slogan: profile.slogan,
+        logo: profile.logo,
+        tax_rate: profile.taxRate,
+        enable_tax: profile.enableTax,
+        service_charge_rate: profile.serviceChargeRate,
+        enable_service_charge: profile.enableServiceCharge,
+        theme_color: profile.themeColor,
+        phone_number: profile.phoneNumber
+    }, { onConflict: 'branch_id' });
+    if (error) handleError(error, 'updateStoreProfile');
+};
+
+export const getMenuFromCloud = async (branchId: string) => {
+    const { data, error } = await supabase.from('products').select('*').eq('branch_id', branchId).order('name', { ascending: true });
+    if (error) { handleError(error, 'getMenu'); return []; }
+    return (data || []).map(i => ({
+        id: Number(i.id),
+        name: i.name,
+        price: parseFloat(i.price),
+        category: i.category,
+        imageUrl: i.image_url,
+        stock: i.stock
+    }));
+};
+
+export const addProductToCloud = async (item: MenuItem, branchId: string) => {
+    const { error } = await supabase.from('products').upsert({
+        id: item.id,
+        branch_id: branchId,
+        name: item.name,
+        price: item.price,
+        category: item.category,
+        image_url: item.imageUrl,
+        stock: item.stock
+    });
+    if (error) handleError(error, 'addProduct');
+};
+
+export const deleteProductFromCloud = async (id: number) => {
+    const { error } = await supabase.from('products').delete().eq('id', id);
+    if (error) handleError(error, 'deleteProduct');
+};
+
+export const getCategoriesFromCloud = async (): Promise<string[]> => {
+    const { data, error } = await supabase.from('categories').select('name').order('name', { ascending: true });
+    if (error) { handleError(error, 'getCategories'); return []; }
+    return (data || []).map((c: any) => c.name);
+};
+
+export const addCategoryToCloud = async (name: string) => {
+    const { error } = await supabase.from('categories').insert({ name });
+    if (error) handleError(error, 'addCategory');
+};
+
+export const deleteCategoryFromCloud = async (name: string) => {
+    const { error } = await supabase.from('categories').delete().eq('name', name);
+    if (error) handleError(error, 'deleteCategory');
+};
+
+export const getActiveShiftFromCloud = async (branchId: string) => {
+    const { data, error } = await supabase.from('shifts').select('*').eq('branch_id', branchId).is('end_time', null).maybeSingle();
+    if (error) handleError(error, 'getActiveShift');
+    return data ? {
+        id: String(data.id),
+        start: Number(data.start_time),
+        start_cash: parseFloat(data.start_cash || 0),
+        revenue: parseFloat(data.revenue || 0),
+        transactions: 0,
+        cashRevenue: parseFloat(data.cash_revenue || 0),
+        nonCashRevenue: parseFloat(data.non_cash_revenue || 0),
+        totalDiscount: parseFloat(data.total_discount || 0),
+        branchId: data.branch_id
+    } : null;
+};
+
+export const startShiftInCloud = async (shift: Shift) => {
+    const { error } = await supabase.from('shifts').insert({
+        id: shift.id,
+        branch_id: shift.branchId,
+        start_time: shift.start,
+        start_cash: shift.start_cash,
+        revenue: 0
+    });
+    if (error) handleError(error, 'startShift');
+};
+
+export const closeShiftInCloud = async (summary: ShiftSummary) => {
+    const { error } = await supabase.from('shifts').update({
+        end_time: summary.end,
+        closing_cash: summary.closingCash,
+        revenue: summary.revenue,
+        cash_revenue: summary.cashRevenue,
+        non_cash_revenue: summary.nonCashRevenue,
+        total_discount: summary.totalDiscount
+    }).eq('id', summary.id);
+    if (error) handleError(error, 'closeShift');
+};
+
+export const getUsersFromCloud = async (branchId: string) => {
+    const { data, error } = await supabase.from('users').select('*').eq('branch_id', branchId);
+    if (error) handleError(error, 'getUsers');
+    return (data || []).map(u => ({
+        id: String(u.id),
+        name: u.name,
+        pin: String(u.pin),
+        attendancePin: String(u.attendance_pin),
+        role: u.role,
+        department: u.department,
+        branchId: u.branch_id
+    }));
+};
+
+export const addUserToCloud = async (user: User) => {
+    const { error } = await supabase.from('users').insert({
+        id: user.id,
+        branch_id: user.branchId || 'pusat',
+        name: user.name,
+        pin: user.pin,
+        attendance_pin: user.attendancePin,
+        role: user.role,
+        department: user.department
+    });
+    if (error) handleError(error, 'addUser');
+};
+
+export const updateUserInCloud = async (user: User) => {
+    const { error } = await supabase.from('users').update({
+        name: user.name,
+        pin: user.pin,
+        attendance_pin: user.attendancePin,
+        role: user.role,
+        department: user.department
+    }).eq('id', user.id);
+    if (error) handleError(error, 'updateUser');
+};
+
+export const deleteUserFromCloud = async (id: string) => {
+    const { error } = await supabase.from('users').delete().eq('id', id);
+    if (error) handleError(error, 'deleteUser');
+};
+
+export const getAttendanceRecordsFromCloud = async (branchId: string, date: string) => {
+    const { data, error } = await supabase.from('attendance').select('*').eq('branch_id', branchId).eq('date', date);
+    if (error) handleError(error, 'getAttendance');
+    return (data || []).map(r => ({
+        id: String(r.id),
+        userId: r.user_id,
+        userName: r.user_name,
+        department: r.department,
+        date: r.date,
+        clockInTime: Number(r.clock_in),
+        clockOutTime: r.clock_out ? Number(r.clock_out) : undefined,
+        status: r.status,
+        branchId: r.branch_id,
+        photoUrl: r.photo_url
+    }));
+};
+
+export const saveAttendanceToCloud = async (record: AttendanceRecord) => {
+    const { error } = await supabase.from('attendance').insert({
         id: record.id,
         user_id: record.userId,
         user_name: record.userName,
+        department: record.department,
         branch_id: record.branchId,
         date: record.date,
         clock_in: record.clockInTime,
         status: record.status,
-        photo_url: record.photoUrl,
-        lat: record.location?.lat,
-        lng: record.location?.lng
+        photo_url: record.photoUrl
     });
+    if (error) handleError(error, 'saveAttendance');
 };
 
-export const updateAttendanceInCloud = async (id: string, data: Partial<AttendanceRecord>, branchId: string) => {
-    const updates: any = {};
-    if (data.clockOutTime) updates.clock_out = data.clockOutTime;
-    if (data.status) updates.status = data.status;
-    await supabase.from('attendance').update(updates).eq('id', id);
+export const updateAttendanceInCloud = async (id: string, updates: any) => {
+    const { error } = await supabase.from('attendance').update({
+        clock_out: updates.clockOutTime
+    }).eq('id', id);
+    if (error) handleError(error, 'updateAttendance');
 };
 
-export const setStoreStatus = async (branchId: string, isOpen: boolean) => {};
+export const subscribeToAttendance = (branchId: string, date: string, callback: (records: AttendanceRecord[]) => void) => {
+    const fetch = async () => {
+        const records = await getAttendanceRecordsFromCloud(branchId, date);
+        callback(records);
+    };
+    fetch();
+    const sub = supabase.channel(`attendance-${branchId}-${date}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'attendance', filter: `branch_id=eq.${branchId}` }, fetch)
+        .subscribe();
+    return () => supabase.removeChannel(sub);
+};
+
+export const getOfficeSettingsFromCloud = async (branchId: string) => {
+    const { data, error } = await supabase.from('office_settings').select('*').eq('branch_id', branchId).maybeSingle();
+    if (error) handleError(error, 'getOfficeSettings');
+    return data ? {
+        branchId: data.branch_id,
+        officeName: data.office_name,
+        latitude: data.latitude,
+        longitude: data.longitude,
+        radiusKm: data.radius_km,
+        startTime: data.start_time,
+        endTime: data.end_time
+    } : null;
+};
+
+export const updateOfficeSettingsInCloud = async (settings: OfficeSettings) => {
+    const { error } = await supabase.from('office_settings').upsert({
+        branch_id: settings.branchId,
+        office_name: settings.officeName,
+        latitude: settings.latitude,
+        longitude: settings.longitude,
+        radius_km: settings.radiusKm,
+        start_time: settings.startTime,
+        end_time: settings.endTime
+    });
+    if (error) handleError(error, 'updateOfficeSettings');
+};
+
+export const getTablesFromCloud = async (branchId: string) => {
+    const { data, error } = await supabase.from('tables').select('*').eq('branch_id', branchId);
+    if (error) handleError(error, 'getTables');
+    return (data || []).map(t => ({ id: String(t.id), number: t.table_number, qrCodeData: t.qr_payload }));
+};
+
+export const addTableToCloud = async (table: Table, branchId: string) => {
+    await ensureDefaultBranch();
+    await supabase.from('tables').insert({ id: table.id, branch_id: branchId, table_number: table.number, qr_payload: table.qrCodeData });
+};
+
+export const deleteTableFromCloud = async (id: string) => {
+    await supabase.from('tables').delete().eq('id', id);
+};
+
+export const getCompletedShiftsFromCloud = async (branchId: string) => {
+    const { data, error } = await supabase.from('shifts').select('*').eq('branch_id', branchId).not('end_time', 'is', null).order('end_time', { ascending: false });
+    if (error) return [];
+    return data.map(s => ({
+        id: String(s.id),
+        start: Number(s.start_time),
+        end: Number(s.end_time),
+        revenue: parseFloat(s.revenue || 0),
+        cashRevenue: parseFloat(s.cash_revenue || 0),
+        nonCashRevenue: parseFloat(s.non_cash_revenue || 0),
+        start_cash: parseFloat(s.start_cash || 0),
+        closingCash: parseFloat(s.closing_cash || 0),
+        cashDifference: parseFloat(s.closing_cash || 0) - (parseFloat(s.start_cash || 0) + parseFloat(s.cash_revenue || 0)),
+        transactions: 0
+    }));
+};
+
+export const getIngredientsFromCloud = async (branchId: string) => {
+    const { data, error } = await supabase.from('ingredients').select('*').eq('branch_id', branchId);
+    if (error) return [];
+    return data.map(i => ({ id: String(i.id), name: i.name, stock: parseFloat(i.stock), unit: i.unit, type: i.type, minStock: i.min_stock }));
+};
+
+export const addIngredientToCloud = async (ing: Ingredient, branchId: string) => {
+    await supabase.from('ingredients').upsert({ id: ing.id, branch_id: branchId, name: ing.name, stock: ing.stock, unit: ing.unit, type: ing.type, min_stock: ing.minStock });
+};
+
+export const deleteIngredientFromCloud = async (id: string) => {
+    await supabase.from('ingredients').delete().eq('id', id);
+};
+
+export const updateProductStockInCloud = async (id: number, stock: number) => {
+    await supabase.from('products').update({ stock }).eq('id', id);
+};
+
+export const updateIngredientStockInCloud = async (id: string, stock: number) => {
+    await supabase.from('ingredients').update({ stock }).eq('id', id);
+};
+
+export const getExpensesFromCloud = async (shiftId: string) => {
+    const { data, error } = await supabase.from('expenses').select('*').eq('shift_id', shiftId);
+    if (error) return [];
+    return data.map(e => ({ id: Number(e.id), description: e.description, amount: parseFloat(e.amount), date: Number(e.created_at), shiftId: e.shift_id }));
+};
+
+export const addExpenseToCloud = async (exp: any) => {
+    await supabase.from('expenses').insert({ shift_id: exp.shiftId, description: exp.description, amount: exp.amount, created_at: exp.date });
+};
+
+export const deleteExpenseFromCloud = async (id: number) => {
+    await supabase.from('expenses').delete().eq('id', id);
+};
+
+export const subscribeToShifts = (branchId: string, callback: (s: Shift | null) => void) => {
+    const fetch = async () => {
+        const s = await getActiveShiftFromCloud(branchId);
+        callback(s);
+    };
+    fetch();
+    const sub = supabase.channel(`shifts-${branchId}`).on('postgres_changes', { event: '*', schema: 'public', table: 'shifts' }, fetch).subscribe();
+    return () => supabase.removeChannel(sub);
+};
+
+export const subscribeToTables = (branchId: string, callback: (t: Table[]) => void) => {
+    const fetch = async () => {
+        const t = await getTablesFromCloud(branchId);
+        callback(t);
+    };
+    fetch();
+    const sub = supabase.channel(`tables-${branchId}`).on('postgres_changes', { event: '*', schema: 'public', table: 'tables' }, fetch).subscribe();
+    return () => supabase.removeChannel(sub);
+};
+
+export const subscribeToInventory = (branchId: string, callback: () => void) => {
+    const sub = supabase.channel(`inventory-${branchId}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, callback)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'ingredients' }, callback)
+        .subscribe();
+    return () => supabase.removeChannel(sub);
+};
+
+export const uploadSelfieToCloud = async (file: Blob, fileName: string) => {
+    const { data, error } = await supabase.storage.from('BAKSOUJOPOS').upload(`attendance/${fileName}`, file);
+    if (error) return null;
+    const { data: { publicUrl } } = supabase.storage.from('BAKSOUJOPOS').getPublicUrl(`attendance/${fileName}`);
+    return publicUrl;
+};
+
+export const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+    const R = 6371; // km
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c * 1000; // meters
+};
+
+export const getReverseGeocoding = async (lat: number, lng: number) => {
+    try {
+        const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`);
+        const data = await res.json();
+        return data.display_name || "Lokasi Tidak Dikenal";
+    } catch (e) {
+        return "Gagal melacak alamat";
+    }
+};
