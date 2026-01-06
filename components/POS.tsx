@@ -9,11 +9,21 @@ const formatRupiah = (number: number) => new Intl.NumberFormat('id-ID', { style:
 
 const BEEP_URL = "https://actions.google.com/sounds/v1/alarms/beep_short.ogg"; 
 
+// Loading Overlay Component
+const SavingOverlay = () => (
+    <div className="fixed inset-0 z-[200] flex flex-col items-center justify-center bg-white/40 backdrop-blur-[2px] animate-fade-in">
+        <div className="bg-white p-8 rounded-[2.5rem] shadow-2xl flex flex-col items-center border border-gray-100">
+            <div className="w-16 h-16 border-4 border-orange-100 border-t-orange-600 rounded-full animate-spin mb-4"></div>
+            <p className="font-black text-gray-900 uppercase tracking-widest text-xs">Memproses Data...</p>
+            <p className="text-[10px] text-gray-400 font-bold mt-1 uppercase">Mohon Tunggu Sebentar</p>
+        </div>
+    </div>
+);
+
 const QuickOrderUpdateModal = ({ order, menu, onClose, onUpdate, onPay, theme }: { order: Order, menu: MenuItem[], onClose: () => void, onUpdate: (items: CartItem[]) => void, onPay: (items: CartItem[]) => void, theme: string }) => {
     const [currentItems, setCurrentItems] = useState<CartItem[]>(order.items);
     const [searchTerm, setSearchTerm] = useState('');
     
-    // Tampilkan SEMUA item dari menu tanpa filter kategori
     const fullMenuList = useMemo(() => {
         return menu.filter(m => m.name.toLowerCase().includes(searchTerm.toLowerCase()));
     }, [menu, searchTerm]);
@@ -37,10 +47,8 @@ const QuickOrderUpdateModal = ({ order, menu, onClose, onUpdate, onPay, theme }:
     return (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center z-[80] p-4 animate-fade-in">
             <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-5xl flex flex-col md:flex-row overflow-hidden max-h-[90vh] border border-white/20">
-                {/* Tombol Close Pojok Kanan Atas (Floating) */}
                 <button onClick={onClose} className="absolute top-6 right-6 bg-white/20 hover:bg-white/40 text-white w-12 h-12 rounded-full flex items-center justify-center text-3xl font-light z-[90] transition-all">&times;</button>
 
-                {/* Bagian Kiri: Ringkasan Pesanan Aktif */}
                 <div className="w-full md:w-5/12 p-8 flex flex-col border-r border-gray-100 bg-gray-50/50">
                     <div className="mb-6">
                         <h3 className="text-2xl font-black text-gray-900 uppercase italic">Isi Pesanan</h3>
@@ -88,7 +96,6 @@ const QuickOrderUpdateModal = ({ order, menu, onClose, onUpdate, onPay, theme }:
                     </div>
                 </div>
 
-                {/* Bagian Kanan: Galeri Semua Menu */}
                 <div className="w-full md:w-7/12 p-8 bg-white flex flex-col">
                     <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
                         <h3 className="text-xl font-black text-gray-900 flex items-center gap-2">
@@ -180,7 +187,6 @@ const ScanQRModal = ({ onClose, onScan, theme }: { onClose: () => void, onScan: 
                 });
             }
         }, (err: any) => {
-            // Abaikan error scan gagal
         });
 
         return () => {
@@ -231,6 +237,7 @@ const POSView: React.FC = () => {
     const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
     const [isScanOpen, setIsScanOpen] = useState(false);
     const [isQuickUpdateOpen, setIsQuickUpdateOpen] = useState(false);
+    const [isSaving, setIsSaving] = useState(false); // New Saving State
 
     const [searchTerm, setSearchTerm] = useState('');
     const [pendingAction, setPendingAction] = useState<'save' | 'pay' | null>(null);
@@ -240,13 +247,11 @@ const POSView: React.FC = () => {
     const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(false);
     const theme = storeProfile.themeColor || 'orange';
 
-    // NOTIFICATION LOGIC
     const prevOrdersLength = useRef(orders.length);
     const [highlightedOrderId, setHighlightedOrderId] = useState<string | null>(null);
 
     useEffect(() => {
         if (orders.length > prevOrdersLength.current) {
-            // Karena data disort DESC di firebase.ts, data terbaru ada di index 0
             const latestOrder = orders[0];
             if (latestOrder && latestOrder.status === 'pending') {
                 const audio = new Audio(BEEP_URL);
@@ -317,28 +322,79 @@ const POSView: React.FC = () => {
 
     const updateCart = (id: number, qty: number, note?: string) => { if (isReadOnly) return; setCart(prev => prev.map(i => i.id === id ? { ...i, quantity: qty, note: note !== undefined ? note : i.note } : i).filter(i => i.quantity > 0)); };
 
-    const handleAction = (action: 'save' | 'pay') => { 
+    const handleAction = async (action: 'save' | 'pay') => { 
         if (cart.length === 0) return; 
         
         if (activeOrder) { 
-            updateOrder(activeOrder.id, cart, discountVal, discountType, orderType); 
-            
-            if (action === 'pay') { 
-                setIsPaymentModalOpen(true); 
-            } else { 
-                setActiveOrder(null); 
-                setCart([]); 
-                alert("Pesanan berhasil diperbarui!");
-            } 
+            setIsSaving(true);
+            try {
+                await updateOrder(activeOrder.id, cart, discountVal, discountType, orderType); 
+                
+                if (action === 'pay') { 
+                    setIsPaymentModalOpen(true); 
+                } else { 
+                    setActiveOrder(null); 
+                    setCart([]); 
+                    alert("Pesanan berhasil diperbarui!");
+                }
+            } finally {
+                setIsSaving(false);
+            }
         } else { 
             setPendingAction(action); 
             setNameModalOpen(true); 
         } 
     };
     
-    const handleNameConfirm = async (name: string) => { let newOrder: Order | null = null; if (pendingAction === 'save') { await addOrder(cart, name, discountVal, discountType, orderType); setActiveOrder(null); setCart([]); setDiscountVal(0); setOrderType('Dine In'); } else if (pendingAction === 'pay') { newOrder = await addOrder(cart, name, discountVal, discountType, orderType); if(newOrder) { setActiveOrder(newOrder); setIsPaymentModalOpen(true); } } setPendingAction(null); setNameModalOpen(false); };
-    const handlePayment = (method: PaymentMethod) => { if (activeOrder) { const finalOrder = { ...activeOrder, items: cart, total: totals.total, discount: totals.discount, taxAmount: totals.tax, serviceChargeAmount: totals.service }; const paidOrder = payForOrder(finalOrder, method); if(paidOrder) { setActiveOrder(paidOrder); } setIsPaymentModalOpen(false); } };
-    const handleCompleteOrder = (order: Order) => { updateOrderStatus(order.id, 'completed'); setActiveOrder(null); setCart([]); };
+    const handleNameConfirm = async (name: string) => { 
+        setIsSaving(true);
+        try {
+            let newOrder: Order | null = null; 
+            if (pendingAction === 'save') { 
+                await addOrder(cart, name, discountVal, discountType, orderType); 
+                setActiveOrder(null); 
+                setCart([]); 
+                setDiscountVal(0); 
+                setOrderType('Dine In'); 
+            } else if (pendingAction === 'pay') { 
+                newOrder = await addOrder(cart, name, discountVal, discountType, orderType); 
+                if(newOrder) { 
+                    setActiveOrder(newOrder); 
+                    setIsPaymentModalOpen(true); 
+                } 
+            } 
+            setPendingAction(null); 
+            setNameModalOpen(false); 
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    const handlePayment = async (method: PaymentMethod) => { 
+        if (activeOrder) { 
+            setIsSaving(true);
+            try {
+                const finalOrder = { ...activeOrder, items: cart, total: totals.total, discount: totals.discount, taxAmount: totals.tax, serviceChargeAmount: totals.service }; 
+                const paidOrder = await payForOrder(finalOrder, method); 
+                if(paidOrder) { setActiveOrder(paidOrder); } 
+                setIsPaymentModalOpen(false); 
+            } finally {
+                setIsSaving(false);
+            }
+        } 
+    };
+
+    const handleCompleteOrder = async (order: Order) => { 
+        setIsSaving(true);
+        try {
+            await updateOrderStatus(order.id, 'completed'); 
+            setActiveOrder(null); 
+            setCart([]); 
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
     const handleSelectOrder = (o: Order) => { 
         if(activeOrder?.id === o.id) { setActiveOrder(null); } else { setActiveOrder(o); } 
         if (window.innerWidth < 1024) setIsLeftSidebarOpen(false); 
@@ -347,10 +403,15 @@ const POSView: React.FC = () => {
 
     const handleVoidOrder = () => {
         if (!activeOrder) return;
-        requestPassword("Batalkan Pesanan? Stok akan dikembalikan.", () => {
-            voidOrder(activeOrder);
-            setActiveOrder(null);
-            setCart([]);
+        requestPassword("Batalkan Pesanan? Stok akan dikembalikan.", async () => {
+            setIsSaving(true);
+            try {
+                await voidOrder(activeOrder);
+                setActiveOrder(null);
+                setCart([]);
+            } finally {
+                setIsSaving(false);
+            }
         });
     }
 
@@ -382,21 +443,31 @@ const POSView: React.FC = () => {
         }
     };
 
-    const handleQuickUpdate = (newItems: CartItem[]) => {
+    const handleQuickUpdate = async (newItems: CartItem[]) => {
         if (activeOrder) {
-            updateOrder(activeOrder.id, newItems, activeOrder.discountValue || 0, activeOrder.discountType || 'percent', activeOrder.orderType);
-            setIsQuickUpdateOpen(false);
-            setCart(newItems);
-            alert("Pesanan berhasil diperbarui!");
+            setIsSaving(true);
+            try {
+                await updateOrder(activeOrder.id, newItems, activeOrder.discountValue || 0, activeOrder.discountType || 'percent', activeOrder.orderType);
+                setIsQuickUpdateOpen(false);
+                setCart(newItems);
+                alert("Pesanan berhasil diperbarui!");
+            } finally {
+                setIsSaving(false);
+            }
         }
     };
 
-    const handleQuickPay = (newItems: CartItem[]) => {
+    const handleQuickPay = async (newItems: CartItem[]) => {
         if (activeOrder) {
-            updateOrder(activeOrder.id, newItems, activeOrder.discountValue || 0, activeOrder.discountType || 'percent', activeOrder.orderType);
-            setCart(newItems);
-            setIsQuickUpdateOpen(false);
-            setIsPaymentModalOpen(true);
+            setIsSaving(true);
+            try {
+                await updateOrder(activeOrder.id, newItems, activeOrder.discountValue || 0, activeOrder.discountType || 'percent', activeOrder.orderType);
+                setCart(newItems);
+                setIsQuickUpdateOpen(false);
+                setIsPaymentModalOpen(true);
+            } finally {
+                setIsSaving(false);
+            }
         }
     };
 
@@ -434,6 +505,7 @@ const POSView: React.FC = () => {
 
     return (
         <div className="flex h-full w-full bg-gray-50 relative overflow-hidden">
+            {isSaving && <SavingOverlay />}
             {isNameModalOpen && <CustomerNameModal onConfirm={handleNameConfirm} onCancel={() => setNameModalOpen(false)} theme={theme} requireTable={storeProfile.enableTableInput ?? true} />}
             {isSplitOpen && activeOrder && <SplitBillModal order={activeOrder} onClose={() => setIsSplitOpen(false)} onSplit={(items) => { splitOrder(activeOrder, items); setIsSplitOpen(false); setActiveOrder(null); }} theme={theme} />}
             {isPaymentModalOpen && <PaymentModal total={totals.total} onClose={() => setIsPaymentModalOpen(false)} onPay={handlePayment} theme={theme} />}
@@ -441,7 +513,6 @@ const POSView: React.FC = () => {
             {isQuickUpdateOpen && activeOrder && <QuickOrderUpdateModal order={activeOrder} menu={menu} onClose={() => setIsQuickUpdateOpen(false)} onUpdate={handleQuickUpdate} onPay={handleQuickPay} theme={theme} />}
             {isLeftSidebarOpen && <div className="fixed inset-0 bg-black/50 z-20 lg:hidden" onClick={() => setIsLeftSidebarOpen(false)}></div>}
 
-            {/* SIDEBAR ORDERS */}
             <aside className={`absolute inset-y-0 left-0 z-30 w-72 bg-white border-r flex flex-col shadow-xl transition-transform duration-300 lg:relative lg:translate-x-0 lg:shadow-none lg:z-10 ${isLeftSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
                 <div className="flex p-2 gap-2 bg-gray-50 border-b">
                     <button onClick={() => { setSidebarTab('active'); setActiveOrder(null); }} className={`flex-1 py-2.5 rounded-lg font-bold text-sm transition-all ${sidebarTab === 'active' ? `bg-white shadow text-${theme}-600` : 'text-gray-500 hover:bg-gray-200'}`}>Aktif ({pendingOrders.length})</button>
@@ -508,7 +579,6 @@ const POSView: React.FC = () => {
                 </div>
             </aside>
 
-            {/* PRODUCT GRID */}
             <main className="flex-1 flex flex-col overflow-hidden w-full relative">
                 <div className="bg-white shadow-sm z-20">
                     <div className="p-3 border-b flex items-center gap-3">
@@ -544,7 +614,6 @@ const POSView: React.FC = () => {
                 </div>
             </main>
 
-            {/* CART SIDEBAR */}
             <aside className="w-80 bg-white border-l flex flex-col shadow-2xl z-20 flex-shrink-0 hidden md:flex">
                 <div className="p-4 border-b bg-gray-50 flex justify-between items-center">
                     <h2 className="font-bold text-lg text-gray-800 flex items-center gap-2">
