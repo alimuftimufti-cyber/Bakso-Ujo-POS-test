@@ -38,12 +38,13 @@ const mapOrder = (o: any): Order => {
         taxAmount: parseFloat(o.tax || 0),
         serviceChargeAmount: parseFloat(o.service || 0),
         status: o.status || 'pending',
-        // Mapping: Gunakan payment_status karena is_paid tidak ada di DB
         isPaid: o.payment_status === 'Paid',
         paymentMethod: o.payment_method,
-        orderType: o.type || o.order_type || 'Dine In',
+        orderType: o.type || 'Dine In',
         createdAt: Number(o.created_at),
         paidAt: o.paid_at ? Number(o.paid_at) : undefined,
+        readyAt: o.ready_at ? Number(o.ready_at) : undefined,
+        completedAt: o.completed_at ? Number(o.completed_at) : undefined,
         sequentialId: o.sequential_id,
         discountType: 'fixed',
         discountValue: parseFloat(o.discount || 0),
@@ -77,6 +78,8 @@ export const subscribeToOrders = (branchId: string, onUpdate: (orders: Order[]) 
 export const addOrderToCloud = async (order: Order) => {
     await ensureDefaultBranch();
     
+    // 1. Simpan Header Pesanan (Tabel orders)
+    // PERHATIKAN: Tidak ada kolom 'items' di sini sesuai gambar skema Anda
     const { error: orderError } = await supabase.from('orders').insert({
         id: order.id,
         branch_id: order.branchId || 'pusat',
@@ -91,7 +94,6 @@ export const addOrderToCloud = async (order: Order) => {
         tax: order.taxAmount || 0,
         service: order.serviceChargeAmount || 0,
         total: order.total,
-        items: [], // Kolom ini 'NOT NULL' di schema Anda, kita isi array kosong sebagai formalitas karena data asli ada di order_items
         created_at: order.createdAt,
         order_source: order.orderSource || 'admin'
     });
@@ -101,6 +103,7 @@ export const addOrderToCloud = async (order: Order) => {
         throw orderError; 
     }
 
+    // 2. Simpan Detail Item (Tabel order_items)
     const itemsPayload = order.items.map(item => ({
         order_id: order.id,
         product_id: item.id,
@@ -117,29 +120,35 @@ export const addOrderToCloud = async (order: Order) => {
 export const updateOrderInCloud = async (id: string, updates: any) => {
     const dbPayload: any = {};
     
-    // Pastikan hanya menggunakan kolom yang benar-benar ada di tabel 'orders' Anda
+    // Mapping properti ke nama kolom di database Anda
     if (updates.status) dbPayload.status = updates.status;
     if (updates.orderType) dbPayload.type = updates.orderType;
     if (updates.paymentMethod) dbPayload.payment_method = updates.paymentMethod;
     if (updates.total !== undefined) dbPayload.total = updates.total;
     if (updates.subtotal !== undefined) dbPayload.subtotal = updates.subtotal;
     if (updates.discount !== undefined) dbPayload.discount = updates.discount;
+    if (updates.taxAmount !== undefined) dbPayload.tax = updates.taxAmount;
+    if (updates.serviceChargeAmount !== undefined) dbPayload.service = updates.serviceChargeAmount;
     
-    // FIX: Gunakan payment_status (string), HAPUS is_paid (boolean) karena tidak ada di kolom DB Anda
     if (updates.isPaid !== undefined) {
         dbPayload.payment_status = updates.isPaid ? 'Paid' : 'Unpaid';
         if (updates.isPaid) dbPayload.paid_at = Date.now();
     }
 
-    // 1. Update header order
+    // Handle status dapur khusus
+    if (updates.status === 'serving') dbPayload.ready_at = Date.now();
+    if (updates.status === 'completed') dbPayload.completed_at = Date.now();
+
+    // 1. Update header pesanan
     const { error: orderError } = await supabase.from('orders').update(dbPayload).eq('id', id);
     if (orderError) { 
         handleError(orderError, 'updateOrder:main'); 
         throw orderError; 
     }
 
-    // 2. Update items jika ada perubahan (dari POS)
+    // 2. Update items jika ada (Hanya jika dari menu edit/split di POS)
     if (updates.items) {
+        // Hapus item lama, masukkan yang baru
         await supabase.from('order_items').delete().eq('order_id', id);
         const itemsPayload = updates.items.map((item: any) => ({
             order_id: id,
@@ -270,7 +279,6 @@ export const closeShiftInCloud = async (summary: ShiftSummary) => {
         revenue: summary.revenue,
         cash_revenue: summary.cashRevenue,
         non_cash_revenue: summary.nonCashRevenue,
-        // FIX: Aligned with ShiftSummary type which uses camelCase for properties.
         total_discount: summary.totalDiscount
     }).eq('id', summary.id);
     if (error) handleError(error, 'closeShift');
