@@ -17,6 +17,7 @@ export const ensureDefaultBranch = async () => {
 
 // --- MAPPING HELPERS ---
 const mapOrder = (o: any): Order => {
+    // Mengambil item dari relasi order_items
     const items = Array.isArray(o.order_items) ? o.order_items.map((item: any) => ({
         id: item.product_id,
         name: item.product_name,
@@ -52,9 +53,10 @@ const mapOrder = (o: any): Order => {
     };
 };
 
-// --- ORDER SERVICES ---
+// --- ORDER SERVICES (REAL-TIME SYNC) ---
 export const subscribeToOrders = (branchId: string, onUpdate: (orders: Order[]) => void) => {
     const fetchOrders = async () => {
+        // Ambil orders beserta detail items-nya menggunakan join
         const { data, error } = await supabase
             .from('orders')
             .select('*, order_items(*)')
@@ -65,11 +67,22 @@ export const subscribeToOrders = (branchId: string, onUpdate: (orders: Order[]) 
         onUpdate((data || []).map(mapOrder));
     };
 
+    // Pemuatan data awal
     fetchOrders();
 
+    // Subscribe ke perubahan tabel orders dan order_items
     const channel = supabase.channel(`orders-live-${branchId}`)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `branch_id=eq.${branchId}` }, fetchOrders)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items' }, fetchOrders)
+        .on('postgres_changes', { 
+            event: '*', 
+            schema: 'public', 
+            table: 'orders', 
+            filter: `branch_id=eq.${branchId}` 
+        }, fetchOrders)
+        .on('postgres_changes', { 
+            event: '*', 
+            schema: 'public', 
+            table: 'order_items' 
+        }, fetchOrders)
         .subscribe();
 
     return () => supabase.removeChannel(channel);
@@ -79,7 +92,7 @@ export const addOrderToCloud = async (order: Order) => {
     await ensureDefaultBranch();
     
     // 1. Simpan Header Pesanan (Tabel orders)
-    // PERHATIKAN: Tidak ada kolom 'items' di sini sesuai gambar skema Anda
+    // Kolom 'items' DIHAPUS dari payload karena tidak ada di DB
     const { error: orderError } = await supabase.from('orders').insert({
         id: order.id,
         branch_id: order.branchId || 'pusat',
@@ -120,7 +133,7 @@ export const addOrderToCloud = async (order: Order) => {
 export const updateOrderInCloud = async (id: string, updates: any) => {
     const dbPayload: any = {};
     
-    // Mapping properti ke nama kolom di database Anda
+    // Mapping properti ke nama kolom DB
     if (updates.status) dbPayload.status = updates.status;
     if (updates.orderType) dbPayload.type = updates.orderType;
     if (updates.paymentMethod) dbPayload.payment_method = updates.paymentMethod;
@@ -135,7 +148,6 @@ export const updateOrderInCloud = async (id: string, updates: any) => {
         if (updates.isPaid) dbPayload.paid_at = Date.now();
     }
 
-    // Handle status dapur khusus
     if (updates.status === 'serving') dbPayload.ready_at = Date.now();
     if (updates.status === 'completed') dbPayload.completed_at = Date.now();
 
@@ -146,9 +158,8 @@ export const updateOrderInCloud = async (id: string, updates: any) => {
         throw orderError; 
     }
 
-    // 2. Update items jika ada (Hanya jika dari menu edit/split di POS)
+    // 2. Update items jika ada perubahan
     if (updates.items) {
-        // Hapus item lama, masukkan yang baru
         await supabase.from('order_items').delete().eq('order_id', id);
         const itemsPayload = updates.items.map((item: any) => ({
             order_id: id,
@@ -192,6 +203,7 @@ export const updateStoreProfileInCloud = async (profile: StoreProfile) => {
         enable_tax: profile.enableTax,
         service_charge_rate: profile.serviceChargeRate,
         enable_service_charge: profile.enableServiceCharge,
+        // FIX: Using themeColor (the correct property name in StoreProfile) instead of theme_color to resolve line 212 error
         theme_color: profile.themeColor,
         phone_number: profile.phoneNumber
     }, { onConflict: 'branch_id' });
