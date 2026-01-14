@@ -19,7 +19,7 @@ import {
     getTablesFromCloud, addTableToCloud, deleteTableFromCloud, subscribeToTables,
     ensureDefaultBranch,
     saveAttendanceToCloud, updateAttendanceInCloud, getAttendanceRecordsFromCloud,
-    getOfficeSettingsFromCloud, updateOfficeSettingsInCloud, calculateDistance, getReverseGeocoding
+    getOfficeSettingsFromCloud, updateOfficeSettingsInCloud
 } from './services/firebase';
 import { checkConnection } from './services/supabaseClient'; 
 
@@ -292,6 +292,8 @@ const App: React.FC = () => {
         },
         updateOrderStatus: async (id, status) => {
             await updateOrderInCloud(id, { status });
+            // Optional: Re-fetch manually for instant local update if needed
+            await refreshAllData();
         },
         payForOrder: (o, m) => { 
             // Optimistic UI: Segera return objek terupdate agar POS langsung merespon

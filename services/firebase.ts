@@ -23,7 +23,7 @@ const mapOrder = (o: any): Order => {
         price: parseFloat(item.price),
         quantity: item.quantity,
         note: item.note || '',
-        category: 'Bakso' 
+        category: 'Bakso' // Default category mapping
     })) : [];
 
     return {
@@ -51,7 +51,7 @@ const mapOrder = (o: any): Order => {
     };
 };
 
-// --- ORDER SERVICES ---
+// --- ORDER SERVICES (REALTIME OPTIMIZED) ---
 export const subscribeToOrders = (branchId: string, onUpdate: (orders: Order[]) => void) => {
     const fetchOrders = async () => {
         const { data, error } = await supabase
@@ -64,36 +64,41 @@ export const subscribeToOrders = (branchId: string, onUpdate: (orders: Order[]) 
         onUpdate((data || []).map(mapOrder));
     };
 
-    // Jalankan fetch awal
+    // Initial load
     fetchOrders();
 
-    // Berlangganan perubahan real-time dengan filter spesifik
-    const channel = supabase.channel(`orders-live-${branchId}`)
+    // Listen to ALL changes on orders and order_items
+    const channel = supabase.channel(`realtime-orders-${branchId}`)
         .on('postgres_changes', { 
             event: '*', 
             schema: 'public', 
-            table: 'orders', 
-            filter: `branch_id=eq.${branchId}` 
-        }, () => {
+            table: 'orders',
+            filter: `branch_id=eq.${branchId}`
+        }, (payload) => {
+            console.log('Order change detected:', payload.eventType);
             fetchOrders(); 
         })
         .on('postgres_changes', { 
             event: '*', 
             schema: 'public', 
-            table: 'order_items' 
-        }, () => {
-            // Re-fetch jika ada perubahan di detail item
+            table: 'order_items'
+        }, (payload) => {
+            console.log('Items change detected:', payload.eventType);
             fetchOrders(); 
         })
-        .subscribe();
+        .subscribe((status) => {
+            console.log('Realtime Order Sync Status:', status);
+        });
 
-    return () => supabase.removeChannel(channel);
+    return () => {
+        supabase.removeChannel(channel);
+    };
 };
 
 export const addOrderToCloud = async (order: Order) => {
     await ensureDefaultBranch();
     
-    // 1. Simpan Header Pesanan
+    // 1. Insert Header
     const { error: orderError } = await supabase.from('orders').insert({
         id: order.id,
         branch_id: order.branchId || 'pusat',
@@ -112,12 +117,9 @@ export const addOrderToCloud = async (order: Order) => {
         order_source: order.orderSource || 'admin'
     });
 
-    if (orderError) { 
-        handleError(orderError, 'addOrder:main'); 
-        throw orderError; 
-    }
+    if (orderError) throw orderError;
 
-    // 2. Simpan Detail Item Pesanan
+    // 2. Insert Items
     const itemsPayload = order.items.map(item => ({
         order_id: order.id,
         product_id: item.id,
@@ -128,7 +130,7 @@ export const addOrderToCloud = async (order: Order) => {
     }));
 
     const { error: itemsError } = await supabase.from('order_items').insert(itemsPayload);
-    if (itemsError) handleError(itemsError, 'addOrder:items');
+    if (itemsError) throw itemsError;
 };
 
 export const updateOrderInCloud = async (id: string, updates: any) => {
@@ -140,20 +142,20 @@ export const updateOrderInCloud = async (id: string, updates: any) => {
     if (updates.total !== undefined) dbPayload.total = updates.total;
     if (updates.subtotal !== undefined) dbPayload.subtotal = updates.subtotal;
     if (updates.discount !== undefined) dbPayload.discount = updates.discount;
-    if (updates.taxAmount !== undefined) dbPayload.tax = updates.taxAmount;
-    if (updates.serviceChargeAmount !== undefined) dbPayload.service = updates.serviceChargeAmount;
     
     if (updates.isPaid !== undefined) {
         dbPayload.payment_status = updates.isPaid ? 'Paid' : 'Unpaid';
+        if (updates.isPaid) dbPayload.paid_at = Date.now();
     }
 
-    if (updates.status === 'serving') dbPayload.ready_at = Date.now();
+    if (updates.status === 'serving' || updates.status === 'ready') dbPayload.ready_at = Date.now();
     if (updates.status === 'completed') dbPayload.completed_at = Date.now();
 
     try {
-        const { error: orderError } = await supabase.from('orders').update(dbPayload).eq('id', id);
-        if (orderError) throw orderError;
+        const { error } = await supabase.from('orders').update(dbPayload).eq('id', id);
+        if (error) throw error;
 
+        // If updating items, replace them
         if (updates.items) {
             await supabase.from('order_items').delete().eq('order_id', id);
             const itemsPayload = updates.items.map((item: any) => ({
@@ -164,10 +166,9 @@ export const updateOrderInCloud = async (id: string, updates: any) => {
                 quantity: item.quantity,
                 note: item.note
             }));
-            const { error: itemsError } = await supabase.from('order_items').insert(itemsPayload);
-            if (itemsError) throw itemsError;
+            await supabase.from('order_items').insert(itemsPayload);
         }
-    } catch (err: any) {
+    } catch (err) {
         handleError(err, 'updateOrderInCloud');
         throw err;
     }
@@ -210,7 +211,7 @@ export const updateStoreProfileInCloud = async (profile: StoreProfile) => {
 
 export const getMenuFromCloud = async (branchId: string) => {
     const { data, error } = await supabase.from('products').select('*').eq('branch_id', branchId).order('name', { ascending: true });
-    if (error) { handleError(error, 'getMenu'); return []; }
+    if (error) return [];
     return (data || []).map(i => ({
         id: Number(i.id),
         name: i.name,
@@ -222,7 +223,7 @@ export const getMenuFromCloud = async (branchId: string) => {
 };
 
 export const addProductToCloud = async (item: MenuItem, branchId: string) => {
-    const { error } = await supabase.from('products').upsert({
+    await supabase.from('products').upsert({
         id: item.id,
         branch_id: branchId,
         name: item.name,
@@ -231,33 +232,29 @@ export const addProductToCloud = async (item: MenuItem, branchId: string) => {
         image_url: item.imageUrl,
         stock: item.stock
     });
-    if (error) handleError(error, 'addProduct');
 };
 
 export const deleteProductFromCloud = async (id: number) => {
-    const { error } = await supabase.from('products').delete().eq('id', id);
-    if (error) handleError(error, 'deleteProduct');
+    await supabase.from('products').delete().eq('id', id);
 };
 
 export const getCategoriesFromCloud = async (): Promise<string[]> => {
     const { data, error } = await supabase.from('categories').select('name').order('name', { ascending: true });
-    if (error) { handleError(error, 'getCategories'); return []; }
+    if (error) return [];
     return (data || []).map((c: any) => c.name);
 };
 
 export const addCategoryToCloud = async (name: string) => {
-    const { error } = await supabase.from('categories').insert({ name });
-    if (error) handleError(error, 'addCategory');
+    await supabase.from('categories').insert({ name });
 };
 
 export const deleteCategoryFromCloud = async (name: string) => {
-    const { error } = await supabase.from('categories').delete().eq('name', name);
-    if (error) handleError(error, 'deleteCategory');
+    await supabase.from('categories').delete().eq('name', name);
 };
 
 export const getActiveShiftFromCloud = async (branchId: string) => {
     const { data, error } = await supabase.from('shifts').select('*').eq('branch_id', branchId).is('end_time', null).maybeSingle();
-    if (error) handleError(error, 'getActiveShift');
+    if (error) return null;
     return data ? {
         id: String(data.id),
         start: Number(data.start_time),
@@ -272,18 +269,17 @@ export const getActiveShiftFromCloud = async (branchId: string) => {
 };
 
 export const startShiftInCloud = async (shift: Shift) => {
-    const { error } = await supabase.from('shifts').insert({
+    await supabase.from('shifts').insert({
         id: shift.id,
         branch_id: shift.branchId,
         start_time: shift.start,
         start_cash: shift.start_cash,
         revenue: 0
     });
-    if (error) handleError(error, 'startShift');
 };
 
 export const closeShiftInCloud = async (summary: ShiftSummary) => {
-    const { error } = await supabase.from('shifts').update({
+    await supabase.from('shifts').update({
         end_time: summary.end,
         closing_cash: summary.closingCash,
         revenue: summary.revenue,
@@ -291,12 +287,11 @@ export const closeShiftInCloud = async (summary: ShiftSummary) => {
         non_cash_revenue: summary.nonCashRevenue,
         total_discount: summary.totalDiscount
     }).eq('id', summary.id);
-    if (error) handleError(error, 'closeShift');
 };
 
 export const getUsersFromCloud = async (branchId: string) => {
     const { data, error } = await supabase.from('users').select('*').eq('branch_id', branchId);
-    if (error) handleError(error, 'getUsers');
+    if (error) return [];
     return (data || []).map(u => ({
         id: String(u.id),
         name: u.name,
@@ -309,7 +304,7 @@ export const getUsersFromCloud = async (branchId: string) => {
 };
 
 export const addUserToCloud = async (user: User) => {
-    const { error } = await supabase.from('users').insert({
+    await supabase.from('users').insert({
         id: user.id,
         branch_id: user.branchId || 'pusat',
         name: user.name,
@@ -318,28 +313,25 @@ export const addUserToCloud = async (user: User) => {
         role: user.role,
         department: user.department
     });
-    if (error) handleError(error, 'addUser');
 };
 
 export const updateUserInCloud = async (user: User) => {
-    const { error } = await supabase.from('users').update({
+    await supabase.from('users').update({
         name: user.name,
         pin: user.pin,
         attendance_pin: user.attendancePin,
         role: user.role,
         department: user.department
     }).eq('id', user.id);
-    if (error) handleError(error, 'updateUser');
 };
 
 export const deleteUserFromCloud = async (id: string) => {
-    const { error } = await supabase.from('users').delete().eq('id', id);
-    if (error) handleError(error, 'deleteUser');
+    await supabase.from('users').delete().eq('id', id);
 };
 
 export const getAttendanceRecordsFromCloud = async (branchId: string, date: string) => {
     const { data, error } = await supabase.from('attendance').select('*').eq('branch_id', branchId).eq('date', date);
-    if (error) handleError(error, 'getAttendance');
+    if (error) return [];
     return (data || []).map(r => ({
         id: String(r.id),
         userId: r.user_id,
@@ -355,7 +347,7 @@ export const getAttendanceRecordsFromCloud = async (branchId: string, date: stri
 };
 
 export const saveAttendanceToCloud = async (record: AttendanceRecord) => {
-    const { error } = await supabase.from('attendance').insert({
+    await supabase.from('attendance').insert({
         id: record.id,
         user_id: record.userId,
         user_name: record.userName,
@@ -366,14 +358,12 @@ export const saveAttendanceToCloud = async (record: AttendanceRecord) => {
         status: record.status,
         photo_url: record.photoUrl
     });
-    if (error) handleError(error, 'saveAttendance');
 };
 
 export const updateAttendanceInCloud = async (id: string, updates: any) => {
-    const { error } = await supabase.from('attendance').update({
+    await supabase.from('attendance').update({
         clock_out: updates.clockOutTime
     }).eq('id', id);
-    if (error) handleError(error, 'updateAttendance');
 };
 
 export const subscribeToAttendance = (branchId: string, date: string, callback: (records: AttendanceRecord[]) => void) => {
@@ -390,7 +380,7 @@ export const subscribeToAttendance = (branchId: string, date: string, callback: 
 
 export const getOfficeSettingsFromCloud = async (branchId: string) => {
     const { data, error } = await supabase.from('office_settings').select('*').eq('branch_id', branchId).maybeSingle();
-    if (error) handleError(error, 'getOfficeSettings');
+    if (error) return null;
     return data ? {
         branchId: data.branch_id,
         officeName: data.office_name,
@@ -403,7 +393,7 @@ export const getOfficeSettingsFromCloud = async (branchId: string) => {
 };
 
 export const updateOfficeSettingsInCloud = async (settings: OfficeSettings) => {
-    const { error } = await supabase.from('office_settings').upsert({
+    await supabase.from('office_settings').upsert({
         branch_id: settings.branchId,
         office_name: settings.officeName,
         latitude: settings.latitude,
@@ -412,12 +402,11 @@ export const updateOfficeSettingsInCloud = async (settings: OfficeSettings) => {
         start_time: settings.startTime,
         end_time: settings.endTime
     });
-    if (error) handleError(error, 'updateOfficeSettings');
 };
 
 export const getTablesFromCloud = async (branchId: string) => {
     const { data, error } = await supabase.from('tables').select('*').eq('branch_id', branchId);
-    if (error) handleError(error, 'getTables');
+    if (error) return [];
     return (data || []).map(t => ({ id: String(t.id), number: t.table_number, qrCodeData: t.qr_payload }));
 };
 
@@ -442,7 +431,7 @@ export const getCompletedShiftsFromCloud = async (branchId: string) => {
         nonCashRevenue: parseFloat(s.non_cash_revenue || 0),
         start_cash: parseFloat(s.start_cash || 0),
         closingCash: parseFloat(s.closing_cash || 0),
-        cashDifference: parseFloat(s.closing_cash || 0) - (parseFloat(s.start_cash || 0) + parseFloat(s.cash_revenue || 0)),
+        cashDifference: (parseFloat(s.closing_cash || 0)) - (parseFloat(s.start_cash || 0) + parseFloat(s.cash_revenue || 0)),
         transactions: 0
     }));
 };
@@ -512,27 +501,8 @@ export const subscribeToInventory = (branchId: string, callback: () => void) => 
 };
 
 export const uploadSelfieToCloud = async (file: Blob, fileName: string) => {
-    const { data, error } = await supabase.storage.from('BAKSOUJOPOS').upload(`attendance/${fileName}`, file);
+    const { error } = await supabase.storage.from('BAKSOUJOPOS').upload(`attendance/${fileName}`, file);
     if (error) return null;
     const { data: { publicUrl } } = supabase.storage.from('BAKSOUJOPOS').getPublicUrl(`attendance/${fileName}`);
     return publicUrl;
-};
-
-export const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
-    const R = 6371; // km
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLon = (lon2 - lon1) * Math.PI / 180;
-    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return R * c * 1000; // meters
-};
-
-export const getReverseGeocoding = async (lat: number, lng: number) => {
-    try {
-        const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`);
-        const data = await res.json();
-        return data.display_name || "Lokasi Tidak Dikenal";
-    } catch (e) {
-        return "Gagal melacak alamat";
-    }
 };
